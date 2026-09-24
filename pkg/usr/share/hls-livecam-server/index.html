@@ -309,6 +309,17 @@
     display: flex; flex-direction: column;
     gap: var(--linespace-padding-unit);
   }
+  /* cambrian-perception's own live snapshot -- a separate experiment, not
+     gated to feedMode==='cv' the way hudCvBlock is, so it gets the
+     mirrored corner (bottom-right) rather than sharing hudCvBlock's:
+     the two are independent instruments and shouldn't visually merge
+     into one just because they're both CV-adjacent. */
+  #hudCambrianBlock {
+    position: absolute; right: 0; bottom: 0;
+    display: flex; flex-direction: column;
+    align-items: flex-end;
+    gap: var(--linespace-padding-unit);
+  }
   /* Warnings/errors get the viewer's eye, not a corner (dev: "centered
      horizontally too, not just vertically"): breaks #hudError out of the
      grid's row-2 slot (absolute + inset:0 removes it from grid flow
@@ -1613,6 +1624,15 @@
         <div class="hud-line" id="hudCv"></div>
         <div class="hud-line" id="hudCvCap"></div>
       </div>
+      <!-- cambrian-perception's live snapshot (see /api/cambrian-state,
+           broadcast-api's sibling to /api/cv-state) -- a separate
+           evolutionary-perception experiment reading its own state file,
+           not gated to feedMode; empty/hidden whenever it hasn't produced
+           a generation yet (organism not running is the common case). -->
+      <div id="hudCambrianBlock">
+        <div class="hud-line" id="hudCambrian"></div>
+        <div class="hud-line" id="hudCambrianFovea"></div>
+      </div>
     </div>
     <!-- Room audio rides its own element on the audio-only rendition, the
          way ariana does it. The <video> above stays muted permanently: it
@@ -2760,6 +2780,29 @@
   }
   setInterval(function () { if (!document.hidden) pollCvState(); }, 2000);
   pollCvState();
+
+  // ── CAMBRIAN — cambrian-perception's evolutionary organism, a separate
+  // project polled the same way CV state is (see /api/cambrian-state on
+  // broadcast-api). generation===0 means "no organism running / hasn't
+  // finished a generation yet" -- the common case -- and hides the block
+  // entirely rather than showing stale zeros as if they were real.
+  function pollCambrianState() {
+    fetch('/api/cambrian-state', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (j) { if (j) paintCambrian(j); })
+      .catch(function () {});
+  }
+  function paintCambrian(j) {
+    var a = document.getElementById('hudCambrian'), b = document.getElementById('hudCambrianFovea');
+    if (!a || !b) return;
+    if (!j.generation) { a.textContent = ''; b.textContent = ''; _hudShow(); return; }
+    a.textContent = 'CAMBRIAN gen ' + j.generation + ' fit ' + j.best_fitness.toFixed(3);
+    b.textContent = 'fovea (' + j.fovea_cx.toFixed(2) + ',' + j.fovea_cy.toFixed(2) + ') '
+      + 'r=' + j.fovea_fraction.toFixed(2) + ' resp ' + j.response.toFixed(3);
+    _hudShow();
+  }
+  setInterval(function () { if (!document.hidden) pollCambrianState(); }, 2000);
+  pollCambrianState();
   function applySceneState(state) {
     sceneState = state;
     paintAnalysis();
@@ -3878,7 +3921,7 @@
   // overlay (#hudError). The whole HUD shows while ANY row has text.
   function _hudShow() {
     var hud = document.getElementById('videoHud');
-    var ids = ['hudStatus', 'hudCv', 'hudCvCap', 'hudError'];
+    var ids = ['hudStatus', 'hudCv', 'hudCvCap', 'hudCambrian', 'hudCambrianFovea', 'hudError'];
     var on = ids.some(function (id) {
       var el = document.getElementById(id);
       return !!(el && el.textContent.trim());

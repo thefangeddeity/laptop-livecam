@@ -1456,6 +1456,33 @@ def cv_state_get():
         print(f'broadcast-api: cv-state failed: {e}', flush=True)
         abort(503)
 
+# cambrian-perception's live snapshot -- a sibling to /api/cv-state, same
+# "measured, never unknown-but-probably-fine" rule. That project is a
+# separate process (its own evolutionary loop, own sandboxed filesystem
+# access under its own state/ dir) with no network access of its own by
+# design -- see its fishbowl boundary -- so this is a one-way read of the
+# small JSON file it atomically writes once per generation, never a push
+# endpoint. Absent file (organism not running, or hasn't reached its
+# first generation yet) reports every field at its natural zero, same
+# empty-but-typed shape cv-state uses, so the viewer's poller never has
+# to special-case "not started" differently from "no organism at all".
+_CAMBRIAN_STATE_PATH = os.path.expanduser('~/cambrian-perception/state/live_status.json')
+
+@app.route('/api/cambrian-state', methods=['GET'])
+def cambrian_state_get():
+    empty = {'generation': 0, 'best_fitness': 0.0, 'fovea_cx': 0.0,
+              'fovea_cy': 0.0, 'fovea_fraction': 0.0, 'response': 0.0,
+              'habituation_exposure': 0.0, 'clip': ''}
+    try:
+        with open(_CAMBRIAN_STATE_PATH) as f:
+            data = _json.load(f)
+    except FileNotFoundError:
+        return _json.dumps(empty), 200, {'Content-Type': 'application/json'}
+    except Exception as e:
+        print(f'broadcast-api: cambrian-state failed: {e}', flush=True)
+        abort(503)
+    return _json.dumps({**empty, **data}), 200, {'Content-Type': 'application/json'}
+
 @app.route('/api/talk', methods=['GET'])
 def talk_get():
     global _talk_last_seen
