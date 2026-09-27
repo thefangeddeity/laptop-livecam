@@ -208,6 +208,9 @@ systemctl enable --now ffmpeg-cam
 sed -i "s/User=www-data/User=http/" /usr/lib/systemd/system/broadcast-api.service
 systemctl daemon-reload
 systemctl enable --now broadcast-api
+# The camera suite: one switch for the livecam (hls-livecam.target), never
+# running together with cambrian-perception.
+sh /usr/share/hls-livecam-server/hls-livecam-suite
 echo -e "  ${GREEN}Services installed and started.${NC}"
 
 # ── nginx — Arch uses conf.d ──────────────────────────────────

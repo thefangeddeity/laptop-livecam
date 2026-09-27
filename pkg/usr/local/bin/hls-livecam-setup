@@ -428,6 +428,9 @@ systemctl restart mediamtx
 sleep 2
 systemctl restart broadcast-api
 echo -e "  ${GREEN}mediamtx + broadcast-api started. ffmpeg-cam masked (owned by broadcast-api).${NC}"
+# The camera suite: one switch for the livecam (hls-livecam.target), never
+# running together with cambrian-perception.
+sh /usr/share/hls-livecam-server/hls-livecam-suite
 
 # ── nginx ─────────────────────────────────────────────────────
 # Use enable --now to ensure nginx is running before we try to reload it.
