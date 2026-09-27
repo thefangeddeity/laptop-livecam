@@ -1983,10 +1983,11 @@ def suite_cli(verb):
         print("livecam       off -- the organism has the camera; `camdash --start` takes it back")
     else:
         print("livecam       off -- `camdash --start` starts it")
-    for unit in ("mediamtx", "ffmpeg-cam", "broadcast-api"):
-        if _unit_exists(unit + ".service"):
-            state = subprocess.run(["systemctl", "is-active", unit + ".service"], capture_output=True, text=True).stdout.strip()
-            print(f"  {unit:<12}{state}")
+    members = subprocess.run(["systemctl", "show", "-p", "Wants", "--value", SUITE_TARGET],
+                             capture_output=True, text=True).stdout.split()
+    for unit in sorted(members):
+        state = subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True).stdout.strip()
+        print(f"  {unit.removesuffix('.service'):<14}{state}")
     if on and organism:
         print("organism      off while the livecam runs (starting the organism stops the livecam)")
     return 0
