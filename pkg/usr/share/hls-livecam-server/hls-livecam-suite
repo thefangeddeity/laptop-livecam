@@ -19,9 +19,16 @@ for u in $UNITS; do
     printf '[Unit]\nPartOf=hls-livecam.target\n' > "/etc/systemd/system/$u.service.d/50-hls-livecam-target.conf"
 done
 systemctl daemon-reload
-# Enabled through the target from now on, not one by one (a masked unit, like
-# ffmpeg-cam on Arch, just stays masked).
-for u in $UNITS; do systemctl disable -q "$u.service" 2>/dev/null || true; done
+# Enabled through the target from now on, not one by one: each unit this host
+# enabled at boot moves under the target. One it doesn't use stays as it was
+# (ffmpeg-cam where broadcast-api does the capture, masked or merely
+# disabled; ffmpeg-cam-dark, which broadcast-api starts on demand).
+for u in $UNITS; do
+    if [ "$(systemctl is-enabled "$u.service" 2>/dev/null)" = enabled ]; then
+        systemctl disable -q "$u.service"   # first: disable removes every link to it
+        systemctl add-wants hls-livecam.target "$u.service"
+    fi
+done
 # Setup is starting: the livecam takes the camera.
 if systemctl cat cambrian.target >/dev/null 2>&1; then systemctl disable -q cambrian.target; fi
 systemctl enable -q hls-livecam.target
