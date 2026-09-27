@@ -1466,7 +1466,14 @@ def cv_state_get():
 # first generation yet) reports every field at its natural zero, same
 # empty-but-typed shape cv-state uses, so the viewer's poller never has
 # to special-case "not started" differently from "no organism at all".
-_CAMBRIAN_STATE_PATH = os.path.expanduser('~/cambrian-perception/state/live_status.json')
+# Its runtime dir (RAM, world-readable): the old ~/cambrian-perception/state
+# path resolved against this service's own user and was never found.
+_CAMBRIAN_STATE_PATH = os.path.join(os.environ.get('CAMBRIAN_RUNTIME_DIR', '/dev/shm/cambrian-perception'),
+                                    'live_status.json')
+# The live status is large (whole-run traces for its own viewer); this
+# serves the few fields a livecam HUD shows.
+_CAMBRIAN_STATE_KEYS = ('generation', 'best_fitness', 'fovea_cx', 'fovea_cy', 'fovea_fraction',
+                        'receptors', 'cones', 'clip_name', 'is_live', 'mean_prey', 'mean_food')
 
 @app.route('/api/cambrian-state', methods=['GET'])
 def cambrian_state_get():
@@ -1481,6 +1488,9 @@ def cambrian_state_get():
     except Exception as e:
         print(f'broadcast-api: cambrian-state failed: {e}', flush=True)
         abort(503)
+    data = {k: data[k] for k in _CAMBRIAN_STATE_KEYS if k in data}
+    if 'clip_name' in data:
+        data.setdefault('clip', data['clip_name'])
     return _json.dumps({**empty, **data}), 200, {'Content-Type': 'application/json'}
 
 @app.route('/api/talk', methods=['GET'])
