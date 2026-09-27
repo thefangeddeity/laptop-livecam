@@ -14,6 +14,8 @@
 #   dark             toggle the dark-mode cloak
 #   monitor          launch the camdash TUI
 #   logs [svc]       tail service logs
+#   yield [by]       stop and stay off (at login too) until the next start:
+#                    cambrian-perception has the camera (the camera suite)
 #   enable | disable install / remove the login LaunchAgent
 #   enabled          print "enabled" or "disabled" (for camdash)
 #   urls             print viewer / stream URLs
@@ -50,6 +52,13 @@ MEDIAMTX_BIN="$VENDOR/mediamtx"
 MEDIAMTX_YML="$STATE_DIR/mediamtx.yml"
 AGENT_LABEL="com.livecam.autostart"
 AGENT_PLIST="$HOME/Library/LaunchAgents/${AGENT_LABEL}.plist"
+# The camera suite: this livecam and cambrian-perception (the organism) share
+# the camera and never run together. Starting either stops the other, and the
+# stopped one stays off -- at login too -- until it is started again. Each side
+# calls only the other's public command: here `cambrian --yield livecam`; the
+# organism calls `livecam yield organism`, which leaves this note.
+YIELDED="$STATE_DIR/yielded.json"
+ORGANISM_CLI=/usr/local/bin/cambrian
 
 MMTX_PID="$STATE_DIR/mediamtx.pid"
 API_PID="$STATE_DIR/broadcast-api.pid"
@@ -320,8 +329,48 @@ start_supervisor() {
 # match it within a poll interval. Going through the flag rather than spawning
 # the components directly is what makes on/off survive a reboot -- and it keeps
 # the supervisor from immediately undoing a manual stop.
+# Why the livecam is off, from the note its yield left.
+yielded_line() {
+  "$VENV_PY" - "$YIELDED" <<'PY' 2>/dev/null || echo "off -- the organism has the camera; \`livecam start\` takes it back"
+import json, sys, time
+d = json.load(open(sys.argv[1]))
+when = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(d.get("at", 0))))
+print(f"off -- the {d.get('to', 'organism')} took the camera at {when}; `livecam start` takes it back")
+PY
+}
+
+# Starting is taking the camera: forget an earlier yield, and have the organism
+# yield -- running or not, so it also stays off at boot. A running one
+# finishes its generation and saves first, so this can take a minute.
+take_camera() {
+  rm -f "$YIELDED"
+  if [ -x "$ORGANISM_CLI" ]; then
+    if pgrep -f "[c]ambrian_service.py" >/dev/null 2>&1; then
+      echo -e "${B}The organism is yielding the camera to the livecam (it saves first)...${N}"
+    fi
+    "$ORGANISM_CLI" --yield livecam >/dev/null 2>&1 || true
+  fi
+}
+
+cmd_yield() {
+  printf '{"to": "%s", "at": %s}
+' "${1:-organism}" "$(date +%s)" > "$YIELDED"
+  cmd_stop
+  echo -e "  ${Y}livecam off until \`livecam start\`${N} (the ${1:-organism} has the camera)"
+}
+
 cmd_start() {
   load_ports
+  # At login (the LaunchAgent): stay off while the organism has the camera.
+  # Any other start takes the camera.
+  if [ "${1:-}" = "--at-login" ]; then
+    if [ -f "$YIELDED" ]; then
+      echo "$(date '+%Y-%m-%d %H:%M:%S') not starting at login, $(yielded_line)"
+      return 0
+    fi
+  else
+    take_camera
+  fi
   # macOS grants the camera per *session*, not per user. A process in the
   # Background session -- ssh, cron, a plain LaunchDaemon -- is refused, and
   # avfoundation answers that refusal by hanging on the open forever instead
@@ -418,6 +467,11 @@ cmd_status() {
   pid_alive "$CAFFEINATE_PID" && echo -e "  sleep-block   ${G}active${N} (caffeinate pid $(cat "$CAFFEINATE_PID"))" || echo -e "  sleep-block   ${Y}inactive${N}"
   supervisor_running && echo -e "  supervisor    ${G}running${N} (pid $(cat "$SUPERVISOR_LOCK_PID"))" || echo -e "  supervisor    ${R}stopped${N}"
   echo    "  enabled flag  $(flag_state)   (persists across reboot)"
+  if [ -f "$YIELDED" ]; then
+    echo -e "  camera        ${Y}$(yielded_line)${N}"
+  elif [ -x "$ORGANISM_CLI" ] && pid_alive "$API_PID"; then
+    echo    "  organism      off while the livecam runs (starting the organism stops the livecam)"
+  fi
   login_item_registered && echo -e "  login item    ${G}registered${N}" || echo -e "  login item    ${Y}not registered${N}"
 }
 
@@ -475,6 +529,7 @@ write_agent_plist() {
     <array>
         <string>${BIN_DIR}/livecam</string>
         <string>start</string>
+        <string>--at-login</string>
     </array>
     <key>RunAtLoad</key><true/>
     <key>AbandonProcessGroup</key><true/>
@@ -642,6 +697,8 @@ livecam — hls-livecam-server (macOS)
 
   livecam setup                 detect camera, write config, enable, start
   livecam start | stop | restart
+  livecam yield [by]            stop and stay off until the next start
+                                (cambrian-perception has the camera)
   livecam status
   livecam repair                kill stray ffmpeg + restart pipeline
   livecam dark                  toggle dark-mode cloak
@@ -655,7 +712,8 @@ EOF
 
 case "${1:-}" in
   setup)   shift; exec "$BIN_DIR/livecam-setup" "$@" ;;
-  start)   cmd_start ;;
+  start)   shift; cmd_start "$@" ;;
+  yield)   shift; cmd_yield "${1:-organism}" ;;
   stop)    cmd_stop ;;
   restart) cmd_restart ;;
   status)  cmd_status ;;
