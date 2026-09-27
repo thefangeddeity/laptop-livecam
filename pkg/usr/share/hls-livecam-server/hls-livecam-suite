@@ -1,0 +1,29 @@
+#!/bin/sh
+# hls-livecam-suite -- puts the livecam's services under one switch,
+# hls-livecam.target, and makes the livecam take the camera. Run as root, by
+# hls-livecam-setup (Debian and Arch) at the end of setup; safe to run again.
+#
+# The camera suite: the livecam and cambrian-perception share the camera and
+# never run together. Starting either stops the other, and the stopped one
+# stays off -- across reboots -- until it is started again:
+#   camdash --start    the livecam takes the camera (the organism stops)
+#   camdash --yield    the livecam stops and stays off at boot
+#   cambrian --start   the same, from the organism's side
+set -eu
+SHARE=/usr/share/hls-livecam-server
+UNITS="mediamtx ffmpeg-cam ffmpeg-cam-dark broadcast-api"
+
+install -m 644 "$SHARE/hls-livecam.target" /etc/systemd/system/hls-livecam.target
+for u in $UNITS; do
+    mkdir -p "/etc/systemd/system/$u.service.d"
+    printf '[Unit]\nPartOf=hls-livecam.target\n' > "/etc/systemd/system/$u.service.d/50-hls-livecam-target.conf"
+done
+systemctl daemon-reload
+# Enabled through the target from now on, not one by one (a masked unit, like
+# ffmpeg-cam on Arch, just stays masked).
+for u in $UNITS; do systemctl disable -q "$u.service" 2>/dev/null || true; done
+# Setup is starting: the livecam takes the camera.
+if systemctl cat cambrian.target >/dev/null 2>&1; then systemctl disable -q cambrian.target; fi
+systemctl enable -q hls-livecam.target
+systemctl start hls-livecam.target
+echo "  hls-livecam.target: one switch for the livecam (camdash --start | --yield | --status)"

@@ -1934,5 +1934,65 @@ def main(scr):
         scr.refresh()
 
 
+# ---------- The camera suite ----------
+# The livecam and cambrian-perception share the camera and never run together
+# (hls-livecam.target and cambrian.target conflict): starting either stops the
+# other, and the stopped one stays off -- across reboots -- until it is started
+# again. Which target is enabled is which one comes back at boot. Plain text,
+# for SSH and scripts:
+#   camdash --start    the livecam takes the camera (the organism stops)
+#   camdash --yield    the livecam stops and stays off at boot
+#   camdash --status   which one has the camera
+SUITE_TARGET = "hls-livecam.target"
+ORGANISM_TARGET = "cambrian.target"
+
+
+def _unit_exists(unit):
+    return subprocess.run(["systemctl", "cat", unit], capture_output=True).returncode == 0
+
+
+def _unit_active(unit):
+    return subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
+
+
+def _as_root(args):
+    return subprocess.run(args if os.geteuid() == 0 else ["sudo"] + args).returncode
+
+
+def suite_cli(verb):
+    if not _unit_exists(SUITE_TARGET):
+        print("hls-livecam.target isn't installed -- run: sudo hls-livecam-setup")
+        return 1
+    organism = _unit_exists(ORGANISM_TARGET)
+    if verb == "--start":
+        if organism:
+            if _unit_active(ORGANISM_TARGET):
+                print("the organism is yielding the camera to the livecam (it saves first) ...")
+            _as_root(["systemctl", "disable", "--quiet", ORGANISM_TARGET])
+        rc = _as_root(["systemctl", "enable", "--quiet", SUITE_TARGET]) or _as_root(["systemctl", "start", SUITE_TARGET])
+        if rc:
+            return rc
+    elif verb == "--yield":
+        rc = _as_root(["systemctl", "disable", "--quiet", "--now", SUITE_TARGET])
+        if rc:
+            return rc
+    on = _unit_active(SUITE_TARGET)
+    if on:
+        print("livecam       running")
+    elif organism and _unit_active(ORGANISM_TARGET):
+        print("livecam       off -- the organism has the camera; `camdash --start` takes it back")
+    else:
+        print("livecam       off -- `camdash --start` starts it")
+    for unit in ("mediamtx", "ffmpeg-cam", "broadcast-api"):
+        if _unit_exists(unit + ".service"):
+            state = subprocess.run(["systemctl", "is-active", unit + ".service"], capture_output=True, text=True).stdout.strip()
+            print(f"  {unit:<12}{state}")
+    if on and organism:
+        print("organism      off while the livecam runs (starting the organism stops the livecam)")
+    return 0
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] in ("--start", "--yield", "--status"):
+        sys.exit(suite_cli(sys.argv[1]))
     curses.wrapper(main)

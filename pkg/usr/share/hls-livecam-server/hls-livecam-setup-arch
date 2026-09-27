@@ -384,6 +384,9 @@ systemctl mask ffmpeg-cam
 chage -E -1 http
 systemctl daemon-reload
 systemctl enable --now broadcast-api
+# The camera suite: one switch for the livecam (hls-livecam.target), never
+# running together with cambrian-perception.
+sh /usr/share/hls-livecam-server/hls-livecam-suite
 echo -e "  ${GREEN}Services installed and started.${NC}"
 
 # ── nginx — Arch uses conf.d ──────────────────────────────────
