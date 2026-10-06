@@ -1,0 +1,340 @@
+{
+ "_comment": [
+  "A comb of bandreject notches applied to the /cam publisher's audio in",
+  "ffmpeg (see broadcast-api _notch_filters), before any encoder or the",
+  "make-up gain. Cleans everything downstream in one place: the HLS Monitor",
+  "and the roomaudio WebRTC leg both derive from /cam.",
+  "",
+  "This is a CURATED DATABASE of troublesome signals, built by ear, not",
+  "auto-generated. Each entry is one narrowband tone a human identified as a",
+  "feedback resonance or whine that is NOT in the room -- it appears only",
+  "while the speaker is driven (speaker -> own mic, set ringing by broadband",
+  "noise). Every notch is a hole carved in the room's own sound, and a room",
+  "monitor exists to hear things, so each records WHY and WHEN.",
+  "",
+  "SEEDED FROM ARIANA (mac-hls-livecam state/notches.json). Ariana's users",
+  "found these by ear; dev has heard similar noise on this Linux box and",
+  "expects the same feedback loops, so they are carried over as a sane start.",
+  "Provisional -- fine-tune later, or from a tuning module. The real fix is",
+  "echo cancellation (PipeWire module-echo-cancel on Linux); when that lands,",
+  "delete the notches rather than keeping them as insurance.",
+  "",
+  "range brackets are the +/-10 Hz the tone was heard to roam. Ordered by",
+  "frequency. Harmonics can be added the same way if they surface -- one",
+  "line each, with their own reason.",
+  "",
+  "SoX vs ffmpeg: Ariana runs SoX (bandreject FREQ WIDTHh); Tanzania runs",
+  "ffmpeg (bandreject=f=CENTRE:t=h:w=WIDTH). Same numbers, different tool."
+ ],
+ "notches": [
+  {
+   "note": "Dehumidifier",
+   "added": "2026-09-09",
+   "range": [
+    100.0,
+    140.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Background",
+   "range": [
+    200.9,
+    220.9
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Dehumidifier",
+   "added": "2026-09-09",
+   "range": [
+    220.0,
+    300.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Dehumidifier",
+   "added": "2026-09-09",
+   "range": [
+    220.0,
+    580.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    230.0,
+    250.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    260.0,
+    280.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Fan",
+   "added": "2026-09-09",
+   "range": [
+    305.0,
+    355.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    341.0,
+    361.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    365.0,
+    385.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Dehumidifier",
+   "added": "2026-09-09",
+   "range": [
+    440.0,
+    580.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    488.0,
+    508.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Background",
+   "range": [
+    570.1,
+    590.1
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Background",
+   "range": [
+    606,
+    666
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Background",
+   "range": [
+    681.4,
+    701.4
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    699.0,
+    719.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    752.0,
+    772.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    921.0,
+    941.0
+   ],
+   "enabled": false
+  },
+  {
+   "range": [
+    990,
+    1030
+   ],
+   "note": "from Ariana: own chassis fan whine, ~1010Hz blade-pass est. (13in MacBook Pro blower, ~11 blades at ~5500rpm under load) -- DIFFERENT category from the rest of this file: constant chassis noise, not speaker-driven feedback. ESTIMATED, no measured sighting yet -- tune by ear",
+   "added": "2026-09-09",
+   "enabled": true
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    1168.0,
+    1188.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    1215.0,
+    1235.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    1678.0,
+    1698.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    1888.0,
+    1908.0
+   ],
+   "enabled": false
+  },
+  {
+   "range": [
+    2181,
+    2201
+   ],
+   "note": "from Ariana: feedback resonance, 2191 Hz",
+   "added": "2026-09-04",
+   "enabled": true
+  },
+  {
+   "range": [
+    2667,
+    2687
+   ],
+   "note": "from Ariana: feedback resonance, 2677 Hz",
+   "added": "2026-09-04",
+   "enabled": true
+  },
+  {
+   "note": "Background",
+   "added": "2026-09-09",
+   "center": 2736.3,
+   "width": 10.0,
+   "enabled": false
+  },
+  {
+   "range": [
+    3025,
+    3045
+   ],
+   "note": "from Ariana: feedback resonance, 3035 Hz",
+   "added": "2026-09-04",
+   "enabled": true
+  },
+  {
+   "range": [
+    3050.0,
+    3100.0
+   ],
+   "note": "from Ariana config.env AUDIO_NOTCH_HZ",
+   "enabled": true
+  },
+  {
+   "range": [
+    3066,
+    3086
+   ],
+   "note": "from Ariana: feedback resonance, 3076 Hz",
+   "added": "2026-09-04",
+   "enabled": true
+  },
+  {
+   "range": [
+    3072,
+    3092
+   ],
+   "note": "from Ariana: feedback resonance, 3082 Hz -- strongest sighting, 39.6 dB above the local spectrum",
+   "added": "2026-09-04",
+   "enabled": true
+  },
+  {
+   "range": [
+    3359,
+    3379
+   ],
+   "note": "from Ariana: feedback resonance, 3369 Hz",
+   "added": "2026-09-04",
+   "enabled": true
+  },
+  {
+   "range": [
+    3452,
+    3472
+   ],
+   "note": "from Ariana: feedback resonance, 3462 Hz",
+   "added": "2026-09-04",
+   "enabled": true
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    4285.0,
+    4305.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    7232.0,
+    7252.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "Evening",
+   "added": "2026-09-11",
+   "range": [
+    7256.0,
+    7276.0
+   ],
+   "enabled": false
+  },
+  {
+   "note": "High-pitch feedback test",
+   "added": "2026-09-11",
+   "range": [
+    7396.0,
+    7416.0
+   ],
+   "enabled": false
+  }
+ ],
+ "enabled": true
+}
