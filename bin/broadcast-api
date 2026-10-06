@@ -2007,6 +2007,47 @@ def dark_post():
         abort(500)
 
 
+def _own_addresses():
+    """Every address this machine answers on: loopback, LAN, tailnet."""
+    own = set()
+    try:
+        import psutil
+        for addrs in psutil.net_if_addrs().values():
+            for a in addrs:
+                if a.family in (socket.AF_INET, socket.AF_INET6):
+                    own.add(a.address.split('%')[0])
+    except Exception:
+        for cmd in (['ip', '-o', 'addr', 'show'], ['ifconfig']):
+            try:
+                out = subprocess.run(cmd, capture_output=True, text=True, timeout=3).stdout
+            except Exception:
+                continue
+            for word_i, word in enumerate(out.split()):
+                if word in ('inet', 'inet6'):
+                    rest = out.split()[word_i + 1:word_i + 2]
+                    if rest:
+                        own.add(rest[0].split('/')[0].split('%')[0])
+    return own
+
+
+@app.route('/api/is-host', methods=['GET'])
+def is_host_get():
+    """Is this viewer the livecam machine itself? Then index.html sends it to
+    host.html, picture only: this machine's one sound card holds the room mic
+    and the call speaker, so playing the room here feeds the speaker back into
+    the mic, and a call from here would fight the livecam for both. The real
+    client is the first X-Forwarded-For hop -- tailscale serve (and nginx, on
+    Linux) proxy, so the socket peer is always loopback."""
+    fwd = request.headers.get('X-Forwarded-For', '')
+    ip = (fwd.split(',')[0].strip() if fwd else '') \
+        or request.headers.get('X-Real-IP', '') or request.remote_addr or ''
+    ip = ip.split('%')[0]
+    if ip.startswith('::ffff:'):
+        ip = ip[7:]
+    local = ip.startswith('127.') or ip == '::1' or ip in _own_addresses()
+    return ('true' if local else 'false'), 200
+
+
 @app.route('/api/buzz', methods=['POST'])
 def buzz_post():
     try:

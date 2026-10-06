@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Livecam (video only)</title>
+<!-- The viewer as seen ON the livecam itself (index.html sends a viewer here
+     when /api/is-host says so). Picture only: this machine's one sound card
+     already holds the room mic and the call speaker, so playing the room here
+     would feed its own speaker back into its mic, and a call from here would
+     fight the livecam for both. Muted, no audio panel, no call controls. -->
+<style>
+  :root { --bg: #0a0e14; --ink: #c8d0d8; --dim: #6b7682; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+               font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  video { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .bar { position: fixed; left: 12px; bottom: 10px; display: flex; gap: 12px; align-items: baseline;
+         padding: 4px 10px; border-radius: 6px; background: rgba(10, 14, 20, 0.72); }
+  .bar b { font-weight: 600; }
+  .bar span { color: var(--dim); }
+  .bar a { color: var(--ink); }
+  #status { position: fixed; inset: 0; display: grid; place-items: center; color: var(--dim);
+            pointer-events: none; }
+</style>
+</head>
+<body>
+<video id="v" muted autoplay playsinline></video>
+<div id="status">connecting&hellip;</div>
+<div class="bar"><b id="name">Livecam</b><span>video only on this machine</span><a href="/?full">full viewer</a></div>
+<script src="/vendor/hls.min.js"></script>
+<script>
+  (function () {
+    var v = document.getElementById('v'), st = document.getElementById('status');
+    var HLS_URL = window.location.origin + '/hls/cam/index.m3u8';
+    var hls = null, backoff = 1;
+
+    fetch('/api/info', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (info) {
+      var host = (info.hostname || window.location.hostname || '').split('.')[0];
+      var name = host.charAt(0).toUpperCase() + host.slice(1);
+      document.getElementById('name').textContent = name;
+      document.title = name + ' livecam (video only)';
+    }).catch(function () {});
+
+    function retry(why) {
+      st.textContent = why + ' — retrying…';
+      st.hidden = false;
+      setTimeout(start, 1000 * backoff);
+      backoff = Math.min(backoff * 2, 15);
+    }
+    function start() {
+      if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+      if (window.Hls && Hls.isSupported()) {
+        hls = new Hls({ lowLatencyMode: false, liveSyncDurationCount: 3, backBufferLength: 4 });
+        hls.loadSource(HLS_URL);
+        hls.attachMedia(v);
+        hls.on(Hls.Events.ERROR, function (e, data) { if (data.fatal) retry('feed lost'); });
+      } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+        v.src = HLS_URL;
+      } else {
+        st.textContent = 'this browser cannot play the feed';
+        return;
+      }
+      v.play().catch(function () {});
+    }
+    v.addEventListener('playing', function () { st.hidden = true; backoff = 1; });
+    v.addEventListener('error', function () { retry('feed lost'); });
+    start();
+  })();
+</script>
+</body>
+</html>
