@@ -1351,7 +1351,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-73-geb720fc-dirty · dev · eb720fc"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-74-g2722697-dirty · dev · 2722697"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -3148,16 +3148,12 @@
           var m = txt.match(/#EXT-X-MEDIA:[^\n]*TYPE=AUDIO[^\n]*URI="([^"]+)"/);
           if (m) uri = m[1];
         }
-        // No audio rendition: on macOS the room is its own MP3 stream
-        // (/audio, Icecast), not a track of the HLS feed.
+        // No audio rendition: on macOS the room is not a track of the
+        // camera's feed but its own path, roomaudio (Opus, the same leg a
+        // two-way call hears), which mediamtx also serves as HLS.
+        var url = uri ? HLS_URL.replace(/[^/]*$/, uri)
+                      : HLS_URL.replace('/cam/', '/roomaudio/');
         _teardownRoomHls();
-        if (!uri) {
-          roomAudio.src = window.location.origin + '/audio/room.mp3';
-          audioSrcResolved = true;
-          cb();
-          return;
-        }
-        var url = HLS_URL.replace(/[^/]*$/, uri);
         if (window.Hls && Hls.isSupported()) {
           roomHls = new Hls({
             lowLatencyMode: false, backBufferLength: 4, maxBufferLength: 8,
