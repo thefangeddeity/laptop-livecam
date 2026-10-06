@@ -1712,6 +1712,10 @@
                     title="Shake and sound every viewer's screen">
               <span class="cap2">BUZZ</span>
             </button>
+            <button class="modem" id="snapBtn" onclick="sendSnapshot()"
+                    title="Send the picture as it is now to the notification chat (Telegram)">
+              <span class="cap2">SNAPSHOT</span>
+            </button>
           </div>
         </div>
 
@@ -2292,6 +2296,28 @@
   loadNotches();
 
   applyTheme();
+
+  // SNAPSHOT: the picture as the feed shows it now, to the notification chat
+  // (Telegram), via /api/snapshot. Pressed while it goes; the label says
+  // whether it went, the hover title says why not.
+  function sendSnapshot() {
+    var b = document.getElementById('snapBtn');
+    if (!b || b.disabled) return;
+    var cap = b.querySelector('.cap2'), idle = b.title;
+    b.classList.add('pressed'); b.disabled = true;
+    fetch('/api/snapshot', { method: 'POST' })
+      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
+      .catch(function () { return { ok: false, t: 'no answer from the node' }; })
+      .then(function (res) {
+        if (cap) cap.textContent = res.ok ? 'SENT' : 'NOT SENT';
+        b.title = res.ok ? 'Sent to the notification chat' : 'Not sent: ' + res.t;
+        setTimeout(function () {
+          b.classList.remove('pressed'); b.disabled = false;
+          if (cap) cap.textContent = 'SNAPSHOT';
+          b.title = idle;
+        }, 2500);
+      });
+  }
 
   function sendBuzz() {
     if (buzzMuted) return;   // opted out of the channel, both directions

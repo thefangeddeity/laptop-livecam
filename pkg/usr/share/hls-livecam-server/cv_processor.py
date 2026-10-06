@@ -110,6 +110,8 @@ _DEFAULTS = {
     'NIGHT_CLAHE_CLIP':       4.5,   # vs CV mode's 2.0 -- a dark room needs far
                                       # more local contrast pulled out of it
     'NIGHT_CLAHE_TILES':      8,
+    'NIGHT_STACK':            1,     # Night: frames in the running average of still
+                                     # areas (1 = off); noise falls ~ sqrt(N)
     'NIGHT_GAIN':             1.6,   # flat linear-light multiply before the
                                       # curve; real signal, not a curve trick
     'NIGHT_HIGHLIGHT_THRESHOLD': 235,  # a dark room rarely blows out, so the
@@ -881,6 +883,9 @@ class CVProcessor:
         # daylight, so the two must not share instances.
         self._night_enabled = False
         self._night_gain = _read_float(denv, 'NIGHT_GAIN')
+        self._night_stack = max(1, int(_read_float(denv, 'NIGHT_STACK')))
+        self._night_acc = None
+        self._night_meter_at = 0.0
         self._night_lut = _tone_curve_lut(
             _read_int(denv, 'NIGHT_HIGHLIGHT_THRESHOLD'),
             _read_int(denv, 'NIGHT_HIGHLIGHT_CEILING'),
@@ -931,6 +936,8 @@ class CVProcessor:
     def set_night(self, enabled):
         """Live toggle for Night mode, same pattern as set_foveal()."""
         self._night_enabled = bool(enabled)
+        if not enabled:
+            self._night_acc = None
 
     def _night_correct(self, frame):
         """Denoise's output, brightened and locally contrast-stretched for a
@@ -1062,6 +1069,30 @@ class CVProcessor:
         # not a claim about what was found in the dark.
         if self._night_enabled:
             t3 = time.perf_counter()
+            # A longer average than the 3-frame denoise, for STILL areas only:
+            # where the flow says something moves, the current frame wins, so
+            # a walking cat stays a cat and not a smear.
+            if self._night_stack > 1:
+                f32 = denoised.astype(np.float32)
+                if self._night_acc is None or self._night_acc.shape != f32.shape:
+                    self._night_acc = f32
+                else:
+                    a = 1.0 / self._night_stack
+                    acc = self._night_acc * (1.0 - a) + f32 * a
+                    if moving_mask is not None:
+                        m = moving_mask > 0
+                        acc[m] = f32[m]
+                    self._night_acc = acc
+                denoised = np.clip(self._night_acc, 0, 255).astype(np.uint8)
+            # NIGHT METER: what the camera delivers, every ~10 s, so settings
+            # can be compared on real dark nights (noise: frame-to-frame
+            # difference of the downscaled luma / sqrt 2; includes any motion).
+            if time.time() - self._night_meter_at > 10 and self._gray_small:
+                self._night_meter_at = time.time()
+                d = small_gray.astype(np.float32) - self._gray_small[-1].astype(np.float32)
+                print(f"NIGHT METER: luma={float(small_gray.mean()):.1f} "
+                      f"noise={float(d.std()) / 1.4142:.2f} stack={self._night_stack}",
+                      flush=True)
             night = self._night_correct(denoised)
             t['night'] = time.perf_counter() - t3
             sharpness = self._measure_sharpness(self._last_luma)

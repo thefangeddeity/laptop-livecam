@@ -221,6 +221,19 @@ class Notifier:
             except queue.Full:
                 self._log("notify: queue full, dropped a notification")
 
+    def snapshot(self, frame):
+        """On demand (the panel's SNAPSHOT key): this frame, now, with no
+        cooldown -- a person asked for it."""
+        if not self.enabled:
+            return False
+        try:
+            self._q.put_nowait({'cls': 'snapshot', 'track_id': 'snapshot',
+                                'when': time.time(), 'text': f"{self.name}: Snapshot",
+                                'picks': [{'frame': frame, 't': 0.0, 'conf': 0.0, 'sharp': 0.0}]})
+            return True
+        except queue.Full:
+            return False
+
     def forget_track(self, track_id):
         with self._lock:
             self._notified_tracks.discard(track_id)
@@ -249,7 +262,7 @@ class Notifier:
                 self._q.task_done()
 
     def _send(self, item):
-        text = f"{self.name}: {_label(item['cls'])} detected"
+        text = item.get('text') or f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
         try:
             for i, p in enumerate(item['picks']):
