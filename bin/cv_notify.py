@@ -112,12 +112,17 @@ class Notifier:
     def __init__(self, urls=None, classes=('human',), cooldown_sec=300,
                  enabled=False, snapshot_dir=None, queue_size=8,
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
-                 min_fg=0.0,
+                 min_fg=0.0, classes_file='/dev/null',
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
         self.urls = [u.strip() for u in (urls or []) if u.strip()]
         self.classes = {c.strip().lower() for c in classes if c.strip()}
+        # Which classes raise an alert is a SETTING, not a deploy. The panel
+        # writes this file and the notifier re-reads it per event, so turning
+        # 'dog' on does not need a restart -- same live-toggle shape as the
+        # video switch. Absent file means "use what config.env said".
+        self.classes_file = classes_file
         self.cooldown_sec = float(cooldown_sec)
         # Motion gate. A detection that has never once overlapped moving
         # foreground is furniture: tanzania spent an hour reporting a crumpled
@@ -183,7 +188,7 @@ class Notifier:
         if not self.enabled:
             return False
         cls = (track.cls or '').lower()
-        if cls not in self.classes:
+        if cls not in self._classes_wanted():
             return False
         now = time.monotonic()
         with self._lock:
@@ -280,6 +285,23 @@ class Notifier:
             return True
         except queue.Full:
             return False
+
+    def _classes_wanted(self):
+        """Classes that currently raise an alert, re-read per event.
+
+        The file is the panel's checkboxes; config.env is the fallback for a
+        node whose operator has never touched them.
+        """
+        try:
+            with open(self.classes_file) as f:
+                picked = {c.strip().lower()
+                          for c in f.read().replace('\n', ',').split(',')
+                          if c.strip()}
+            if picked:
+                return picked
+        except Exception:
+            pass
+        return self.classes
 
     def forget_track(self, track_id):
         with self._lock:
@@ -588,4 +610,5 @@ def make_notifier(denv, log=None):
                     shots=int(_num('NOTIFY_SHOTS', 3)),
                     window_sec=_num('NOTIFY_WINDOW_SEC', 6.0),
                     spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5),
-                    min_fg=_num('NOTIFY_MIN_FG', 0.05))
+                    min_fg=_num('NOTIFY_MIN_FG', 0.05),
+                    classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null')
