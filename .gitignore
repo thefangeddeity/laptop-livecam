@@ -15,6 +15,7 @@ state/buzz.txt
 state/msg_lock
 state/camdash-feed.state
 state/cell_aspect
+state/audio-settings.json
 
 # Rendered from web/index.template.html by livecam-setup.
 #

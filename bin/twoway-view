@@ -43,10 +43,19 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# 1. THE CALLER'S VOICE, into the room's speakers.
+# 1. THE CALLER'S VOICE, into the room's speakers, at the Settings panel's
+#    outbound gain, or silent under "Mute server speaker/headset in RTC"
+#    (state/audio-settings.json, written by broadcast-api).
+SETTINGS="$(cd "$(dirname "$0")/.." && pwd)/state/audio-settings.json"
+setting() { /usr/bin/python3 -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get(sys.argv[2], ""))
+except Exception: print("")' "$SETTINGS" "$1" 2>/dev/null; }
+TALK_GAIN=$(setting TALK_GAIN_DB); [[ "$TALK_GAIN" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || TALK_GAIN=0
+TALK_AF="volume=${TALK_GAIN}dB"
+case "$(setting TALK_MUTE_SPEAKER)" in 1|on|true|yes) TALK_AF="$TALK_AF,volume=0" ;; esac
 "$FFMPEG" -hide_banner -loglevel error \
   -rtsp_transport tcp -i "$RTSP/talkback" \
-  -vn -map 0:a:0 -f audiotoolbox - &
+  -vn -map 0:a:0 -af "$TALK_AF" -f audiotoolbox - &
 pids+=($!)
 
 # 2. THE WINDOW. Composited by ffmpeg and played by ffplay, rather than two

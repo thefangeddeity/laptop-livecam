@@ -115,6 +115,21 @@ def _read_config():
 
 
 _cfg      = _read_config()
+# The Settings panel's audio values (/api/audio-settings) live in their own
+# untracked file layered over config.env, so tuning from the page never
+# dirties the tracked config (the build refuses a dirty tree).
+AUDIO_SETTINGS = os.path.join(STATE_DIR, 'audio-settings.json')
+
+
+def _load_audio_settings():
+    try:
+        with open(AUDIO_SETTINGS) as f:
+            return {k: str(v) for k, v in json.load(f).items()}
+    except Exception:
+        return {}
+
+
+_cfg.update(_load_audio_settings())
 FRAME_W, FRAME_H = (int(x) for x in _cfg.get('VIDEO_SIZE', '1280x720').split('x'))
 FRAME_BYTES = FRAME_W * FRAME_H * 3
 RTSP_PORT   = _cfg.get('RTSP_PORT', '8554')
@@ -1875,6 +1890,7 @@ def _writer_loop():
 # too; nothing currently calls them, but breaking a URL for no benefit is
 # just as wrong as breaking one something depends on.
 @app.route('/api/cv-blur-mode', methods=['GET'])
+@app.route('/api/blur-mode', methods=['GET'])
 @app.route('/api/foveal-mode', methods=['GET'])
 @app.route('/api/foveal', methods=['GET'])
 @app.route('/api/bw-mode', methods=['GET'])
@@ -1883,13 +1899,16 @@ def cv_blur_get():
 
 
 @app.route('/api/cv-blur-mode', methods=['POST'])
+@app.route('/api/blur-mode', methods=['POST'])
 @app.route('/api/foveal-mode', methods=['POST'])
 @app.route('/api/foveal', methods=['POST'])
 @app.route('/api/bw-mode', methods=['POST'])
 def cv_blur_post():
     global _cv_blur_mode, _mode_generation
     with _mode_lock:
-        _cv_blur_mode = not _cv_blur_mode
+        # An explicit 'true'/'false' sets it (Tanzania's viewer); no body toggles.
+        want = request.get_data(as_text=True).strip().lower()
+        _cv_blur_mode = (want == 'true') if want in ('true', 'false') else not _cv_blur_mode
         _mode_generation += 1  # forces _writer_loop to restart the publisher
     return ('true' if _cv_blur_mode else 'false'), 200
 
@@ -1903,7 +1922,8 @@ def cv_foveal_get():
 def cv_foveal_post():
     global _cv_foveal_mode
     with _mode_lock:
-        _cv_foveal_mode = not _cv_foveal_mode
+        want = request.get_data(as_text=True).strip().lower()
+        _cv_foveal_mode = (want == 'true') if want in ('true', 'false') else not _cv_foveal_mode
     # No _mode_generation bump: unlike Blur, Foveal never changes which
     # devices ffmpeg opens or which mode the publisher spawns for -- it only
     # changes what CVProcessor.process() does with a frame it already has,
@@ -2158,6 +2178,7 @@ def pipeline():
         'cv_text': cv_text,
         'cv_capability_text': cv_capability_text,
         'mic':      capture,
+        'camera':   capture,   # one AVFoundation session: camera and mic open together
         'audio_rate_hz':  audio_rate,
         'audio_channels': audio_ch,
         'audio_kbps':     audio_kbps,
@@ -2271,6 +2292,188 @@ def serve_darkpng():
 def serve_cams_json():
     return _nocache(send_from_directory(os.path.join(WEB_DIR, 'cams'), 'cams.json',
                                         mimetype='application/json'))
+
+
+# -- Tanzania's viewer, served here too -------------------------------------
+#
+# The Linux node's page is the fleet's canonical viewer, served here as
+# web/index.template.html. These are the endpoints it calls that this node did
+# not have, each answered from this node's own state (mostly the measured
+# pipeline above), so the page runs unchanged apart from a few macOS lines.
+
+_SETTING_KEYS = ('AUDIO_HIGHPASS_HZ', 'AUDIO_LOWPASS_HZ', 'AUDIO_GAIN_DB',
+                 'TALK_GAIN_DB', 'TALK_MUTE_SPEAKER')
+
+
+def _truthy(v):
+    return str(v).strip().lower() in ('1', 'on', 'true', 'yes')
+
+
+def _audio_settings_body():
+    return json.dumps({
+        'AUDIO_HIGHPASS_HZ': str(_cfg.get('AUDIO_HIGHPASS_HZ', '') or '0'),
+        'AUDIO_LOWPASS_HZ':  str(_cfg.get('AUDIO_LOWPASS_HZ', '') or '14000'),
+        'AUDIO_GAIN_DB':     str(_cfg.get('AUDIO_GAIN_DB', '') or '0'),
+        'TALK_GAIN_DB':      str(_cfg.get('TALK_GAIN_DB', '') or '0'),
+        'TALK_MUTE_SPEAKER': _truthy(_cfg.get('TALK_MUTE_SPEAKER', '0')),
+    }), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/audio-settings', methods=['GET'])
+def audio_settings_get():
+    return _audio_settings_body()
+
+
+@app.route('/api/audio-settings', methods=['POST'])
+def audio_settings_post():
+    """The Settings panel's audio values, clamped as on Tanzania. Kept in
+    state/audio-settings.json over config.env (see AUDIO_SETTINGS). The
+    capture is rebuilt for the room-side values; the talk values are read by
+    twoway-view when the next call starts."""
+    try:
+        body = json.loads(request.get_data(as_text=True) or '{}')
+    except Exception:
+        abort(400)
+
+    def num(v):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+    out = {}
+    hp = num(body.get('AUDIO_HIGHPASS_HZ'))
+    if hp is not None:
+        hp = int(max(0, min(1000, hp)))
+        out['AUDIO_HIGHPASS_HZ'] = str(hp) if hp else ''   # 0 = no high-pass here
+    lp = num(body.get('AUDIO_LOWPASS_HZ'))
+    if lp is not None:
+        out['AUDIO_LOWPASS_HZ'] = str(int(max(1000, min(24000, lp))))
+    g = num(body.get('AUDIO_GAIN_DB'))
+    if g is not None:
+        out['AUDIO_GAIN_DB'] = str(round(max(-20.0, min(30.0, g)), 1))
+    tg = num(body.get('TALK_GAIN_DB'))
+    if tg is not None:
+        out['TALK_GAIN_DB'] = str(round(max(-20.0, min(12.0, tg)), 1))
+    if 'TALK_MUTE_SPEAKER' in body:
+        out['TALK_MUTE_SPEAKER'] = '1' if bool(body['TALK_MUTE_SPEAKER']) else '0'
+    if not out:
+        abort(400)
+    saved = _load_audio_settings()
+    saved.update(out)
+    try:
+        tmp = AUDIO_SETTINGS + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(saved, f)
+        os.replace(tmp, AUDIO_SETTINGS)
+    except Exception as e:
+        print(f'broadcast-api: audio-settings write failed: {e}', flush=True)
+        abort(500)
+    room_changed = any(k.startswith('AUDIO_') and _cfg.get(k, '') != v for k, v in out.items())
+    _cfg.update(out)
+    if room_changed:
+        _bump_mode_generation()
+    return _audio_settings_body()
+
+
+@app.route('/api/audio', methods=['GET'])
+def audio_get():
+    p = pipeline()
+    live = p.get('audio_kbps') is not None and p.get('mic') == 'ok'
+    return json.dumps({
+        'backend': 'avfoundation',
+        'channels': p.get('audio_channels'),
+        'enabled': True,
+        'kbps': p.get('audio_kbps'),
+        'rate_hz': p.get('audio_rate_hz'),
+        'state': 'ok' if live else 'off',
+    }), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/cv-state', methods=['GET'])
+def cv_state_get():
+    p = pipeline()
+    return json.dumps({
+        'mog2': bool(p.get('cv_mog2')),
+        'gated': bool(p.get('cv_foveal')),
+        'scene_registered': p.get('cv_scene') == 'registered',
+        'scene_stale': p.get('cv_scene') == 'stale',
+        'text': p.get('cv_text') or '',
+        'capability_text': p.get('cv_capability_text') or '',
+    }), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/scene-status', methods=['GET'])
+def scene_status_get():
+    # Scene registration is Linux lightcv's; none here.
+    return json.dumps({'regions': 0, 'state': 'unregistered'}), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/cv-reset', methods=['POST'])
+@app.route('/api/scene-reregister', methods=['POST'])
+def cv_noop_post():
+    return 'unavailable on macOS', 409
+
+
+# Talk: on this node the caller's audio is played by twoway-view, which
+# mediamtx starts and stops with the talkback publisher itself, so /api/talk
+# only keeps the page's books (Tanzania starts its player from here).
+_talk = {'on': False}
+
+
+@app.route('/api/talk', methods=['GET'])
+def talk_get():
+    return ('true' if _talk['on'] else 'false'), 200
+
+
+@app.route('/api/talk', methods=['POST'])
+def talk_post():
+    val = request.get_data(as_text=True).strip().lower()
+    if val not in ('true', 'false', 'two-way'):
+        abort(400)
+    _talk['on'] = val != 'false'
+    return ('true' if _talk['on'] else 'false'), 200
+
+
+# WHIP/WHEP, same-origin, as Tanzania's nginx does it: /talk/ and /roomaudio/
+# go to mediamtx's WebRTC port. This node's publish path is named 'talkback',
+# and mediamtx's root-relative Location is rewritten to match.
+import urllib.request as _urlreq
+import urllib.error as _urlerr
+WEBRTC_PORT = _cfg.get('WEBRTC_PORT', '8889')
+
+
+def _webrtc_proxy(path):
+    body = request.get_data() if request.method in ('POST', 'PATCH') else None
+    req = _urlreq.Request(f'http://127.0.0.1:{WEBRTC_PORT}/{path}', data=body, method=request.method)
+    for h in ('Content-Type', 'If-Match', 'Authorization'):
+        if h in request.headers:
+            req.add_header(h, request.headers[h])
+    try:
+        r = _urlreq.urlopen(req, timeout=15)
+        status, data, hdrs = r.status, r.read(), r.headers
+    except _urlerr.HTTPError as e:
+        status, data, hdrs = e.code, e.read(), e.headers
+    except Exception:
+        abort(502)
+    resp = Response(data, status=status)
+    for h in ('Content-Type', 'Location', 'ETag', 'Link', 'Accept-Patch',
+              'Access-Control-Expose-Headers'):
+        v = hdrs.get(h)
+        if v:
+            if h == 'Location':
+                v = v.replace('/talkback/', '/talk/', 1)
+            resp.headers[h] = v
+    return resp
+
+
+@app.route('/talk/<path:rest>', methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'])
+def talk_proxy(rest):
+    return _webrtc_proxy('talkback/' + rest)
+
+
+@app.route('/roomaudio/<path:rest>', methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'])
+def roomaudio_proxy(rest):
+    return _webrtc_proxy('roomaudio/' + rest)
 
 
 @app.route('/')
