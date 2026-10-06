@@ -403,7 +403,7 @@ def classify_coat(frame, det):
 class Track:
     __slots__ = ('track_id', 'cls', 'confidence', 'box',
                  'first_seen', 'last_seen', 'state', 'misses',
-                 'evidence', 'promoted')
+                 'evidence', 'promoted', 'fg_consistency')
 
     def __init__(self, track_id, det):
         self.track_id = track_id
@@ -419,6 +419,14 @@ class Track:
         # accumulation step.
         self.evidence = det.confidence
         self.promoted = False
+        # Peak foreground-consistency over this track's life, not the latest.
+        # A cat that walks in and settles still moved, and the arrival is the
+        # event worth reporting; a bag or a cushion never moves and sits at
+        # 0.00 forever. That difference is what lets the notifier tell a
+        # visitor from furniture -- on tanzania it cut an alert every five
+        # minutes down to only the real cats. 1.0 is Detection's neutral
+        # default, so a node without MOG2 is never silenced by it.
+        self.fg_consistency = det.fg_consistency
 
     @property
     def centre(self):
@@ -510,6 +518,7 @@ class Tracker:
                 tr = self.tracks[best]
                 tr.box = det.box
                 tr.confidence = det.confidence
+                tr.fg_consistency = max(tr.fg_consistency, det.fg_consistency)
                 tr.last_seen = det.timestamp
                 tr.state = 'present'
                 tr.misses = 0
@@ -586,7 +595,7 @@ def draw_hud(canvas, tracks, ink=(220, 220, 220), capabilities=None):
         for channel in ink
     )
 
-    # THE e% RULE (dev: "ignore her previous setting; e% is the rule for all
+    # THE e% RULE (requirement: "ignore her previous setting; e% is the rule for all
     # text"), replacing the fixed telemetry_scale=0.52 this carried before.
     # Fleet-wide: HUD cap height = e% of frame height, identical on every
     # node and every resolution, so nothing needs re-tuning when a camera
@@ -651,7 +660,7 @@ def draw_hud(canvas, tracks, ink=(220, 220, 220), capabilities=None):
         tx += cw + telemetry_spacing
 
     tag_font = cv2.FONT_HERSHEY_SIMPLEX
-    tag_scale = hud_scale   # same e%-derived scale as the telemetry banner (dev: one rule for all text)
+    tag_scale = hud_scale   # same e%-derived scale as the telemetry banner (requirement: one rule for all text)
     tag_thickness = 2
 
     pad_x = 8
@@ -953,7 +962,7 @@ def draw_scene_regions(canvas, regions, ink=(140, 140, 220)):
     out = canvas
     h, w = out.shape[:2]
     font = cv2.FONT_HERSHEY_SIMPLEX
-    # e% rule (dev: "ignore her previous setting; e% is the rule for all
+    # e% rule (requirement: "ignore her previous setting; e% is the rule for all
     # text"), same as draw_hud -- frame-relative, not a fixed pixel scale.
     # The 0.42:0.52 ratio this always had against draw_hud's telemetry text
     # is preserved (this caption is deliberately smaller/quieter, per the
