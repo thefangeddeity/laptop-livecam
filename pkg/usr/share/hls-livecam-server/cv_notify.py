@@ -182,6 +182,19 @@ def make_notifier(denv, log=None):
 
     enabled = _get('NOTIFY_ENABLED', '0') not in ('0', 'false', 'no', 'off')
     urls = [u for u in _get('NOTIFY_APPRISE_URLS', '').split(',') if u.strip()]
+    # The URLs carry the service's token (tgram://<token>/<chat>), so they may
+    # live in their own file instead -- root:http 640, one URL per line, '#'
+    # comments -- keeping the secret out of device.env, which is copied into
+    # the repo's host captures.
+    url_file = _get('NOTIFY_APPRISE_URLS_FILE', '')
+    if url_file:
+        try:
+            with open(url_file) as f:
+                urls += [ln.strip() for ln in f
+                         if ln.strip() and not ln.lstrip().startswith('#')]
+        except OSError as exc:
+            if log:
+                log(f"notify: cannot read {url_file}: {exc}")
     classes = [c for c in _get('NOTIFY_CLASSES', 'human').split(',') if c.strip()]
     try:
         cooldown = float(_get('NOTIFY_COOLDOWN_SEC', '300'))
