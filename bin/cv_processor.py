@@ -694,6 +694,25 @@ class CVProcessor:
         self._accum_frames = max(1, _read_int(denv, 'CV_FOVEAL_ACCUM_FRAMES'))
         self._accum_diff_max = _read_float(denv, 'CV_FOVEAL_ACCUM_DIFF_MAX')
         self._detect_slot = None  # (frame, crop_box, fg_mask) or None
+        # The detection thread is a daemon with no stop condition, so every
+        # processor ever built kept one alive for the life of the process --
+        # still polling _detect_slot, which still held the last frame, so it
+        # went on detecting a STALE picture long after its publisher was torn
+        # down. That is why switching detection off did not stop detections:
+        # nothing was feeding it any more, and it did not need feeding.
+        self._detect_stop = threading.Event()
+        # "All movements": alert on anything that moves, with no model at all.
+        # YOLO only reports what it has a word for, and a word for it only
+        # exists if the training set had one -- so a thing with no label is
+        # invisible to it no matter how plainly it moved. This reads boxes
+        # straight off the MOG2 foreground the foveal path already computes,
+        # so it costs no second pass. Off by default: it will happily call a
+        # curtain in a draught a visitor, which is the honest trade.
+        self._motion_alerts = False
+        # Read once, here, where denv is actually in scope. The alternative
+        # was reading it per call off an attribute this class never kept,
+        # which a try/except would have quietly turned into a wrong default.
+        self._motion_min_area_frac = _read_float(denv, 'CV_DETECT_MIN_AREA')
         self._detect_slot_lock = threading.Lock()
         # Tracker is written by the detection thread and read by the render
         # path (_detect_and_hud, called every display frame) -- both sides
@@ -1831,13 +1850,55 @@ class CVProcessor:
             print(f"CV SCENE: reference no longer stale (diff={diff:.1f})", flush=True)
 
     # ── detection thread (CV Mode Phase 2) ──────────────────────────────
+    def set_motion_alerts(self, enabled):
+        """Live toggle, same pattern as set_blur()/set_foveal()."""
+        self._motion_alerts = bool(enabled)
+
+    def _motion_detections(self, fg_mask):
+        """Moving regions as 'motion' detections, from the existing mask.
+
+        fg_consistency is 1.0 by construction: this came FROM the foreground,
+        so it is movement by definition and must not be filtered out by the
+        notifier's motion gate.
+        """
+        if fg_mask is None:
+            return []
+        min_area = max(1, int(self._motion_min_area_frac
+                              * fg_mask.shape[0] * fg_mask.shape[1]))
+        try:
+            cnts, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        except Exception:
+            return []
+        out = []
+        for c in cnts:
+            x, y, w, h = cv2.boundingRect(c)
+            if w * h < min_area:
+                continue
+            out.append(_cvd.Detection('motion', 1.0, int(x), int(y),
+                                      int(w), int(h), fg_consistency=1.0))
+        return out
+
+    def stop(self):
+        """Retire this processor's detection thread.
+
+        Called when a publisher is torn down. Without it the thread outlives
+        every teardown and keeps re-detecting whatever frame it last saw.
+        """
+        try:
+            self._detect_stop.set()
+        except Exception:
+            pass
+        with self._detect_slot_lock:
+            self._detect_slot = None
+
     def _detection_loop(self):
         """Background daemon thread: consumes the latest published
         (frame, crop_box, fg_mask) at a fast, cheap poll rate and advances
         the accumulation state machine. How often an actual detect()
         forward pass fires is governed inside _detection_step by
         CV_DETECT_HZ, not by this loop's poll rate."""
-        while True:
+        while not self._detect_stop.is_set():
             with self._detect_slot_lock:
                 slot = self._detect_slot
             if slot is not None:
@@ -1982,6 +2043,8 @@ class CVProcessor:
         notification, logging. Runs on the detection thread; tracker
         access is locked because the render path reads it every display
         frame from a different thread."""
+        if self._motion_alerts and _cvd is not None:
+            dets = list(dets) + self._motion_detections(fg_mask)
         if self._foveal_enabled and fg_mask is not None:
             self._set_fg_consistency(dets, fg_mask)
 

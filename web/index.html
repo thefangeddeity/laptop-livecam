@@ -1426,6 +1426,17 @@
           <button class="pbtn" id="nightBtn" onclick="setPicture('night')"
                   title="Denoise and an aggressive tone curve tuned for a dark room">Night</button>
         </div>
+        <!-- Detection lives WITH the picture keys, not in Settings: on this
+             node Hide closes the camera, so these four and this switch are
+             one decision, not two in different places. -->
+        <div class="pinrow" id="detectionRow">
+          <button class="pinled" id="alertsAnyBtn" onclick="toggleAlertsAny()"
+                  aria-pressed="false" aria-label="Detection"
+                  title="Watch for people and pets -- off stops detection and alerts entirely">
+            <span class="bulb" id="alertsAnyLamp"></span>
+          </button>
+          <span class="eng rstlab">Detection</span>
+        </div>
         <!-- Diagnosis beside the remedy: the trace is what tells you the
              feed has stopped, and the key that fixes it is immediately to
              its left. The trace is PHOSPHOR, so it lives behind glass --
@@ -1759,22 +1770,27 @@
         <div class="panel-title eng">Settings</div>
         <!-- Alphabetized (requirement: "alphabetize these settings") -- Disable
              buzz, Light theme, Mute server speaker/headset in RTC. -->
-        <!-- Alerting is not a view. Detection runs off its own pre-render
-             tap on the camera, so it keeps watching whatever the feed is set
-             to -- including Hide, which is exactly when nobody is looking. -->
-        <div class="pinrow">
-          <button class="pinled" id="alertsAnyBtn" onclick="toggleAlertsAny()"
-                  aria-pressed="false" aria-label="Alerts anytime"
-                  title="Keep detecting whatever the feed is showing">
-            <span class="bulb" id="alertsAnyLamp"></span>
-          </button>
-          <span class="eng rstlab">Alerts anytime</span>
-        </div>
         <!-- The detector always looks for everything it can name; these pick
              which of those actually reach you. Gating the notifier rather than
              the detector means a change needs no restart, so there is no gap
              in watching while you tick a box. -->
         <div class="pinrow"><span class="eng rstlab">Alert me about:</span></div>
+        <div class="pinrow">
+          <button class="pinled" id="clsLivingBtn" onclick="toggleCls('living')"
+                  aria-pressed="false" aria-label="Alert on all living beings"
+                  title="Every animate class at once -- stays correct if a new species is added later">
+            <span class="bulb" id="clsLivingLamp"></span>
+          </button>
+          <span class="eng rstlab">All living beings</span>
+        </div>
+        <div class="pinrow">
+          <button class="pinled" id="clsMotionBtn" onclick="toggleCls('motion')"
+                  aria-pressed="false" aria-label="Alert on all movements"
+                  title="Anything that moves, with no model -- catches what the detector has no word for, and will call a curtain a visitor">
+            <span class="bulb" id="clsMotionLamp"></span>
+          </button>
+          <span class="eng rstlab">All movements</span>
+        </div>
         <div class="pinrow">
           <button class="pinled" id="clsHumanBtn" onclick="toggleCls('human')"
                   aria-pressed="false" aria-label="Alert on people">
@@ -2751,9 +2767,23 @@
 
   // Show/Hide/CV come through here; Blur no longer does -- it is
   // independent now (toggleBlur() above), not coupled to a mode switch.
+  // Does Hide cost detection on THIS node? Asked, not assumed: here Hide
+  // closes the camera, on the Linux node it only swaps the published picture
+  // and the detector keeps watching. Warning about a consequence that does
+  // not exist is how people learn to click through warnings.
+  var hideStopsDetection = false;
+  fetch('/api/hide-stops-detection', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.text() : null; })
+    .catch(function() { return null; })
+    .then(function(v) { if (v !== null) hideStopsDetection = v.trim() === 'true'; });
+
   function setPicture(which) {
     if (!feedModeKnown) return;
     if (which === feedMode) return;
+    // Hide is a privacy control and always wins -- never overridden on
+    // detection's behalf, and never gated behind a dialog either. The risk is
+    // only that alerts stop SILENTLY, and a light that is visibly wrong says
+    // that better than a prompt nobody reads. See detectionStalled().
     setFeedMode(which);
   }
 
@@ -2906,6 +2936,7 @@
     .then(function(m) {
       if (m) {
         feedMode = m.trim();
+        if (typeof paintAlertsAny === 'function') paintAlertsAny();  // repaint the detection lamp: Hide can stall it
         updateFeedButtons();
         setTimeout(reloadStream, 1000);
       }
@@ -2953,6 +2984,7 @@
           // normal (the m !== feedMode branch below).
           if (m === 'hide') {
             feedMode = 'hide';
+            if (typeof paintAlertsAny === 'function') paintAlertsAny();  // repaint the detection lamp: Hide can stall it
             updateFeedButtons();
           } else {
             // Adopt the server's CURRENT mode first, so a poll landing during
@@ -2961,6 +2993,7 @@
             // hide through the existing function. coverFor('hide') inside it
             // covers the stage at once and no player is ever attached.
             feedMode = m;
+            if (typeof paintAlertsAny === 'function') paintAlertsAny();  // repaint the detection lamp: Hide can stall it
             setFeedMode('hide');
           }
           return;
@@ -2972,6 +3005,7 @@
           // clicked saw the feed cut over uncovered. Run the same transition
           // here and the cover becomes universal.
           feedMode = m;
+          if (typeof paintAlertsAny === 'function') paintAlertsAny();  // repaint the detection lamp: Hide can stall it
           updateFeedButtons();
           coverFor(feedMode);
           setTimeout(reloadStream, 1000);
@@ -4513,13 +4547,27 @@
   // Alerts anytime + the per-class checkboxes. Server-backed, like Blur: the
   // node owns the answer so two phones never disagree about what is watched.
   var alertsAnyOn = false;
+  // Detection switched on, but this node's Hide has closed the camera: the
+  // switch says yes and nothing is being watched. Show it as a fault rather
+  // than a happy green lamp -- the dangerous state is trusting alerts that
+  // are not coming, and that is invisible unless something says so.
+  function detectionStalled() {
+    return alertsAnyOn && hideStopsDetection && feedMode === 'hide';
+  }
   function paintAlertsAny() {
     var b = document.getElementById('alertsAnyBtn');
     if (!b) return;
+    var stalled = detectionStalled();
     b.classList.toggle('pressed', alertsAnyOn);
     b.setAttribute('aria-pressed', alertsAnyOn ? 'true' : 'false');
+    b.title = stalled
+      ? 'Detection is on, but Hide has switched the camera off -- nothing is being watched and no alerts will arrive until you unhide'
+      : 'Watch for people and pets -- off stops detection and alerts entirely';
     var l = document.getElementById('alertsAnyLamp');
-    if (l) l.classList.toggle('on', alertsAnyOn);
+    if (l) {
+      l.classList.toggle('on', alertsAnyOn && !stalled);
+      l.classList.toggle('alarm', stalled);
+    }
   }
   function toggleAlertsAny() {
     fetch('/api/detect-always', { method: 'POST',
@@ -4536,7 +4584,8 @@
       .then(function(v) { if (v !== null) { alertsAnyOn = v.trim() === 'true'; paintAlertsAny(); } });
   }
 
-  var CLS_IDS = { human: 'clsHuman', cat: 'clsCat', dog: 'clsDog', bird: 'clsBird' };
+  var CLS_IDS = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
+                cat: 'clsCat', dog: 'clsDog', bird: 'clsBird' };
   var clsOn = {};
   function paintCls() {
     Object.keys(CLS_IDS).forEach(function(c) {
