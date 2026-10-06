@@ -35,6 +35,7 @@ FEED_MODE_FILE  = "/var/lib/hls-livecam/feed_mode"
 FOVEAL_MODE_FILE = "/var/lib/hls-livecam/foveal_mode"
 BLUR_MODE_FILE  = "/var/lib/hls-livecam/blur_mode"
 DETECT_ALWAYS_FILE = "/var/lib/hls-livecam/detect_always"
+NOTIFY_CLASSES_FILE = "/var/lib/hls-livecam/notify_classes"
 NOTIFY_VIDEO_FILE  = "/var/lib/hls-livecam/notify_video"
 # Talkback publishes to its own mediamtx path. Nothing else reads it: the
 # node subscribes over RTSP on loopback, because mediamtx re-serves whatever
@@ -1679,6 +1680,46 @@ def blur_mode_post():
     # and a restart must not quietly un-blur a room somebody chose to cover.
     _write_blur_mode(enabled)
     return ('true' if enabled else 'false'), 200
+
+
+# Which classes raise an alert. The detector always looks for everything it
+# can name (COCO_LABELS: human, cat, dog, bird) -- narrowing THAT would mean
+# rebuilding the CVProcessor on every checkbox, and a gap in watching. This
+# gates the notifier instead, which re-reads the file per event, so ticking a
+# box takes effect immediately and nothing stops looking.
+_ALERT_CLASSES = ('human', 'cat', 'dog', 'bird')
+
+
+def _read_notify_classes():
+    try:
+        with open(NOTIFY_CLASSES_FILE) as f:
+            picked = [c.strip().lower()
+                      for c in f.read().replace('\n', ',').split(',') if c.strip()]
+        if picked:
+            return [c for c in picked if c in _ALERT_CLASSES]
+    except Exception:
+        pass
+    return ['human', 'cat', 'dog']
+
+
+@app.route('/api/notify-classes', methods=['GET'])
+def notify_classes_get():
+    return ','.join(_read_notify_classes()), 200
+
+
+@app.route('/api/notify-classes', methods=['POST'])
+def notify_classes_post():
+    want = [c.strip().lower()
+            for c in request.get_data(as_text=True).replace('\n', ',').split(',')
+            if c.strip()]
+    picked = [c for c in want if c in _ALERT_CLASSES]
+    try:
+        os.makedirs(os.path.dirname(NOTIFY_CLASSES_FILE), exist_ok=True)
+        with open(NOTIFY_CLASSES_FILE, 'w') as f:
+            f.write(','.join(picked))
+    except Exception:
+        abort(500)
+    return ','.join(picked), 200
 
 
 @app.route('/api/detect-always', methods=['GET'])
