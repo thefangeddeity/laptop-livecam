@@ -23,6 +23,7 @@ destination is email.
 import json
 import os
 import queue
+import socket
 import threading
 import time
 import urllib.error
@@ -108,7 +109,8 @@ class Notifier:
 
     def __init__(self, urls=None, classes=('human',), cooldown_sec=300,
                  enabled=False, snapshot_dir=None, queue_size=8,
-                 log=None, shots=3, window_sec=6.0, spacing_sec=1.5):
+                 log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
+                 name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
         self.urls = [u.strip() for u in (urls or []) if u.strip()]
@@ -123,6 +125,9 @@ class Notifier:
         # spacing boundary.
         self._slot_sec = max(0.1, self.spacing_sec / 3.0)
         self.snapshot_dir = snapshot_dir or '/tmp'
+        # Which node saw it, first in the message: with several livecams on
+        # one chat, "Cat detected" alone does not say where.
+        self.name = (name or socket.gethostname().split('.')[0].capitalize()).strip()
         self._log = log or (lambda msg: None)
 
         self._q = queue.Queue(maxsize=int(queue_size))
@@ -243,7 +248,7 @@ class Notifier:
                 self._q.task_done()
 
     def _send(self, item):
-        text = f"{_label(item['cls'])} detected"
+        text = f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
         try:
             for i, p in enumerate(item['picks']):
@@ -368,7 +373,7 @@ def make_notifier(denv, log=None):
             return float(default)
 
     return Notifier(urls=urls, classes=classes, cooldown_sec=cooldown,
-                    enabled=enabled, log=log,
+                    enabled=enabled, log=log, name=_get('NOTIFY_NAME', '') or None,
                     shots=int(_num('NOTIFY_SHOTS', 3)),
                     window_sec=_num('NOTIFY_WINDOW_SEC', 6.0),
                     spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5))
