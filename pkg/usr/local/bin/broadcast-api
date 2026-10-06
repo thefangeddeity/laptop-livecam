@@ -34,6 +34,8 @@ LOCK_FILE       = "/var/lib/hls-livecam/msg_lock"
 FEED_MODE_FILE  = "/var/lib/hls-livecam/feed_mode"
 FOVEAL_MODE_FILE = "/var/lib/hls-livecam/foveal_mode"
 BLUR_MODE_FILE  = "/var/lib/hls-livecam/blur_mode"
+DETECT_ALWAYS_FILE = "/var/lib/hls-livecam/detect_always"
+NOTIFY_VIDEO_FILE  = "/var/lib/hls-livecam/notify_video"
 # Talkback publishes to its own mediamtx path. Nothing else reads it: the
 # node subscribes over RTSP on loopback, because mediamtx re-serves whatever
 # arrives by WHIP on every protocol it speaks, and ffmpeg speaks RTSP.
@@ -549,6 +551,63 @@ def _write_blur_mode(enabled):
 
 _blur_enabled = _read_blur_mode()
 _blur_lock    = threading.Lock()
+
+
+# -- Detection independent of the displayed picture --
+#
+# Detection, and the notifier hanging off it, used to run only when the feed
+# mode happened to be CV: the writer loop called cv_proc.process() for
+# cv/night and skipped it outright for show/hide. So whether the camera was
+# watching the room depended on which picture a viewer had selected -- and the
+# notifier exists precisely for when nobody is looking at the picture at all.
+# Snapshots are conditioned on detection, full stop; what the feed displays is
+# a separate question. Defaults ON (unlike blur, which defaults off): this is
+# the behaviour the alerting path always needed, and a node with no state file
+# yet is a node that has never been asked.
+def _read_detect_always():
+    try:
+        with open(DETECT_ALWAYS_FILE) as f:
+            return f.read().strip() != 'false'
+    except Exception:
+        return True
+
+def _write_detect_always(enabled):
+    try:
+        os.makedirs(os.path.dirname(DETECT_ALWAYS_FILE), exist_ok=True)
+        with open(DETECT_ALWAYS_FILE, 'w') as f:
+            f.write('true' if enabled else 'false')
+    except Exception:
+        pass
+
+_detect_always = _read_detect_always()
+_detect_always_lock = threading.Lock()
+
+def _detect_always_on():
+    with _detect_always_lock:
+        return _detect_always
+
+
+# -- "Include video" with the snapshots --
+#
+# Read by cv_notify at send time (not here): it cuts the clip straight out of
+# mediamtx's rolling recording, so this process only owns the switch. Same
+# file-backed shape as every other live toggle, so a restart keeps the answer.
+# Defaults ON: a failed cut degrades to stills on its own, so the safe default
+# is the useful one.
+def _read_notify_video():
+    try:
+        with open(NOTIFY_VIDEO_FILE) as f:
+            return f.read().strip() != 'false'
+    except Exception:
+        return True
+
+def _write_notify_video(enabled):
+    try:
+        os.makedirs(os.path.dirname(NOTIFY_VIDEO_FILE), exist_ok=True)
+        with open(NOTIFY_VIDEO_FILE, 'w') as f:
+            f.write('true' if enabled else 'false')
+    except Exception:
+        pass
 
 def _blur_block():
     """Mosaic cell size in pixels, from device.env, defaulting to 24."""
@@ -1127,6 +1186,51 @@ def _start_cam_reader(denv):
     return subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, env=_pulse_env(denv))
 
+# -- Detection's own tap on the camera ------------------------------------
+#
+# Feed mode is ONE global for the whole node: /var/lib/hls-livecam/feed_mode,
+# set by whichever viewer clicked last. Four people in four countries share it
+# -- one picks CV, one picks Night, one picks Show -- and the last click wins
+# for everybody. Night does more than repaint: it runs _v4l2_apply() and, with
+# NIGHT_V4L2_INPUT_FMT set, terminates the camera reader outright.
+#
+# So anything riding the display pipeline is at the mercy of a stranger's
+# checkbox. Detection must not be. Alerting is not a view: it answers to the
+# room, not to whoever is looking at it.
+#
+# This thread is detection's own tap. It reads the raw camera frame straight
+# from the drain loop's cache and hands it to a CVProcessor that NOTHING in
+# the display path touches -- no set_foveal(), no set_night(), no mode branch.
+# The only thing still shared is the physical sensor, because there is one
+# camera and a viewer who forces a Night exposure really does change what the
+# lens sees. Everything above that is now independent.
+#
+# 5Hz: the detector itself runs at CV_DETECT_HZ (1.5), so this is ample, and
+# it is cheaper than the old path, which paid MOG2 at the full 15fps frame
+# rate inside process().
+_DETECT_TAP_HZ = 5.0
+
+def _detect_tap_loop(det_holder):
+    period = 1.0 / _DETECT_TAP_HZ
+    while not _shutting_down.is_set():
+        try:
+            if not _detect_always_on():
+                time.sleep(0.5)
+                continue
+            with _cam_frame_lock:
+                raw = _cam_frame
+            if raw is None:
+                time.sleep(0.2)
+                continue
+            arr = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
+            det_holder[0].observe(arr)
+        except Exception as exc:
+            print(f'broadcast-api: detect tap error: {type(exc).__name__}: {exc}',
+                  flush=True)
+            time.sleep(1.0)
+        time.sleep(period)
+
+
 def _drain_loop(cam_holder, denv):
     global _cam_frame, _cam_proc
     while not _shutting_down.is_set():
@@ -1173,8 +1277,21 @@ def _writer_loop():
     time.sleep(1.0)
 
     global _cv_proc
-    cv_proc = _cvp.CVProcessor(denv)
-    _cv_proc = cv_proc
+    # Two processors, deliberately. The display one renders what viewers asked
+    # for and has detection switched OFF, so it starts no detector thread and
+    # can never notify -- its notifier object exists but on_promotion() is
+    # never reached. The detection one is fed only by _detect_tap_loop and is
+    # never handed a viewer's toggle. Splitting them is what makes a snapshot
+    # independent of four people arguing over one feed mode.
+    _disp_denv = dict(denv)
+    _disp_denv['CV_DETECT_ENABLED'] = '0'
+    cv_proc = _cvp.CVProcessor(_disp_denv)
+    det_holder = [_cvp.CVProcessor(denv)]
+    # Scene status/re-registration are detection concerns, so they read the
+    # detecting instance, not the one painting pictures.
+    _cv_proc = det_holder[0]
+    threading.Thread(target=_detect_tap_loop, args=(det_holder,),
+                     daemon=True).start()
     prev_mode = None
     while not _shutting_down.is_set():
         with _mode_lock:
@@ -1186,8 +1303,11 @@ def _writer_loop():
         # that made detection go stale with no update button to clear it.
         if _cv_reset_evt.is_set():
             try:
-                cv_proc = _cvp.CVProcessor(denv)
-                _cv_proc = cv_proc
+                # Reset exists to reload ONNX weights and drop stale detector
+                # state, so it rebuilds the detecting instance. The display
+                # processor has no detector to reset.
+                det_holder[0] = _cvp.CVProcessor(denv)
+                _cv_proc = det_holder[0]
                 print('broadcast-api: CV model reset (reloaded)', flush=True)
             except Exception as e:
                 print(f'broadcast-api: CV reset failed: {e}', flush=True)
@@ -1558,6 +1678,38 @@ def blur_mode_post():
     # Persisted for the same reason feed mode is: this is a privacy control,
     # and a restart must not quietly un-blur a room somebody chose to cover.
     _write_blur_mode(enabled)
+    return ('true' if enabled else 'false'), 200
+
+
+@app.route('/api/detect-always', methods=['GET'])
+def detect_always_get():
+    return ('true' if _detect_always_on() else 'false'), 200
+
+@app.route('/api/notify-video', methods=['GET'])
+def notify_video_get():
+    return ('true' if _read_notify_video() else 'false'), 200
+
+@app.route('/api/notify-video', methods=['POST'])
+def notify_video_post():
+    val = request.get_data(as_text=True).strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    _write_notify_video(val == 'true')
+    return (val), 200
+
+
+@app.route('/api/detect-always', methods=['POST'])
+def detect_always_post():
+    global _detect_always
+    val = request.get_data(as_text=True).strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    enabled = val == 'true'
+    with _detect_always_lock:
+        _detect_always = enabled
+    # Persisted like feed mode and blur: a restart must not silently stop a
+    # camera watching a room somebody asked it to watch.
+    _write_detect_always(enabled)
     return ('true' if enabled else 'false'), 200
 
 @app.route('/api/foveal-mode', methods=['GET'])
