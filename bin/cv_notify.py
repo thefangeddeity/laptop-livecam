@@ -259,7 +259,18 @@ class Notifier:
             win = self._collecting.pop(tid)
             cands = sorted(win['slots'].values(), key=lambda c: -c['score'])
             picks = []
+            # Score picks the sharpest, most confident frames -- which is
+            # exactly why it drops the one that says what happened. A subject
+            # is blurriest at the moment it is first seen, because that is when
+            # it is moving, so the arrival frame loses on score almost every
+            # time: sends were starting at t+1.0s with the entry already over.
+            # Take the earliest candidate first, unconditionally, then fill the
+            # rest by score. Best-of-six still, with the first shot in it.
+            earliest = min(win['slots'].values(), key=lambda c: c['t'])
+            picks.append(earliest)
             for c in cands:
+                if c is earliest:
+                    continue
                 if all(abs(c['t'] - p['t']) >= self.spacing_sec for p in picks):
                     picks.append(c)
                     if len(picks) == self.shots:
