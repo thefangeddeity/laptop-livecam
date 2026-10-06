@@ -216,6 +216,7 @@ start_mediamtx() {
   # already had the file, which is exactly how WebRTC stayed off after being
   # switched on.
   gen_mediamtx_yml
+  rotate_log "$LOG_DIR/mediamtx.log"
   nohup "$MEDIAMTX_BIN" "$MEDIAMTX_YML" >>"$LOG_DIR/mediamtx.log" 2>&1 &
   echo $! > "$MMTX_PID"
   echo -e "  ${G}mediamtx started${N} (pid $(cat "$MMTX_PID"))"
@@ -223,6 +224,7 @@ start_mediamtx() {
 
 start_api() {
   if pid_alive "$API_PID"; then echo "  broadcast-api already running"; return; fi
+  rotate_log "$LOG_DIR/broadcast-api.log"
   nohup "$VENV_PY" "$BIN_DIR/broadcast-api" >>"$LOG_DIR/broadcast-api.log" 2>&1 &
   echo $! > "$API_PID"
   echo -e "  ${G}broadcast-api started${N} (pid $(cat "$API_PID"))"
@@ -356,6 +358,13 @@ take_camera() {
 organism_autostarts() {
   [ -x "$ORGANISM_CLI" ] || return 1
   "$ORGANISM_CLI" --autostart 2>/dev/null | grep -qE '^autostart *: *on'
+}
+
+# The supervisor's rule (LOG_MAX_BYTES in livecam-supervisor), applied when
+# this script starts the services itself: over 8 MB, keep one generation.
+rotate_log() {
+  [ -f "$1" ] && [ "$(stat -f%z "$1")" -gt 8388608 ] && mv -f "$1" "$1.1"
+  return 0
 }
 
 cmd_yield() {
