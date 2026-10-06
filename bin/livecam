@@ -352,6 +352,12 @@ take_camera() {
   fi
 }
 
+# Asks the organism through its public command; no organism means no autostart.
+organism_autostarts() {
+  [ -x "$ORGANISM_CLI" ] || return 1
+  "$ORGANISM_CLI" --autostart 2>/dev/null | grep -qE '^autostart *: *on'
+}
+
 cmd_yield() {
   printf '{"to": "%s", "at": %s}
 ' "${1:-organism}" "$(date +%s)" > "$YIELDED"
@@ -361,12 +367,18 @@ cmd_yield() {
 
 cmd_start() {
   load_ports
-  # At login (the LaunchAgent): stay off while the organism has the camera.
+  # At login (the LaunchAgent) the livecam is the default: a yield only keeps it
+  # off while the organism's autostart is on (development). Otherwise the note
+  # is stale -- the organism declines its boot start -- so take the camera.
   # Any other start takes the camera.
   if [ "${1:-}" = "--at-login" ]; then
     if [ -f "$YIELDED" ]; then
-      echo "$(date '+%Y-%m-%d %H:%M:%S') not starting at login, $(yielded_line)"
-      return 0
+      if organism_autostarts; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') not starting at login, $(yielded_line)"
+        return 0
+      fi
+      echo "$(date '+%Y-%m-%d %H:%M:%S') starting at login: the organism's autostart is off, so its yield no longer holds"
+      take_camera
     fi
   else
     take_camera
