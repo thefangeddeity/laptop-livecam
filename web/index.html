@@ -1344,6 +1344,16 @@
     justify-content: flex-start; flex-direction: row; }
   .pinrow .rstlab { text-align: left; }
 </style>
+<script>
+  // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
+  (function () {
+    if (/[?&]full\b/.test(location.search)) return;
+    fetch('/api/is-host', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : 'false'; })
+      .then(function (t) { if (t.trim() === 'true') location.replace('/host.html'); })
+      .catch(function () {});
+  })();
+</script>
 </head>
 <body>
 
@@ -1351,7 +1361,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-74-g2722697-dirty · dev · 2722697"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-75-g07b7fe9-dirty · dev · 07b7fe9"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>

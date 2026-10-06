@@ -1344,6 +1344,16 @@
     justify-content: flex-start; flex-direction: row; }
   .pinrow .rstlab { text-align: left; }
 </style>
+<script>
+  // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
+  (function () {
+    if (/[?&]full\b/.test(location.search)) return;
+    fetch('/api/is-host', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : 'false'; })
+      .then(function (t) { if (t.trim() === 'true') location.replace('/host.html'); })
+      .catch(function () {});
+  })();
+</script>
 </head>
 <body>
 
