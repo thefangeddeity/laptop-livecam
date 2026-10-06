@@ -1769,6 +1769,18 @@
         <div class="panel-title eng">Settings</div>
         <!-- Alphabetized (requirement: alphabetize these settings) -- Disable
              buzz, Light theme, Mute server speaker/headset in RTC. -->
+        <!-- Detection/alerting runs off its own tap on the camera, not off
+             the displayed picture: Show/CV/Hide/Night are what a viewer wants
+             to look at, and four viewers in four countries share one feed
+             mode. An alert must not depend on whoever clicked last. -->
+        <div class="pinrow">
+          <button class="pinled" id="catAlertsBtn" onclick="toggleCatAlerts()"
+                  aria-pressed="false" aria-label="Cat alerts anytime"
+                  title="Detect and send alerts whatever the feed is showing -- including Hide">
+            <span class="bulb" id="catAlertsLamp"></span>
+          </button>
+          <span class="eng rstlab">Cat alerts anytime</span>
+        </div>
         <!-- Disable buzz, moved here from the AV panel. -->
         <div class="pinrow">
           <button class="pinled" id="muteBuzzBtn" onclick="toggleMute()"
@@ -1777,6 +1789,17 @@
             <span class="bulb" id="muteBuzzLamp"></span>
           </button>
           <span class="eng rstlab">Disable buzz</span>
+        </div>
+        <!-- Clip is CUT from mediamtx's rolling recording with -c copy, so it
+             costs no re-encode, and it can start BEFORE the detection -- a
+             still taken at promotion shows a cat already sitting there. -->
+        <div class="pinrow">
+          <button class="pinled" id="alertVideoBtn" onclick="toggleAlertVideo()"
+                  aria-pressed="false" aria-label="Include video in alerts"
+                  title="Attach a short clip to each alert, as well as the stills">
+            <span class="bulb" id="alertVideoLamp"></span>
+          </button>
+          <span class="eng rstlab">Include video in alerts</span>
         </div>
         <div class="pinrow">
           <button class="pinled" id="themeBtn" onclick="toggleTheme()"
@@ -2713,6 +2736,45 @@
   }
   pollBlurState();
   setInterval(pollBlurState, 5000);
+
+  // Cat alerts anytime / Include video in alerts. Same server-backed shape as
+  // Blur: the server owns the answer, this only renders and posts it, so two
+  // phones looking at the panel never disagree about what the camera is doing.
+  function mkServerToggle(id, lampId, api) {
+    var on = false;
+    var btn = document.getElementById(id);
+    function paint() {
+      if (!btn) return;
+      btn.classList.toggle('pressed', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      var lamp = document.getElementById(lampId);
+      if (lamp) lamp.classList.toggle('on', on);
+    }
+    function post(want) {
+      return fetch(api, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: want ? 'true' : 'false'
+      })
+      .then(function(r) { return r.ok ? r.text() : null; })
+      .catch(function() { return null; })
+      .then(function(v) { if (v !== null) on = v.trim() === 'true'; paint(); });
+    }
+    function poll() {
+      fetch(api, { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.text() : null; })
+        .catch(function() { return null; })
+        .then(function(v) { if (v !== null) { on = v.trim() === 'true'; paint(); } });
+    }
+    poll();
+    setInterval(poll, 5000);
+    return { toggle: function() { post(!on); } };
+  }
+
+  var catAlerts  = mkServerToggle('catAlertsBtn',  'catAlertsLamp',  '/api/detect-always');
+  var alertVideo = mkServerToggle('alertVideoBtn', 'alertVideoLamp', '/api/notify-video');
+  function toggleCatAlerts()  { catAlerts.toggle(); }
+  function toggleAlertVideo() { alertVideo.toggle(); }
 
   // Show/Hide/CV come through here; Blur no longer does -- it is
   // independent now (toggleBlur() above), not coupled to a mode switch.
