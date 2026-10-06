@@ -3148,16 +3148,12 @@
           var m = txt.match(/#EXT-X-MEDIA:[^\n]*TYPE=AUDIO[^\n]*URI="([^"]+)"/);
           if (m) uri = m[1];
         }
-        // No audio rendition: on macOS the room is its own MP3 stream
-        // (/audio, Icecast), not a track of the HLS feed.
+        // No audio rendition: on macOS the room is not a track of the
+        // camera's feed but its own path, roomaudio (Opus, the same leg a
+        // two-way call hears), which mediamtx also serves as HLS.
+        var url = uri ? HLS_URL.replace(/[^/]*$/, uri)
+                      : HLS_URL.replace('/cam/', '/roomaudio/');
         _teardownRoomHls();
-        if (!uri) {
-          roomAudio.src = window.location.origin + '/audio/room.mp3';
-          audioSrcResolved = true;
-          cb();
-          return;
-        }
-        var url = HLS_URL.replace(/[^/]*$/, uri);
         if (window.Hls && Hls.isSupported()) {
           roomHls = new Hls({
             lowLatencyMode: false, backBufferLength: 4, maxBufferLength: 8,

@@ -1487,6 +1487,15 @@ def _mic_capture_cmd(mode):
 _PCM_IN = ['-f', 's16le', '-ar', '48000', '-ac', '1', '-i', 'pipe:0']
 
 
+def _icecast_up():
+    """Is an Icecast server accepting connections on :8000?"""
+    try:
+        with socket.create_connection(('127.0.0.1', 8000), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
 def _mp3_encoder_cmd():
     """LISTEN leg: PCM -> MP3 -> Icecast."""
     return [FFMPEG, '-hide_banner', '-loglevel', 'warning', *_PCM_IN,
@@ -1537,8 +1546,14 @@ def _mic_publisher_loop():
                 stdout=subprocess.PIPE,
                 stderr=_open_ffmpeg_log())
 
-            for name, cmd in (('mp3', _mp3_encoder_cmd()),
-                              ('opus', _opus_encoder_cmd())):
+            # The MP3 leg needs an Icecast server to send to. Without one it
+            # dies on connect, every capture rebuild, with a BrokenPipe
+            # traceback each time -- so it is started only when something is
+            # listening on :8000. Listening goes over HLS (roomaudio) anyway.
+            legs = [('opus', _opus_encoder_cmd())]
+            if _icecast_up():
+                legs.insert(0, ('mp3', _mp3_encoder_cmd()))
+            for name, cmd in legs:
                 pr = subprocess.Popen(
                     cmd, stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
