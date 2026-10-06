@@ -1060,6 +1060,24 @@ def _single_session(denv):
     return (denv.get('AUDIO_SINGLE_SESSION', '0').strip()
             not in ('', '0', 'false', 'no'))
 
+def _v4l2_apply(denv, key):
+    """Set the camera's own controls from device.env: NIGHT_V4L2_CTRLS on the
+    way into Night, DAY_V4L2_CTRLS on the way out (and at start). Comma-
+    separated name=value, applied one by one in order, so auto_exposure=1
+    can come before exposure_time_absolute. Gain applied in the sensor, before
+    compression, is far cleaner than any boost applied to the picture after."""
+    dev = denv.get('VIDEO_DEVICE', '/dev/video0')
+    items = [i.strip() for i in str(denv.get(key, '')).split(',') if '=' in i]
+    for item in items:
+        try:
+            subprocess.run(['v4l2-ctl', '-d', dev, '--set-ctrl', item],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        except Exception:
+            pass
+    if items:
+        print(f'broadcast-api: camera controls {key}: {",".join(items)}', flush=True)
+
+
 def _start_cam_reader(denv):
     """Open the camera -- and, in single-session mode, the microphone too.
 
@@ -1105,12 +1123,22 @@ def _start_cam_reader(denv):
     device = denv.get('VIDEO_DEVICE', '/dev/video0')
     fr     = int(denv.get('FRAMERATE', 15))
     fmt    = denv.get('V4L2_INPUT_FMT', '-input_format mjpeg').split()[-1]
+    size   = f'{FRAME_W}x{FRAME_H}'
+    # Night may read the camera differently (NIGHT_V4L2_INPUT_FMT,
+    # NIGHT_VIDEO_SIZE): uncompressed frames keep the dark detail MJPEG throws
+    # away, at a size the camera allows uncompressed, scaled back up here.
+    with _mode_lock:
+        night = (_mode == 'night')
+    if night and str(denv.get('NIGHT_V4L2_INPUT_FMT', '')).strip():
+        fmt  = str(denv['NIGHT_V4L2_INPUT_FMT']).split()[-1]
+        size = str(denv.get('NIGHT_VIDEO_SIZE', '') or size).strip()
+    scale = [] if size == f'{FRAME_W}x{FRAME_H}' else ['-vf', f'scale={FRAME_W}:{FRAME_H}']
     a_on, a_dev, a_backend, a_kbps, a_rate, a_ch = _audio_conf(denv)
 
     cmd = [
         'ffmpeg', '-hide_banner', '-loglevel', 'error',
         '-f', 'v4l2', '-input_format', fmt,
-        '-video_size', f'{FRAME_W}x{FRAME_H}',
+        '-video_size', size,
         '-framerate', str(fr),
         '-i', device,
     ]
@@ -1118,12 +1146,12 @@ def _start_cam_reader(denv):
         sink = denv.get('AUDIO_LOOPBACK_SINK', 'hw:Loopback,0,0').strip()
         cmd += ['-thread_queue_size', '512',
                 '-f', a_backend, '-ac', a_ch, '-ar', a_rate, '-i', a_dev,
-                '-map', '0:v', '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
+                '-map', '0:v', *scale, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
                 '-map', '1:a', '-f', 'alsa', sink]
         print(f'broadcast-api: single-session capture, audio -> {sink}',
               flush=True)
     else:
-        cmd += ['-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']
+        cmd += [*scale, '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1']
     return subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, env=_pulse_env(denv))
 
@@ -1176,6 +1204,7 @@ def _writer_loop():
     cv_proc = _cvp.CVProcessor(denv)
     _cv_proc = cv_proc
     prev_mode = None
+    ctrl_mode = None   # the mode the camera's controls were last set for
     while not _shutting_down.is_set():
         with _mode_lock:
             mode = _mode
@@ -1184,6 +1213,18 @@ def _writer_loop():
         # rebuilding CVProcessor reloads the ONNX weights AND drops the stale
         # accumulated state (MOG2 history, evidence tracks, scene reference)
         # that made detection go stale with no update button to clear it.
+        if ctrl_mode is None or (mode == 'night') != (ctrl_mode == 'night'):
+            # Into or out of Night: the camera's own gain and exposure, and,
+            # when Night reads the camera differently, a fresh reader (the
+            # drain loop reopens it, in the right format for the mode).
+            _v4l2_apply(denv, 'NIGHT_V4L2_CTRLS' if mode == 'night' else 'DAY_V4L2_CTRLS')
+            if ctrl_mode is not None and str(denv.get('NIGHT_V4L2_INPUT_FMT', '')).strip():
+                try:
+                    cam_holder[0].terminate()
+                except Exception:
+                    pass
+            ctrl_mode = mode
+
         if _cv_reset_evt.is_set():
             try:
                 cv_proc = _cvp.CVProcessor(denv)
@@ -1266,6 +1307,7 @@ def _writer_loop():
             prev_mode = mode
 
             loop_cam.schedule_frame(frame_arr)
+            globals()['_last_out'] = frame_arr   # what the feed shows: /api/snapshot
 
         except Exception:
             time.sleep(0.1)
@@ -1917,6 +1959,24 @@ def dark_post():
         return ('true' if os.path.exists(DARK_FLAG) else 'false'), 200
     except Exception:
         abort(500)
+
+@app.route('/api/snapshot', methods=['POST'])
+def snapshot_post():
+    """The panel's SNAPSHOT key: send what the feed shows right now to the
+    notification chat (Telegram). What the stream shows, so Blur is kept and
+    a hidden feed sends nothing."""
+    with _mode_lock:
+        mode = _mode
+    if mode == 'hide':
+        return 'the feed is hidden', 409
+    n = getattr(_cv_proc, '_notifier', None) if _cv_proc is not None else None
+    if n is None or not n.enabled:
+        return 'notifications are not set up', 409
+    last = globals().get('_last_out')
+    if last is None:
+        return 'no picture yet', 503
+    return ('sent' if n.snapshot(np.array(last, copy=True)) else 'busy, try again'), 200
+
 
 @app.route('/api/buzz', methods=['POST'])
 def buzz_post():
