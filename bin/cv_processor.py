@@ -905,9 +905,15 @@ class CVProcessor:
         l2 = self._night_clahe.apply(l)
         return cv2.cvtColor(cv2.merge((l2, a, b)), cv2.COLOR_LAB2RGB)
 
-    def process(self, frame):
-        t = {}
-        t0 = time.perf_counter()
+    def _observe_and_publish(self, frame, t):
+        """Observation half of process(): correct, segment, publish to the
+        detection thread. Returns the corrected frame -- process() renders
+        from it, observe() throws it away.
+
+        Split out so observation can run in every feed mode. Nothing in
+        here is a display decision: it is the frame the detector has always
+        been handed, and it stops short of edges, tone and HUD, which are.
+        """
 
         if self._grid_correct:
             t_grid = time.perf_counter()
@@ -957,6 +963,29 @@ class CVProcessor:
                     else None)
         with self._detect_slot_lock:
             self._detect_slot = (frame, crop_box, self._fg_mask)
+        return frame
+
+    def observe(self, frame):
+        """Feed the detector without rendering anything.
+
+        Detection -- and the notifier hanging off it -- used to run only
+        when the *display* asked for it: broadcast-api called process() for
+        cv/night and skipped it entirely for show and hide. That tied an
+        alerting path to a viewing preference: the camera stopped watching
+        the room because somebody picked a different picture, and the
+        snapshots exist precisely for when nobody is watching the picture.
+
+        Snapshots are conditioned on detection, not on what a viewer chose.
+        This costs the observation prefix only -- no edge pass, no tone
+        curve, no HUD -- which is what made calling the full process() in
+        show/hide too expensive for a frame about to be discarded.
+        """
+        self._observe_and_publish(frame, {})
+
+    def process(self, frame):
+        t = {}
+        t0 = time.perf_counter()
+        frame = self._observe_and_publish(frame, t)
 
         # Blur discards the photo even more thoroughly than sharpie does --
         # the whole point is that nothing recognisable survives -- so it

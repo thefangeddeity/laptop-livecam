@@ -37,6 +37,8 @@ import cv2
 COCO_LABELS = {
     0:  'human',
     15: 'cat',
+    16: 'dog',          # pets are not only cats
+    14: 'bird',
 #    24: 'handbag',      # helps find lost items
 #    24: 'backpack',    # helps find lost items
 #    56: 'chair',

@@ -50,6 +50,8 @@ BROADCAST_FILE = os.path.join(STATE_DIR, "broadcast.txt")
 BUZZ_FILE      = os.path.join(STATE_DIR, "buzz.txt")
 DARK_FLAG      = os.path.join(STATE_DIR, "dark")
 LOCK_FILE      = os.path.join(STATE_DIR, "msg_lock")
+DETECT_ALWAYS_FILE = os.path.join(STATE_DIR, "detect_always")
+NOTIFY_CLASSES_FILE = os.path.join(STATE_DIR, "notify_classes")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
 GOL_COLS       = 80
@@ -230,6 +232,38 @@ _mode_lock = threading.Lock()
 # how a mode change reaches the encoder at all -- the mode decides which
 # devices ffmpeg opens, so it cannot be applied to a running process.
 _mode_generation = 0
+
+
+# -- Detection independent of what the feed is showing --
+#
+# Detection only ever ran where frames passed through Python, and in Show they
+# do not: _start_combined_av_publisher sends camera -> RTSP in one ffmpeg with
+# no frame stage at all. So alerting was a side effect of a VIEWING choice --
+# and the notifier exists precisely for when nobody is viewing.
+#
+# With this on, Show spawns the split pipeline too, but renders NOTHING: frames
+# are written through byte-for-byte and the detector is fed off the same
+# pre-render tap process() would have used. The picture a viewer gets is the
+# same plain camera as before; the difference is that the room is now watched.
+def _read_detect_always():
+    try:
+        with open(DETECT_ALWAYS_FILE) as f:
+            return f.read().strip() != 'false'
+    except Exception:
+        return True
+
+def _write_detect_always(enabled):
+    try:
+        os.makedirs(os.path.dirname(DETECT_ALWAYS_FILE), exist_ok=True)
+        with open(DETECT_ALWAYS_FILE, 'w') as f:
+            f.write('true' if enabled else 'false')
+    except Exception:
+        pass
+
+_detect_always = _read_detect_always()
+
+def _detect_always_on():
+    return _detect_always
 # Blur: a modifier on CV mode, reusing the old Cloak mode's block-art render
 # (block_art.render_cloak_vec, via CVProcessor.set_blur()) now that CV mode
 # has a real frame to put it in. Foveal Layer never grew past this same
@@ -774,6 +808,9 @@ def _read_exact_deadline(src, n, timeout):
     return bytes(buf)
 
 
+_OBSERVE_PERIOD = 1.0 / 5.0   # detection tap rate in plain Show
+
+
 def _cv_pump(src, dst, proc, first_raw=None):
     """Read raw frames from A, process, write to B. Owns neither process.
 
@@ -785,6 +822,7 @@ def _cv_pump(src, dst, proc, first_raw=None):
     nbytes = FRAME_W * FRAME_H * 3
     dropped = 0
     pending = first_raw
+    last_observe = [0.0]
     while not _cv_stop.is_set():
         if pending is not None:
             raw, pending = pending, None
@@ -794,6 +832,29 @@ def _cv_pump(src, dst, proc, first_raw=None):
                 break                  # A exited or was killed
         try:
             frame = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
+
+            # Plain Show: the viewer asked for the unaltered camera, so render
+            # nothing and write the frame through byte-for-byte. Detection
+            # still runs, throttled, off the same pre-render tap process()
+            # publishes to -- which is why the snapshot is a photo of the room
+            # and not a CV render. 5Hz is ample for a detector that runs at
+            # CV_DETECT_HZ, and it keeps the cost of watching Show near zero.
+            if _mode == 'show' and not _cv_blur_mode:
+                now = time.monotonic()
+                if now - last_observe[0] >= _OBSERVE_PERIOD:
+                    last_observe[0] = now
+                    # Foveal ON for the detector regardless of the viewer's
+                    # checkbox: it is what runs MOG2, and MOG2 is what gives
+                    # each detection its fg_consistency. The notifier's motion
+                    # gate is inert without it -- every detection reports the
+                    # neutral 1.00 and furniture alerts forever, which is the
+                    # failure tanzania had. Costs the picture nothing here:
+                    # this branch renders nothing, it writes `raw` through.
+                    proc.set_foveal(True)
+                    proc.observe(frame)
+                dst.write(raw)
+                continue
+
             proc.set_blur(_cv_blur_mode)  # re-read every frame, same as feed mode
             proc.set_foveal(_cv_foveal_mode)  # ditto -- the real gate, not a stub
             proc.set_night(_mode == 'night')  # ditto
@@ -1800,7 +1861,8 @@ def _writer_loop():
             # (the only seam with a Python frame stage) while _mode stays
             # 'show'. cv_blur_post() bumps _mode_generation on toggle so
             # this reconsiders it the same way a real mode change does.
-            if spawn_mode in ('cv', 'night') or (spawn_mode == 'show' and _cv_blur_mode):
+            if spawn_mode in ('cv', 'night') or (spawn_mode == 'show'
+                    and (_cv_blur_mode or _detect_always_on())):
                 proc = _start_cv_publisher(spawn_mode)
             else:
                 proc = _start_combined_av_publisher(spawn_mode)
@@ -2003,6 +2065,65 @@ def cv_blur_post():
         _cv_blur_mode = (want == 'true') if want in ('true', 'false') else not _cv_blur_mode
         _mode_generation += 1  # forces _writer_loop to restart the publisher
     return ('true' if _cv_blur_mode else 'false'), 200
+
+
+# Which classes raise an alert. The detector always looks for everything it
+# can name (COCO_LABELS: human, cat, dog, bird) -- narrowing THAT would mean
+# rebuilding the CVProcessor on every checkbox. This gates the notifier
+# instead, which re-reads the file per event, so a change takes effect with no
+# restart and no gap in watching.
+_ALERT_CLASSES = ('human', 'cat', 'dog', 'bird')
+
+
+def _read_notify_classes():
+    try:
+        with open(NOTIFY_CLASSES_FILE) as f:
+            picked = [c.strip().lower()
+                      for c in f.read().replace('\n', ',').split(',') if c.strip()]
+        if picked:
+            return [c for c in picked if c in _ALERT_CLASSES]
+    except Exception:
+        pass
+    return ['human', 'cat', 'dog']
+
+
+@app.route('/api/notify-classes', methods=['GET'])
+def notify_classes_get():
+    return ','.join(_read_notify_classes()), 200
+
+
+@app.route('/api/notify-classes', methods=['POST'])
+def notify_classes_post():
+    want = [c.strip().lower()
+            for c in request.get_data(as_text=True).replace('\n', ',').split(',')
+            if c.strip()]
+    picked = [c for c in want if c in _ALERT_CLASSES]
+    try:
+        os.makedirs(os.path.dirname(NOTIFY_CLASSES_FILE), exist_ok=True)
+        with open(NOTIFY_CLASSES_FILE, 'w') as f:
+            f.write(','.join(picked))
+    except Exception:
+        abort(500)
+    return ','.join(picked), 200
+
+
+@app.route('/api/detect-always', methods=['GET'])
+def detect_always_get():
+    return ('true' if _detect_always else 'false'), 200
+
+
+@app.route('/api/detect-always', methods=['POST'])
+def detect_always_post():
+    global _detect_always, _mode_generation
+    want = request.get_data(as_text=True).strip().lower()
+    with _mode_lock:
+        _detect_always = (want == 'true') if want in ('true', 'false') \
+            else not _detect_always
+        # Which publisher Show spawns depends on this, so the writer loop has
+        # to rebuild -- same reason Blur bumps it and Foveal does not.
+        _mode_generation += 1
+    _write_detect_always(_detect_always)
+    return ('true' if _detect_always else 'false'), 200
 
 
 @app.route('/api/cv-foveal-mode', methods=['GET'])
