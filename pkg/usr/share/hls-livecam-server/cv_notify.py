@@ -20,10 +20,13 @@ is the whole reason for the dependency, so nothing in here may assume the
 destination is email.
 """
 
+import json
 import os
 import queue
 import threading
 import time
+import urllib.request
+import uuid
 
 try:
     import apprise as _apprise
@@ -32,28 +35,100 @@ except Exception:      # optional dependency; absence disables notification
 
 import cv2
 
+# What the message says, per detector class.
+_LABELS = {'human': 'Person', 'person': 'Person'}
+
+
+def _label(cls):
+    return _LABELS.get(cls, cls.capitalize())
+
+
+def _sharpness(frame, box):
+    """Variance of the Laplacian over the detection's box: the standard
+    focus/blur measure. A cat mid-leap smears into a low number; a cat
+    holding still for a frame scores high."""
+    x, y, w, h = (int(v) for v in box)
+    fh, fw = frame.shape[:2]
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(fw, x + w), min(fh, y + h)
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return 0.0
+    gray = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_RGB2GRAY)
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
+
+
+def _telegram_targets(url):
+    """tgram://<token>/<chat>[/<chat>...][?...] -> (token, [chats]), else None."""
+    if not url.lower().startswith('tgram://'):
+        return None
+    path = url[len('tgram://'):].split('?', 1)[0].strip('/')
+    parts = [p for p in path.split('/') if p]
+    if len(parts) < 2:
+        return None
+    token = parts[0][3:] if parts[0].startswith('bot') else parts[0]
+    return token, parts[1:]
+
+
+def _multipart(fields, files):
+    """multipart/form-data body for Telegram's upload endpoints."""
+    boundary = uuid.uuid4().hex
+    out = []
+    for k, v in fields.items():
+        out.append(f'--{boundary}\r\nContent-Disposition: form-data; '
+                   f'name="{k}"\r\n\r\n{v}\r\n'.encode())
+    for k, (name, data) in files.items():
+        out.append(f'--{boundary}\r\nContent-Disposition: form-data; '
+                   f'name="{k}"; filename="{name}"\r\n'
+                   f'Content-Type: image/jpeg\r\n\r\n'.encode() + data + b'\r\n')
+    out.append(f'--{boundary}--\r\n'.encode())
+    return b''.join(out), f'multipart/form-data; boundary={boundary}'
+
 
 class Notifier:
     """Queue-and-forget notifier keyed on track promotion.
 
-    Construct once and keep. send() never blocks the caller for longer than
-    a queue put on a bounded queue, which is O(1) and never waits because
-    the queue is non-blocking.
+    A promotion opens a short WINDOW for that track. on_promotion() is called
+    for every promoted track on every detection cycle, so each call during
+    the window offers the current frame as a candidate snapshot; the best
+    one per sub-slot is kept. When the window closes, the best SHOTS frames
+    at least SPACING apart are sent together with one line of text.
+
+    Why several and why apart (the defaults are starting points to measure
+    against, not findings): if one snapshot is usable with probability p,
+    N independent ones give 1-(1-p)^N -- at p=0.5, three give 88% -- but
+    only if they ARE independent, and frames a few hundred ms apart are the
+    same pose and the same blur. Choosing by score rather than by clock
+    raises p itself. Each sent frame's score is logged so the numbers can
+    be tuned from real sightings.
+
+    Construct once and keep. Nothing here blocks the frame path for longer
+    than a frame copy; encoding and sending run on the worker thread.
     """
 
     def __init__(self, urls=None, classes=('human',), cooldown_sec=300,
                  enabled=False, snapshot_dir=None, queue_size=8,
-                 log=None):
-        self.enabled = bool(enabled) and _apprise is not None and bool(urls)
+                 log=None, shots=3, window_sec=6.0, spacing_sec=1.5):
+        self.enabled = bool(enabled) and bool(urls) and (
+            _apprise is not None or all(_telegram_targets(u) for u in urls))
         self.urls = [u.strip() for u in (urls or []) if u.strip()]
         self.classes = {c.strip().lower() for c in classes if c.strip()}
         self.cooldown_sec = float(cooldown_sec)
+        self.shots = max(1, int(shots))
+        self.window_sec = max(0.0, float(window_sec))
+        self.spacing_sec = max(0.0, float(spacing_sec))
+        # Candidate slots a third of the spacing wide: the best frame per
+        # slot is all that is kept, so memory is bounded by window/slot
+        # frames, and the greedy pick below still has choices near every
+        # spacing boundary.
+        self._slot_sec = max(0.1, self.spacing_sec / 3.0)
         self.snapshot_dir = snapshot_dir or '/tmp'
         self._log = log or (lambda msg: None)
 
         self._q = queue.Queue(maxsize=int(queue_size))
+        self._lock = threading.Lock()
         self._last_sent = {}        # class -> monotonic timestamp
         self._notified_tracks = set()
+        self._collecting = {}       # track_id -> open window
         self._thread = None
         self._stopping = threading.Event()
 
@@ -62,58 +137,86 @@ class Notifier:
             self._thread.start()
             self._log(f"notify: enabled, {len(self.urls)} destination(s), "
                       f"classes={sorted(self.classes)}, "
+                      f"{self.shots} shot(s) from {self.window_sec:g}s, "
+                      f">= {self.spacing_sec:g}s apart, "
                       f"cooldown={self.cooldown_sec:.0f}s")
-        elif urls and _apprise is None:
+        elif urls and not self.enabled:
             self._log("notify: apprise not installed; notifications disabled")
 
-    # ── called from the frame path; must stay cheap ─────────────────────
+    # ── called from the detection thread; must stay cheap ───────────────
     def on_promotion(self, track, frame):
-        """A track just crossed the promotion threshold.
-
-        Returns True if a notification was enqueued. Snapshots by reference
-        only -- the copy happens here because the caller reuses its buffer,
-        but encoding and sending do not.
-        """
+        """A promoted track, this detection cycle. Returns True if this call
+        opened a new notification window."""
         if not self.enabled:
             return False
         cls = (track.cls or '').lower()
         if cls not in self.classes:
             return False
-        # One notification per track, ever. A track that is promoted, decays
-        # below threshold and re-promotes is the same animal in the same
-        # visit, not a second event.
-        if track.track_id in self._notified_tracks:
-            return False
-
         now = time.monotonic()
-        last = self._last_sent.get(cls)
-        if last is not None and (now - last) < self.cooldown_sec:
-            # Cooldown is per class, and is what stops a cat that settles in
-            # and gets repeatedly re-promoted from sending forty emails.
+        with self._lock:
+            win = self._collecting.get(track.track_id)
+            if win is not None:
+                self._offer(win, track, frame, now)
+                self._close_expired(now)
+                return False
+            self._close_expired(now)
+            # One notification per track, ever: a track that decays and
+            # re-promotes is the same animal on the same visit.
+            if track.track_id in self._notified_tracks:
+                return False
+            last = self._last_sent.get(cls)
+            if last is not None and (now - last) < self.cooldown_sec:
+                # Per class: a cat that settles in and keeps re-promoting
+                # does not send forty messages.
+                self._notified_tracks.add(track.track_id)
+                return False
+            self._last_sent[cls] = now
             self._notified_tracks.add(track.track_id)
-            return False
+            win = {'cls': cls, 'track_id': track.track_id, 'start': now,
+                   'wall': time.time(), 'slots': {}}
+            self._collecting[track.track_id] = win
+            self._offer(win, track, frame, now)
+            if self.window_sec == 0:
+                self._close_expired(now + 1.0)
+            return True
 
-        try:
-            self._q.put_nowait({
-                'cls': cls,
-                'track_id': track.track_id,
-                'confidence': float(track.confidence),
-                'evidence': float(getattr(track, 'evidence', 0.0)),
-                'when': time.time(),
-                'frame': frame.copy(),
-            })
-        except queue.Full:
-            # Dropping is correct: the frame path must never wait on the
-            # notifier, and a queued backlog of old sightings has no value.
-            self._log("notify: queue full, dropped a notification")
-            return False
+    def _offer(self, win, track, frame, now):
+        t = now - win['start']
+        if t > self.window_sec:
+            return
+        conf = float(track.confidence)
+        sharp = _sharpness(frame, track.box)
+        score = conf * sharp
+        slot = int(t / self._slot_sec)
+        best = win['slots'].get(slot)
+        if best is None or score > best['score']:
+            win['slots'][slot] = {'score': score, 't': t, 'conf': conf,
+                                  'sharp': sharp, 'frame': frame.copy()}
 
-        self._last_sent[cls] = now
-        self._notified_tracks.add(track.track_id)
-        return True
+    def _close_expired(self, now):
+        """Caller holds the lock. Closes every window past its end."""
+        for tid in [tid for tid, w in self._collecting.items()
+                    if now - w['start'] > self.window_sec]:
+            win = self._collecting.pop(tid)
+            cands = sorted(win['slots'].values(), key=lambda c: -c['score'])
+            picks = []
+            for c in cands:
+                if all(abs(c['t'] - p['t']) >= self.spacing_sec for p in picks):
+                    picks.append(c)
+                    if len(picks) == self.shots:
+                        break
+            picks.sort(key=lambda c: c['t'])
+            if not picks:
+                continue
+            try:
+                self._q.put_nowait({'cls': win['cls'], 'track_id': tid,
+                                    'when': win['wall'], 'picks': picks})
+            except queue.Full:
+                self._log("notify: queue full, dropped a notification")
 
     def forget_track(self, track_id):
-        self._notified_tracks.discard(track_id)
+        with self._lock:
+            self._notified_tracks.discard(track_id)
 
     def close(self):
         self._stopping.set()
@@ -124,6 +227,10 @@ class Notifier:
             try:
                 item = self._q.get(timeout=1.0)
             except queue.Empty:
+                # A window whose track stopped being promoted gets no more
+                # calls; close it from here.
+                with self._lock:
+                    self._close_expired(time.monotonic())
                 continue
             try:
                 self._send(item)
@@ -135,41 +242,85 @@ class Notifier:
                 self._q.task_done()
 
     def _send(self, item):
-        path = os.path.join(
-            self.snapshot_dir,
-            f"livecam-{item['cls']}-{int(item['when'])}-{item['track_id']}.jpg")
-        wrote = False
+        text = f"{_label(item['cls'])} detected"
+        paths, jpegs = [], []
         try:
-            # The snapshot is the original feed, not the sharpie or CV
-            # render. This is evidence for a person to look at, not input to
-            # a machine, and a line drawing of a cat proves nothing.
-            bgr = cv2.cvtColor(item['frame'], cv2.COLOR_RGB2BGR)
-            wrote = cv2.imwrite(path, bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+            for i, p in enumerate(item['picks']):
+                # The snapshot is the original feed, not the sharpie or CV
+                # render: evidence for a person to look at.
+                bgr = cv2.cvtColor(p['frame'], cv2.COLOR_RGB2BGR)
+                ok, buf = cv2.imencode('.jpg', bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+                if not ok:
+                    continue
+                jpegs.append(buf.tobytes())
+                path = os.path.join(
+                    self.snapshot_dir,
+                    f"livecam-{item['cls']}-{int(item['when'])}-{item['track_id']}-{i}.jpg")
+                with open(path, 'wb') as f:
+                    f.write(jpegs[-1])
+                paths.append(path)
 
-            ap = _apprise.Apprise()
+            results = []
+            other = []
             for u in self.urls:
-                ap.add(u)
-
-            stamp = time.strftime('%Y-%m-%d %H:%M:%S',
-                                  time.localtime(item['when']))
-            title = f"Livecam: {item['cls']} detected"
-            body = (f"{item['cls']} detected at {stamp}\n"
-                    f"track {item['track_id']}, "
-                    f"confidence {item['confidence']*100:.0f}%, "
-                    f"evidence {item['evidence']:.2f}")
-
-            ok = ap.notify(title=title, body=body,
-                           attach=path if wrote else None)
-            self._log(f"notify: {item['cls']} track {item['track_id']} "
-                      f"{'sent' if ok else 'FAILED'}")
+                tg = _telegram_targets(u)
+                if tg:
+                    for chat in tg[1]:
+                        results.append(self._send_telegram(tg[0], chat, text, jpegs))
+                else:
+                    other.append(u)
+            if other and _apprise is not None:
+                ap = _apprise.Apprise()
+                for u in other:
+                    ap.add(u)
+                stamp = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(item['when']))
+                results.append(ap.notify(title=text, body=f"{text} at {stamp}",
+                                         attach=paths or None))
+            scores = ', '.join(f"t+{p['t']:.1f}s conf {p['conf']:.2f} sharp {p['sharp']:.0f}"
+                               for p in item['picks'])
+            self._log(f"notify: {item['cls']} track {item['track_id']}, "
+                      f"{len(jpegs)} shot(s) [{scores}] "
+                      f"{'sent' if results and all(results) else 'FAILED'}")
         finally:
             # Snapshots are transient by design -- recording is a separate
-            # concern with its own retention budget. Clean up either way.
-            if wrote:
+            # concern with its own retention budget.
+            for path in paths:
                 try:
                     os.unlink(path)
                 except Exception:
                     pass
+
+    def _send_telegram(self, token, chat, text, jpegs):
+        """One message: the text as the caption of a photo, or of the first
+        photo of an album (sendMediaGroup) when there are several."""
+        if not jpegs:
+            body = json.dumps({'chat_id': chat, 'text': text}).encode()
+            req = urllib.request.Request(
+                f'https://api.telegram.org/bot{token}/sendMessage', data=body,
+                headers={'Content-Type': 'application/json'})
+        elif len(jpegs) == 1:
+            body, ctype = _multipart({'chat_id': chat, 'caption': text},
+                                     {'photo': ('snapshot.jpg', jpegs[0])})
+            req = urllib.request.Request(
+                f'https://api.telegram.org/bot{token}/sendPhoto', data=body,
+                headers={'Content-Type': ctype})
+        else:
+            media = [dict({'type': 'photo', 'media': f'attach://p{i}'},
+                          **({'caption': text} if i == 0 else {}))
+                     for i in range(len(jpegs))]
+            body, ctype = _multipart(
+                {'chat_id': chat, 'media': json.dumps(media)},
+                {f'p{i}': (f'p{i}.jpg', j) for i, j in enumerate(jpegs)})
+            req = urllib.request.Request(
+                f'https://api.telegram.org/bot{token}/sendMediaGroup', data=body,
+                headers={'Content-Type': ctype})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                return bool(json.loads(r.read().decode()).get('ok'))
+        except Exception as exc:
+            # The URL holds the token: report the failure, never the request.
+            self._log(f"notify: telegram send failed: {type(exc).__name__}")
+            return False
 
 
 def make_notifier(denv, log=None):
@@ -201,5 +352,14 @@ def make_notifier(denv, log=None):
     except ValueError:
         cooldown = 300.0
 
+    def _num(key, default):
+        try:
+            return float(_get(key, str(default)))
+        except ValueError:
+            return float(default)
+
     return Notifier(urls=urls, classes=classes, cooldown_sec=cooldown,
-                    enabled=enabled, log=log)
+                    enabled=enabled, log=log,
+                    shots=int(_num('NOTIFY_SHOTS', 3)),
+                    window_sec=_num('NOTIFY_WINDOW_SEC', 6.0),
+                    spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5))
