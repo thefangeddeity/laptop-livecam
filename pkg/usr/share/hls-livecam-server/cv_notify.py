@@ -25,6 +25,7 @@ import os
 import queue
 import threading
 import time
+import urllib.error
 import urllib.request
 import uuid
 
@@ -140,7 +141,7 @@ class Notifier:
                       f"{self.shots} shot(s) from {self.window_sec:g}s, "
                       f">= {self.spacing_sec:g}s apart, "
                       f"cooldown={self.cooldown_sec:.0f}s")
-        elif urls and not self.enabled:
+        elif enabled and urls and not self.enabled:
             self._log("notify: apprise not installed; notifications disabled")
 
     # ── called from the detection thread; must stay cheap ───────────────
@@ -317,8 +318,16 @@ class Notifier:
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return bool(json.loads(r.read().decode()).get('ok'))
+        except urllib.error.HTTPError as exc:
+            # The URL holds the token: report Telegram's own reason (error
+            # code and description, which never echo it), never the request.
+            try:
+                why = json.loads(exc.read().decode()).get('description', '')
+            except Exception:
+                why = ''
+            self._log(f"notify: telegram send failed: HTTP {exc.code} {why}".rstrip())
+            return False
         except Exception as exc:
-            # The URL holds the token: report the failure, never the request.
             self._log(f"notify: telegram send failed: {type(exc).__name__}")
             return False
 
