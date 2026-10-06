@@ -135,6 +135,7 @@ class Notifier:
         self._last_sent = {}        # class -> monotonic timestamp
         self._notified_tracks = set()
         self._collecting = {}       # track_id -> open window
+        self._chat_moves = {}       # telegram chat id -> the id it moved to
         self._thread = None
         self._stopping = threading.Event()
 
@@ -296,9 +297,10 @@ class Notifier:
                 except Exception:
                     pass
 
-    def _send_telegram(self, token, chat, text, jpegs):
+    def _send_telegram(self, token, chat, text, jpegs, _retry=True):
         """One message: the text as the caption of a photo, or of the first
         photo of an album (sendMediaGroup) when there are several."""
+        chat = self._chat_moves.get(chat, chat)
         if not jpegs:
             body = json.dumps({'chat_id': chat, 'text': text}).encode()
             req = urllib.request.Request(
@@ -327,9 +329,18 @@ class Notifier:
             # The URL holds the token: report Telegram's own reason (error
             # code and description, which never echo it), never the request.
             try:
-                why = json.loads(exc.read().decode()).get('description', '')
+                err = json.loads(exc.read().decode())
             except Exception:
-                why = ''
+                err = {}
+            why = err.get('description', '')
+            # A group that becomes a supergroup gets a new id, and Telegram
+            # says which: follow it now, and say what to put in the URL file.
+            moved = (err.get('parameters') or {}).get('migrate_to_chat_id')
+            if moved and _retry:
+                self._chat_moves[chat] = str(moved)
+                self._log(f"notify: telegram chat {chat} moved to {moved} "
+                          f"(supergroup) -- sending there; update notify.urls")
+                return self._send_telegram(token, str(moved), text, jpegs, _retry=False)
             self._log(f"notify: telegram send failed: HTTP {exc.code} {why}".rstrip())
             return False
         except Exception as exc:
