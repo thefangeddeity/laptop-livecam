@@ -808,7 +808,10 @@ def _read_exact_deadline(src, n, timeout):
     return bytes(buf)
 
 
-_OBSERVE_PERIOD = 1.0 / 5.0   # detection tap rate in plain Show
+_OBSERVE_PERIOD = 1.0 / 5.0   # detection tap rate in plain Show / Hide
+# Hide publishes this instead of the camera. Allocated once: it is written
+# every frame, and a fresh 2.7MB of zeros per frame is pure waste.
+_BLACK_FRAME = (b'\x00' * (FRAME_W * FRAME_H * 3))
 
 
 def _cv_pump(src, dst, proc, first_raw=None):
@@ -839,6 +842,21 @@ def _cv_pump(src, dst, proc, first_raw=None):
             # publishes to -- which is why the snapshot is a photo of the room
             # and not a CV render. 5Hz is ample for a detector that runs at
             # CV_DETECT_HZ, and it keeps the cost of watching Show near zero.
+            # Hide means "do not show me the picture", not "stop watching the
+            # room" -- both cameras are in one house and the people in it are
+            # not hiding from each other. So publish black and keep the
+            # detector fed, which is what the Linux node has always done. The
+            # camera stays open; that is the cost of watching anything at all.
+            if _mode == 'hide':
+                now = time.monotonic()
+                if now - last_observe[0] >= _OBSERVE_PERIOD:
+                    last_observe[0] = now
+                    proc.set_foveal(True)
+                    proc.set_motion_alerts('motion' in _read_notify_classes())
+                    proc.observe(frame)
+                dst.write(_BLACK_FRAME)
+                continue
+
             if _mode == 'show' and not _cv_blur_mode:
                 now = time.monotonic()
                 if now - last_observe[0] >= _OBSERVE_PERIOD:
@@ -851,10 +869,12 @@ def _cv_pump(src, dst, proc, first_raw=None):
                     # failure tanzania had. Costs the picture nothing here:
                     # this branch renders nothing, it writes `raw` through.
                     proc.set_foveal(True)
+                    proc.set_motion_alerts('motion' in _read_notify_classes())
                     proc.observe(frame)
                 dst.write(raw)
                 continue
 
+            proc.set_motion_alerts('motion' in _read_notify_classes())
             proc.set_blur(_cv_blur_mode)  # re-read every frame, same as feed mode
             proc.set_foveal(_cv_foveal_mode)  # ditto -- the real gate, not a stub
             proc.set_night(_mode == 'night')  # ditto
@@ -955,7 +975,16 @@ def _start_cv_publisher(mode='cv'):
     rtsp_url = f'rtsp://127.0.0.1:{rtsp_port}/cam'
 
     import cv_processor as _cvp
-    proc = _cvp.CVProcessor(_cfg)
+    # Detection off means off -- in every mode, not just Show. Show already
+    # answers to this by spawning the combined publisher instead of the split
+    # pipeline, but CV and Night build a processor regardless, and a processor
+    # with a detector runs one. Build it blind instead, so the switch stops
+    # the work rather than only the alerts. Toggling bumps _mode_generation,
+    # which rebuilds the publisher, so it takes effect immediately.
+    _proc_cfg = dict(_cfg)
+    if not _detect_always_on():
+        _proc_cfg['CV_DETECT_ENABLED'] = '0'
+    proc = _cvp.CVProcessor(_proc_cfg)
     _cv_proc_instance = proc
 
     a = subprocess.Popen([
@@ -1050,6 +1079,14 @@ def _stop_cv_publisher():
         try: _kill_hard(pr)
         except Exception: pass
     _cv_procs[:] = []
+    # Drop the reference AND retire its detector thread. Dropping alone left
+    # the daemon running on a stale frame, which is what made "detection off"
+    # keep producing detections.
+    try:
+        if _cv_proc_instance is not None:
+            _cv_proc_instance.stop()
+    except Exception:
+        pass
     _cv_proc_instance = None
     # _kill_hard() waits for the OS process to exit, but CoreAudio's release
     # of the microphone lags a moment behind that -- observed live as the
@@ -1861,7 +1898,8 @@ def _writer_loop():
             # (the only seam with a Python frame stage) while _mode stays
             # 'show'. cv_blur_post() bumps _mode_generation on toggle so
             # this reconsiders it the same way a real mode change does.
-            if spawn_mode in ('cv', 'night') or (spawn_mode == 'show'
+            if spawn_mode in ('cv', 'night') or (
+                    spawn_mode in ('show', 'hide')
                     and (_cv_blur_mode or _detect_always_on())):
                 proc = _start_cv_publisher(spawn_mode)
             else:
@@ -2072,19 +2110,55 @@ def cv_blur_post():
 # rebuilding the CVProcessor on every checkbox. This gates the notifier
 # instead, which re-reads the file per event, so a change takes effect with no
 # restart and no gap in watching.
-_ALERT_CLASSES = ('human', 'cat', 'dog', 'bird')
+# What the model can name, plus two selections that are not COCO classes:
+#   living  -- every animate class at once, so adding a species later does not
+#              mean re-ticking a box on every node
+#   motion  -- no model at all: MotionDetector turns moving regions into boxes
+#              labelled 'motion'. Catches what YOLO has no word for, at the
+#              cost of calling a curtain a visitor.
+_LIVING_CLASSES = ('human', 'cat', 'dog', 'bird')
+_ALERT_CLASSES = _LIVING_CLASSES + ('living', 'motion')
+
+
+def _expand_classes(picked):
+    """'living' stands for every animate class; keep it in the stored value so
+    the choice survives a future species being added."""
+    out = list(picked)
+    if 'living' in out:
+        for c in _LIVING_CLASSES:
+            if c not in out:
+                out.append(c)
+    return out
 
 
 def _read_notify_classes():
+    # A PRESENT-but-empty file means the operator unticked everything, and
+    # that has to mean none. Treating empty as "fall back to the default" --
+    # which this did -- turned "alert me about nothing" into "alert me about
+    # everything", silently, which is the worst possible direction for a
+    # mistake like that to go. Only a MISSING file means never configured.
     try:
         with open(NOTIFY_CLASSES_FILE) as f:
-            picked = [c.strip().lower()
-                      for c in f.read().replace('\n', ',').split(',') if c.strip()]
-        if picked:
-            return [c for c in picked if c in _ALERT_CLASSES]
+            raw = f.read()
     except Exception:
-        pass
-    return ['human', 'cat', 'dog']
+        return ['human', 'cat', 'dog']
+    picked = [c.strip().lower() for c in raw.replace('\n', ',').split(',') if c.strip()]
+    return _expand_classes([c for c in picked if c in _ALERT_CLASSES])
+
+
+@app.route('/api/hide-stops-detection', methods=['GET'])
+def hide_stops_detection_get():
+    """Does Hide stop detection on THIS node? No -- not any more.
+
+    Hide used to publish generated black from lavfi without opening the camera
+    at all, which put the indicator light out but also meant nothing could be
+    watched. Both cameras are in one house; Hide means "do not show me the
+    picture", not "stop watching the room". It now publishes black from the
+    split pipeline while the camera keeps running, matching the Linux node, so
+    the answer here is false on both and the viewer's stalled-detection lamp
+    never fires.
+    """
+    return 'false', 200
 
 
 @app.route('/api/notify-classes', methods=['GET'])
@@ -2104,7 +2178,10 @@ def notify_classes_post():
             f.write(','.join(picked))
     except Exception:
         abort(500)
-    return ','.join(picked), 200
+    # Return the same answer GET would give, expansion included. Returning the
+    # raw selection instead made the panel paint one thing on click and
+    # another on its next poll.
+    return ','.join(_read_notify_classes()), 200
 
 
 @app.route('/api/detect-always', methods=['GET'])
@@ -2123,6 +2200,14 @@ def detect_always_post():
         # to rebuild -- same reason Blur bumps it and Foveal does not.
         _mode_generation += 1
     _write_detect_always(_detect_always)
+    # Hide does not dim the picture here, it CLOSES the camera and publishes
+    # generated black (indicator light out, mic shut). Nothing can be detected
+    # through that, so switching detection on while hidden would be a control
+    # that silently does nothing. Open the camera instead.
+    # Deliberately does NOT force the camera open. Hide is a privacy control,
+    # and a background feature that silently overrides one is not a feature,
+    # it is a bug with a nice name -- the viewer is told the consequence
+    # instead (see /api/hide-stops-detection) and decides for itself.
     return ('true' if _detect_always else 'false'), 200
 
 

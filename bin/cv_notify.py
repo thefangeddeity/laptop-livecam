@@ -308,8 +308,10 @@ class Notifier:
                 picked = {c.strip().lower()
                           for c in f.read().replace('\n', ',').split(',')
                           if c.strip()}
-            if picked:
-                return picked
+            # An empty file is a CHOICE (every box unticked), not an absence,
+            # so it must silence the notifier rather than fall through to the
+            # configured default. Only an unreadable/missing file falls back.
+            return picked
         except Exception:
             pass
         return self.classes
