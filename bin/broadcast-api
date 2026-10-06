@@ -370,7 +370,7 @@ def _mic_chain(for_rtc=False):
             hp_stages = 1
         chain.extend([f'highpass=f={hp}'] * hp_stages)
 
-    # Ceiling cut (dev: "LP slope should also be there" -- Tanzania parity).
+    # Ceiling cut (requirement: "LP slope should also be there" -- Tanzania parity).
     # Ariana never had a low-pass at all until now: HF hiss was this room's
     # loudest octave before any treatment, so the top shoulder had exactly
     # the same single-section weakness the bottom one did before cascading.
@@ -816,6 +816,53 @@ def _cv_pump(src, dst, proc, first_raw=None):
                 break
 
 
+def _mic_input_args(audio_idx):
+    """Input args for the capture encoder's audio leg: the real mic if it can
+    be opened, silence if it cannot.
+
+    The mic is NOT exclusively ours. The roomaudio leg captures the same
+    device through CoreAudio (SoX), and this encoder asks AVFoundation for it
+    at the same time. Two capture clients on one device is the failure this
+    tree already documents for the camera, and on ariana it shows up as
+        [in#1] audio format is not supported
+        Error opening input file :Built-in Microphone.
+    -- on input #1, which kills the WHOLE command, including input #0, which
+    is the picture. That is how a microphone conflict became "the camera is
+    broken": video died at 03:14 and the capture spun relaunching for hours
+    while the camera itself was healthy (VDCAssistant logged FrameCompleted=93
+    on the legs being discarded).
+
+    So probe first and degrade on purpose. An audio fault must cost the audio
+    track, never the video track. When the mic is free this is a 1s no-op and
+    behaviour is unchanged; when it is not, the family still sees the room.
+    """
+    mic = ['-f', 'avfoundation', '-thread_queue_size', '1024',
+           '-i', f':{audio_idx}']
+    try:
+        probe = subprocess.run(
+            [FFMPEG, '-hide_banner', '-loglevel', 'error',
+             '-f', 'avfoundation', '-i', f':{audio_idx}',
+             '-t', '1', '-f', 'null', '-'],
+            stdin=subprocess.DEVNULL, capture_output=True, timeout=15)
+        err = (probe.stderr or b'').decode('utf-8', 'replace')
+        if probe.returncode == 0 and 'not supported' not in err:
+            return mic
+        print('broadcast-api: microphone unavailable to the capture encoder '
+              '(%s); publishing a silent audio track so the picture stays up'
+              % (err.strip().splitlines()[-1] if err.strip() else
+                 'rc=%s' % probe.returncode),
+              file=sys.stderr, flush=True)
+    except Exception as exc:
+        print('broadcast-api: microphone probe failed (%s); publishing a '
+              'silent audio track' % type(exc).__name__,
+              file=sys.stderr, flush=True)
+    # Silence, generated rather than captured. Still a real 48k stereo track,
+    # so the muxer, the AAC encoder and every downstream reader see exactly
+    # the stream shape they saw before.
+    return ['-f', 'lavfi',
+            '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000']
+
+
 def _start_cv_publisher(mode='cv'):
     """Camera -> CVProcessor -> RTSP, with the microphone joined at the muxer."""
     global _cv_thread, _cv_proc_instance
@@ -904,8 +951,7 @@ def _start_cv_publisher(mode='cv'):
         '-s', f'{FRAME_W}x{FRAME_H}', '-framerate', str(fr),
         '-use_wallclock_as_timestamps', '1',
         '-i', 'pipe:0',
-        '-f', 'avfoundation', '-thread_queue_size', '1024',
-        '-i', f':{audio_idx}',
+        *_mic_input_args(audio_idx),
         '-map', '0:v:0', '-map', '1:a:0',
         '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
         '-vf', 'format=yuv420p', '-profile:v', 'high', '-level', '4.0',
@@ -913,7 +959,15 @@ def _start_cv_publisher(mode='cv'):
         '-c:a', 'aac', '-b:a', '96k',
         *audio_filter_args(),
         '-rtsp_transport', 'tcp', '-f', 'rtsp', rtsp_url,
-        *_roomaudio_output('1:a:0', audio_filter_args()),
+        # NO second output here: roomaudio is published by its own leg (the
+        # SoX -> libopus publisher), and two publishers on one mediamtx path
+        # means mediamtx evicts one of them -- 289 "closing existing
+        # publisher" lines in this node's log, 15 in the last 200. Eviction
+        # breaks this process's output pipe, and because ONE ffmpeg carries
+        # both outputs, the broken audio output killed the video output with
+        # it. That is the cascade that left the family stream 404 for hours
+        # while the camera was healthy. The picture must not depend on an
+        # audio path it does not need.
     ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
        stderr=_open_ffmpeg_log(), bufsize=0)
 
@@ -1750,6 +1804,29 @@ def _writer_loop():
                 proc = _start_cv_publisher(spawn_mode)
             else:
                 proc = _start_combined_av_publisher(spawn_mode)
+
+            # _start_cv_publisher() returns None by design when the camera leg
+            # misses the first-frame gate -- it has already killed the leg and
+            # cleared _cv_proc_instance, so there is nothing to adopt. The code
+            # below assigned that None straight into _cam_proc/_pub_proc and
+            # then called .poll() on it, which raised
+            #   'NoneType' object has no attribute 'poll'
+            # into the generic handler below. That handler assumes a half-built
+            # pipeline and tears down, so a slow first frame turned into an
+            # endless spawn/crash/teardown spin with the stream 404 the whole
+            # time -- which is exactly how ariana lost video at 03:14 while the
+            # camera itself was healthy (VDCAssistant logged FrameCompleted=93
+            # on the very legs this was discarding). A missed gate is a retry,
+            # not an exception.
+            if proc is None:
+                _set_capture_state('fail',
+                                   'camera leg never delivered a frame; retrying')
+                print('broadcast-api: capture start returned no publisher '
+                      '(camera leg never delivered a frame); retrying',
+                      file=sys.stderr, flush=True)
+                time.sleep(2.0)
+                continue
+
             _cam_proc = proc
             _pub_proc = proc
 
@@ -2086,6 +2163,52 @@ def _tcp_open(port, timeout=0.5):
             return True
     except Exception:
         return False
+
+
+@app.route('/hls/<path:subpath>')
+def hls_proxy(subpath):
+    """Serve mediamtx's HLS under this origin.
+
+    The viewer asks for `window.location.origin + '/hls/cam/index.m3u8'`, which
+    on the Linux node nginx proxies to mediamtx. ariana has no nginx, and had no
+    equivalent route, so every browser hitting this node's viewer got a 404 for
+    the stream while mediamtx was serving it perfectly on :8888. Same origin
+    matters beyond tidiness: it keeps the player clear of CORS, and it is what
+    lets the page work over whatever host the phone used to reach it.
+
+    Streamed, not buffered: a segment is megabytes and must not be read into
+    memory before the first byte reaches the player.
+    """
+    import urllib.request as _u
+    import urllib.error as _ue
+    url = f'http://127.0.0.1:{HLS_PORT}/{subpath}'
+    try:
+        up = _u.urlopen(url, timeout=10)
+    except _ue.HTTPError as exc:
+        return ('', exc.code)
+    except Exception:
+        return ('', 502)
+
+    ctype = up.headers.get('Content-Type', 'application/octet-stream')
+
+    def _pump():
+        try:
+            while True:
+                chunk = up.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            try:
+                up.close()
+            except Exception:
+                pass
+
+    resp = Response(_pump(), content_type=ctype)
+    # A live playlist that gets cached is a stream that stops advancing.
+    resp.headers['Cache-Control'] = 'no-store'
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
 
 
 def _hls_audio_state():
