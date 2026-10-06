@@ -9,7 +9,7 @@ with `deploy-local.sh`, so the package version does not describe what runs.
 
 | Live path | Repo path | Commit |
 |---|---|---|
-| /var/www/hls-livecam/index.html | pkg/usr/share/hls-livecam-server/index.html | 034829c (2026-09-11, index.html: flag NATIVE fallback in the HLS status text) |
+| /var/www/hls-livecam/index.html | pkg/usr/share/hls-livecam-server/index.html | 034829c, plus the Video panel moved above Audio (2026-10-05, also on main); (2026-09-11, index.html: flag NATIVE fallback in the HLS status text) |
 | /usr/local/bin/broadcast-api | pkg/usr/local/bin/broadcast-api | 50b06ad (2026-09-10, Tanzania: cascaded low-pass stages, and document the not-live-reloadable trap) |
 | /etc/nginx/conf.d/hls-livecam.conf | pkg/etc/nginx/conf.d/hls-livecam.conf | b413989 (2026-09-07, Tanzania: port Ariana's audio/UI parity — true two-way (RTC), split graph, global reset) |
 | /usr/local/bin/camdash | pkg/usr/local/bin/camdash | e7ec59c (2026-08-25, Scene registration leaves the livecam panel; camdash reports room audio) |
