@@ -21,6 +21,7 @@ destination is email.
 """
 
 import glob
+import math
 import json
 import subprocess
 import os
@@ -245,7 +246,19 @@ class Notifier:
             return
         conf = float(track.confidence)
         sharp = _sharpness(frame, track.box)
-        score = conf * sharp
+        # conf * sqrt(sharp), not conf * sharp.
+        #
+        # Sharpness is a VARIANCE (of the Laplacian), so its spread dwarfs a
+        # probability's: measured here, confidence runs 0.35-0.91 while
+        # sharpness runs 19-825. Multiplied raw, the score is sharpness with a
+        # rounding error attached -- conf 0.35/sharp 800 (280) beat conf
+        # 0.91/sharp 200 (182), so the marginal detection won for being crisp.
+        # That was survivable across three shots; as the ONE picture sent it
+        # is not, because low confidence usually means the subject is
+        # half-occluded or leaving frame, which is the worst single picture to
+        # pick. The square root puts sharpness on a standard-deviation scale,
+        # comparable to a probability, so both terms actually count.
+        score = conf * math.sqrt(max(0.0, sharp))
         slot = int(t / self._slot_sec)
         best = win['slots'].get(slot)
         if best is None or score > best['score']:
@@ -266,10 +279,18 @@ class Notifier:
             # time: sends were starting at t+1.0s with the entry already over.
             # Take the earliest candidate first, unconditionally, then fill the
             # rest by score. Best-of-six still, with the first shot in it.
-            earliest = min(win['slots'].values(), key=lambda c: c['t'])
-            picks.append(earliest)
+            # The arrival frame is reserved only when there is room for more
+            # than one shot. At shots=1 "best of six" has to mean the best
+            # one, or the setting is lying: the arrival frame is reliably the
+            # blurriest in the window (it is the moment the subject was
+            # moving), so forcing it here would hand over the worst picture
+            # available and call it the best.
+            earliest = (min(win['slots'].values(), key=lambda c: c['t'])
+                        if self.shots > 1 else None)
+            if earliest is not None:
+                picks.append(earliest)
             for c in cands:
-                if c is earliest:
+                if earliest is not None and c is earliest:
                     continue
                 if all(abs(c['t'] - p['t']) >= self.spacing_sec for p in picks):
                     picks.append(c)
