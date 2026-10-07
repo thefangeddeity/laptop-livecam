@@ -86,6 +86,19 @@ _FLOW_SCALE = 0.25
 # actual expensive operation this phase is budgeting.
 _DETECT_POLL_INTERVAL_S = 0.05
 
+# How old the published frame may be before the detector refuses it.
+#
+# The slot held (frame, crop_box, fg_mask) with no notion of WHEN, and the
+# detection thread re-ran on whatever was in it forever. So a capture that
+# stalls does not stop detection -- it freezes it: the same picture is scored
+# again and again, evidence accumulates on a still image, and a track
+# eventually promotes and sends a snapshot of a room as it looked hours ago.
+# An alert whose picture is stale is worse than no alert, because it is
+# indistinguishable from a real one.
+#
+# 3s is many frames at any rate this runs at, so a live feed never trips it.
+_SLOT_MAX_AGE_S = 3.0
+
 _DEFAULTS = {
     'CV_MOTION_THRESHOLD':    1.5,   # flow px/frame (at _FLOW_SCALE res) counted as "moving"
     'CV_CLAHE_CLIP':          2.0,   # cv2.createCLAHE clipLimit
@@ -530,6 +543,18 @@ _DEFAULTS = {
 }
 
 
+def _stamp(m):
+    """Timestamp the notifier's log lines.
+
+    These went to the log bare, while only the HTTP access lines carried a
+    clock -- so when a viewer stopped polling there was no clock at all, and
+    "when was this alert actually sent?" became unanswerable from the log.
+    That is precisely the question asked after a snapshot arrives looking
+    hours out of date.
+    """
+    print("%s %s" % (time.strftime("[%d/%b/%Y %H:%M:%S]"), m), flush=True)
+
+
 def _read_float(denv, key):
     try:
         return float(denv.get(key, _DEFAULTS[key]))
@@ -701,6 +726,7 @@ class CVProcessor:
         # down. That is why switching detection off did not stop detections:
         # nothing was feeding it any more, and it did not need feeding.
         self._detect_stop = threading.Event()
+        self._slot_stale_logged = False
         # "All movements": alert on anything that moves, with no model at all.
         # YOLO only reports what it has a word for, and a word for it only
         # exists if the training set had one -- so a thing with no label is
@@ -803,7 +829,7 @@ class CVProcessor:
         if _cvn is not None:
             try:
                 self._notifier = _cvn.make_notifier(
-                    denv, log=lambda m: print(m, flush=True))
+                    denv, log=_stamp)
             except Exception as exc:
                 print(f"NOTIFY INIT ERROR: {type(exc).__name__}: {exc}",
                       flush=True)
@@ -981,7 +1007,8 @@ class CVProcessor:
                     if self._foveal_enabled and self._fg_mask is not None
                     else None)
         with self._detect_slot_lock:
-            self._detect_slot = (frame, crop_box, self._fg_mask)
+            self._detect_slot = (frame, crop_box, self._fg_mask,
+                                 time.time())
         return frame
 
     def observe(self, frame):
@@ -1901,9 +1928,24 @@ class CVProcessor:
         while not self._detect_stop.is_set():
             with self._detect_slot_lock:
                 slot = self._detect_slot
+            if slot is not None and (time.time() - slot[3]) > _SLOT_MAX_AGE_S:
+                # Capture has stalled. Stop scoring the frozen picture rather
+                # than letting evidence build on it, and drop it so nothing
+                # can promote off a stale room.
+                if not self._slot_stale_logged:
+                    print("CV DETECT: capture stalled (last frame %.1fs old) "
+                          "-- detection paused, no alerts will be raised from "
+                          "a frozen picture" % (time.time() - slot[3]),
+                          flush=True)
+                    self._slot_stale_logged = True
+                with self._detect_slot_lock:
+                    self._detect_slot = None
+                slot = None
+            elif slot is not None:
+                self._slot_stale_logged = False
             if slot is not None:
                 try:
-                    self._detection_step(*slot)
+                    self._detection_step(*slot[:3])
                 except Exception as exc:
                     print(
                         f"SHAKEY DETECT THREAD ERROR: "
