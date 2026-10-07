@@ -480,42 +480,39 @@ class Notifier:
         sent -- those differ exactly when something has gone wrong, and a
         send-time stamp would paper over the one failure worth seeing.
 
-        Drawn on a translucent plate rather than as outlined text. Outline
-        alone meant a heavy dark stroke carrying a thin white core, which
-        reads as muddy against a mid-grey floor -- the one surface a room
-        camera points at most. A plate fixes the contrast no matter what is
-        behind it, and the text can then be a solid weight instead of a
-        hairline. Everything scales off frame width so it looks the same on a
-        640px clip as on 1280.
+        A real OFFSET DROP SHADOW, not a symmetric stroke. The first attempt
+        ringed the glyphs with a fat dark outline and filled them with a
+        hairline, so the stroke swallowed the letterforms and read as muddy
+        grey mush at a distance. A shadow sits down-right of a solid white
+        fill: the fill stays the brightest thing in the frame and keeps its
+        shape, while the shadow only has to lift it off whatever is behind.
+
+        Everything scales off frame width so a 640px clip and a 1280px still
+        look like the same stamp.
         """
         try:
             txt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))
             h, w = bgr.shape[:2]
-            scale = max(0.45, min(1.1, w / 1280.0 * 0.72))
-            thick = max(1, int(round(scale * 2.2)))
+            scale = max(0.5, min(1.15, w / 1280.0 * 0.78))
+            # Fill weight carries the legibility, so it is the heavier of the
+            # two -- the opposite of the first version.
+            fill = max(2, int(round(scale * 2.6)))
+            off = max(2, int(round(scale * 2.4)))
             font = cv2.FONT_HERSHEY_DUPLEX      # rounder, reads better small
-            (tw, th), base = cv2.getTextSize(txt, font, scale, thick)
 
-            padx, pady = int(10 * scale) + 4, int(7 * scale) + 3
-            x0, y1 = int(12 * scale) + 2, h - (int(10 * scale) + 2)
-            y0, x1 = y1 - th - base - pady, x0 + tw + padx * 2
+            (tw, th), base = cv2.getTextSize(txt, font, scale, fill)
+            x = int(14 * scale) + 2
+            y = h - int(14 * scale) - base
+            if x + tw > w - 4:                  # never run off a narrow frame
+                x = max(2, w - 4 - tw)
 
-            # Clamp so the plate can never run off a narrow frame.
-            x1 = min(x1, w - 2)
-            y0 = max(y0, 1)
-
-            plate = bgr[y0:y1, x0:x1]
-            if plate.size:
-                # 62% dark: enough to guarantee contrast, light enough that
-                # the picture underneath is still visible -- it is evidence,
-                # and blanking part of it to print a clock is a poor trade.
-                bgr[y0:y1, x0:x1] = (plate * 0.38).astype(plate.dtype)
-
-            org = (x0 + padx, y1 - pady - base // 2)
-            cv2.putText(bgr, txt, org, font, scale, (0, 0, 0),
-                        thick + 2, cv2.LINE_AA)
-            cv2.putText(bgr, txt, org, font, scale, (255, 255, 255),
-                        thick, cv2.LINE_AA)
+            # Shadow first, offset down-right, a touch heavier so it reads as
+            # depth rather than as a second copy of the text.
+            cv2.putText(bgr, txt, (x + off, y + off), font, scale,
+                        (0, 0, 0), fill + 1, cv2.LINE_AA)
+            # Then the fill, solid and bright, at full weight.
+            cv2.putText(bgr, txt, (x, y), font, scale,
+                        (255, 255, 255), fill, cv2.LINE_AA)
         except Exception:
             pass          # a missing stamp must never cost the alert
         return bgr
