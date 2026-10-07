@@ -478,20 +478,44 @@ class Notifier:
 
         Deliberately the moment the frame was taken, not the moment it was
         sent -- those differ exactly when something has gone wrong, and a
-        send-time stamp would paper over the one failure worth seeing. A
-        stalled capture used to ship an afternoon photograph at 20:17 and
-        nothing on it said so.
+        send-time stamp would paper over the one failure worth seeing.
 
-        Drawn twice, black then white, so it stays legible against a bright
-        window or a dark floor without needing a backing box.
+        Drawn on a translucent plate rather than as outlined text. Outline
+        alone meant a heavy dark stroke carrying a thin white core, which
+        reads as muddy against a mid-grey floor -- the one surface a room
+        camera points at most. A plate fixes the contrast no matter what is
+        behind it, and the text can then be a solid weight instead of a
+        hairline. Everything scales off frame width so it looks the same on a
+        640px clip as on 1280.
         """
         try:
             txt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))
-            h = bgr.shape[0]
-            org = (12, h - 14)
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.putText(bgr, txt, org, font, 0.62, (0, 0, 0), 4, cv2.LINE_AA)
-            cv2.putText(bgr, txt, org, font, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
+            h, w = bgr.shape[:2]
+            scale = max(0.45, min(1.1, w / 1280.0 * 0.72))
+            thick = max(1, int(round(scale * 2.2)))
+            font = cv2.FONT_HERSHEY_DUPLEX      # rounder, reads better small
+            (tw, th), base = cv2.getTextSize(txt, font, scale, thick)
+
+            padx, pady = int(10 * scale) + 4, int(7 * scale) + 3
+            x0, y1 = int(12 * scale) + 2, h - (int(10 * scale) + 2)
+            y0, x1 = y1 - th - base - pady, x0 + tw + padx * 2
+
+            # Clamp so the plate can never run off a narrow frame.
+            x1 = min(x1, w - 2)
+            y0 = max(y0, 1)
+
+            plate = bgr[y0:y1, x0:x1]
+            if plate.size:
+                # 62% dark: enough to guarantee contrast, light enough that
+                # the picture underneath is still visible -- it is evidence,
+                # and blanking part of it to print a clock is a poor trade.
+                bgr[y0:y1, x0:x1] = (plate * 0.38).astype(plate.dtype)
+
+            org = (x0 + padx, y1 - pady - base // 2)
+            cv2.putText(bgr, txt, org, font, scale, (0, 0, 0),
+                        thick + 2, cv2.LINE_AA)
+            cv2.putText(bgr, txt, org, font, scale, (255, 255, 255),
+                        thick, cv2.LINE_AA)
         except Exception:
             pass          # a missing stamp must never cost the alert
         return bgr
