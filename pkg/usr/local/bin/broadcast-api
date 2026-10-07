@@ -1224,6 +1224,7 @@ def _detect_tap_loop(det_holder):
                 time.sleep(0.2)
                 continue
             arr = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
+            det_holder[0].set_motion_alerts('motion' in _read_notify_classes())
             det_holder[0].observe(arr)
         except Exception as exc:
             print(f'broadcast-api: detect tap error: {type(exc).__name__}: {exc}',
@@ -1687,7 +1688,25 @@ def blur_mode_post():
 # rebuilding the CVProcessor on every checkbox, and a gap in watching. This
 # gates the notifier instead, which re-reads the file per event, so ticking a
 # box takes effect immediately and nothing stops looking.
-_ALERT_CLASSES = ('human', 'cat', 'dog', 'bird')
+# What the model can name, plus two selections that are not COCO classes:
+#   living  -- every animate class at once, so adding a species later does not
+#              mean re-ticking a box on every node
+#   motion  -- no model at all: moving regions become boxes labelled 'motion'.
+#              Catches what the detector has no word for, at the cost of
+#              calling a curtain a visitor.
+_LIVING_CLASSES = ('human', 'cat', 'dog', 'bird')
+_ALERT_CLASSES = _LIVING_CLASSES + ('living', 'motion')
+
+
+def _expand_classes(picked):
+    """'living' stands for every animate class; keep it in the stored value so
+    the choice survives a future species being added."""
+    out = list(picked)
+    if 'living' in out:
+        for c in _LIVING_CLASSES:
+            if c not in out:
+                out.append(c)
+    return out
 
 
 def _read_notify_classes():
@@ -1701,7 +1720,7 @@ def _read_notify_classes():
     except Exception:
         return ['human', 'cat', 'dog']
     picked = [c.strip().lower() for c in raw.replace('\n', ',').split(',') if c.strip()]
-    return [c for c in picked if c in _ALERT_CLASSES]
+    return _expand_classes([c for c in picked if c in _ALERT_CLASSES])
 
 
 @app.route('/api/hide-stops-detection', methods=['GET'])
@@ -1735,7 +1754,9 @@ def notify_classes_post():
             f.write(','.join(picked))
     except Exception:
         abort(500)
-    return ','.join(picked), 200
+    # Return what GET would, expansion included, so the panel does not paint
+    # one thing on click and another on its next poll.
+    return ','.join(_read_notify_classes()), 200
 
 
 @app.route('/api/detect-always', methods=['GET'])
