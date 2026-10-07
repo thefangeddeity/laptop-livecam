@@ -472,6 +472,30 @@ class Notifier:
             finally:
                 self._q.task_done()
 
+    @staticmethod
+    def _stamp_frame(bgr, captured_at):
+        """Burn the CAPTURE time into the picture.
+
+        Deliberately the moment the frame was taken, not the moment it was
+        sent -- those differ exactly when something has gone wrong, and a
+        send-time stamp would paper over the one failure worth seeing. A
+        stalled capture used to ship an afternoon photograph at 20:17 and
+        nothing on it said so.
+
+        Drawn twice, black then white, so it stays legible against a bright
+        window or a dark floor without needing a backing box.
+        """
+        try:
+            txt = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(captured_at))
+            h = bgr.shape[0]
+            org = (12, h - 14)
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            cv2.putText(bgr, txt, org, font, 0.62, (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(bgr, txt, org, font, 0.62, (255, 255, 255), 1, cv2.LINE_AA)
+        except Exception:
+            pass          # a missing stamp must never cost the alert
+        return bgr
+
     def _send(self, item):
         text = item.get('text') or f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
@@ -480,6 +504,12 @@ class Notifier:
                 # The snapshot is the original feed, not the sharpie or CV
                 # render: evidence for a person to look at.
                 bgr = cv2.cvtColor(p['frame'], cv2.COLOR_RGB2BGR)
+                # item['when'] is the window's wall clock; p['t'] is this
+                # shot's offset inside it, so together they are when THIS
+                # picture was taken.
+                bgr = self._stamp_frame(
+                    bgr, float(item.get('when') or time.time())
+                         + float(p.get('t') or 0.0))
                 ok, buf = cv2.imencode('.jpg', bgr, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
                 if not ok:
                     continue
