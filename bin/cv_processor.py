@@ -1906,6 +1906,23 @@ class CVProcessor:
                                       int(w), int(h), fg_consistency=1.0))
         return out
 
+    def latest_frame(self, max_age_s=_SLOT_MAX_AGE_S):
+        """The most recent frame the DETECTOR saw, or None if it is stale.
+
+        Deliberately the pre-render frame, the same one every automatic alert
+        is built from, so a manual snapshot and an automatic one are the same
+        picture of the same room. Age-checked for the same reason the
+        detection loop is: handing back a frozen frame is how an old
+        photograph gets sent as if it were current.
+        """
+        with self._detect_slot_lock:
+            slot = self._detect_slot
+        if not slot:
+            return None
+        if (time.time() - slot[3]) > max_age_s:
+            return None
+        return slot[0]
+
     def stop(self):
         """Retire this processor's detection thread.
 
