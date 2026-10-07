@@ -1434,17 +1434,6 @@
           <button class="pbtn" id="nightBtn" onclick="setPicture('night')"
                   title="Denoise and an aggressive tone curve tuned for a dark room">Night</button>
         </div>
-        <!-- With the picture keys, not in Settings: this decides whether the
-             camera is watched at all, which is the same kind of decision as
-             what it shows. -->
-        <div class="pinrow" id="detectionRow">
-          <button class="pinled" id="detectBtn" onclick="toggleDetect()"
-                  aria-pressed="false" aria-label="Detection"
-                  title="Watch for people and pets, whatever the feed is showing -- off stops detection and alerts entirely">
-            <span class="bulb" id="detectLamp"></span>
-          </button>
-          <span class="eng rstlab">Detection</span>
-        </div>
         <!-- Diagnosis beside the remedy: the trace is what tells you the
              feed has stopped, and the key that fixes it is immediately to
              its left. The trace is PHOSPHOR, so it lives behind glass --
@@ -1475,6 +1464,7 @@
              thing to compare against yesterday than 52 seconds, and the
              lamps lose nothing by being a row. -->
         <div class="ledstrip">
+          <div class="led" id="ledDet" title="Detection running -- switched in Settings"><span class="bulb" id="detectLamp"></span><span class="n">DET</span></div>
           <div class="led" id="ledMog2" title="Background model producing a foreground mask"><span class="bulb"></span><span class="n">MOG2</span></div>
           <div class="led" id="ledFov" title="Detection gated to the moving region"><span class="bulb"></span><span class="n">FOV</span></div>
           <div class="led" id="ledScene2d" title="Flat scene model: homography and region dictionary"><span class="bulb"></span><span class="n">2D</span></div>
@@ -1784,6 +1774,18 @@
              mechanism entirely (no model, so it sees what the detector has no
              word for and will call a curtain a visitor). A rule separates the
              orthogonal one; indentation carries the containment. -->
+        <!-- The master sits with the choices it governs, not in the Video
+             panel: everything below is inert without it. The Video panel
+             carries a DET readout instead, because whether the camera is
+             being watched belongs on the status strip with MOG2 and FOV. -->
+        <div class="pinrow">
+          <button class="pinled" id="detectBtn" onclick="toggleDetect()"
+                  aria-pressed="false" aria-label="Detection"
+                  title="Watch for people and pets, whatever the feed is showing -- off stops detection and alerts entirely">
+            <span class="bulb" id="detectBtnLamp"></span>
+          </button>
+          <span class="eng rstlab">Detection</span>
+        </div>
         <div class="alertgrp" id="alertGroup">
           <div class="sub-title">Alert me about</div>
           <div class="pinrow">
@@ -4576,7 +4578,7 @@
   var clsOn = {}, detectOn = false, videoOn = false;
 
   function paintLed(id, on) {
-    var b = document.getElementById(id + 'Btn');
+    var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
     if (!b) return;
     b.classList.toggle('pressed', !!on);
     b.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -4584,7 +4586,12 @@
     if (l) l.classList.toggle('on', !!on);
   }
   function paintAll() {
-    paintLed('detect', detectOn);
+    // Two faces of one fact: the switch in Settings and the DET readout on
+    // the Video panel's status strip. They are painted together so they can
+    // never disagree about whether the room is being watched.
+    paintLed('detectBtn', detectOn);
+    var dl = document.getElementById('detectLamp');
+    if (dl) dl.classList.toggle('on', detectOn);
     paintLed('alertVideo', videoOn);
     Object.keys(CLS_ID).forEach(function(c) { paintLed(CLS_ID[c], clsOn[c]); });
     // "All living beings" is lit when the four under it are, so the superset

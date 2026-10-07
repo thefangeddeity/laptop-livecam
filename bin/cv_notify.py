@@ -114,6 +114,7 @@ class Notifier:
                  enabled=False, snapshot_dir=None, queue_size=8,
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
                  min_fg=0.0, classes_file='/dev/null',
+                 video_flag_file='/dev/null',
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
@@ -124,6 +125,9 @@ class Notifier:
         # 'dog' on does not need a restart -- same live-toggle shape as the
         # video switch. Absent file means "use what config.env said".
         self.classes_file = classes_file
+        # Was a hardcoded Linux path, so on macOS it never existed and the
+        # switch silently read as "on" no matter what the panel said.
+        self.video_flag_file = video_flag_file
         self.cooldown_sec = float(cooldown_sec)
         # Motion gate. A detection that has never once overlapped moving
         # foreground is furniture: tanzania spent an hour reporting a crumpled
@@ -353,12 +357,12 @@ class Notifier:
     #
     # Live-toggled through a state file, like feed mode and blur: the panel
     # writes it, this reads it per event. Absent file means on.
-    VIDEO_FLAG_FILE = '/var/lib/hls-livecam/notify_video'
+
     REC_DIR         = '/var/lib/hls-livecam/rec/cam'
 
     def _video_wanted(self):
         try:
-            with open(self.VIDEO_FLAG_FILE) as f:
+            with open(self.video_flag_file) as f:
                 return f.read().strip() != 'false'
         except Exception:
             return True
@@ -696,4 +700,6 @@ def make_notifier(denv, log=None):
                     window_sec=_num('NOTIFY_WINDOW_SEC', 6.0),
                     spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5),
                     min_fg=_num('NOTIFY_MIN_FG', 0.05),
-                    classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null')
+                    classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null',
+                    video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
+                        or '/var/lib/hls-livecam/notify_video')
