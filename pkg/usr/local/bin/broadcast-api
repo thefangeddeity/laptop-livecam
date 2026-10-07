@@ -1691,15 +1691,31 @@ _ALERT_CLASSES = ('human', 'cat', 'dog', 'bird')
 
 
 def _read_notify_classes():
+    # A PRESENT-but-empty file means the operator unticked everything, and
+    # that has to mean none. Falling back to the default on empty -- which
+    # this did -- turned "alert me about nothing" into "alert me about
+    # everything", silently. Only a MISSING file means never configured.
     try:
         with open(NOTIFY_CLASSES_FILE) as f:
-            picked = [c.strip().lower()
-                      for c in f.read().replace('\n', ',').split(',') if c.strip()]
-        if picked:
-            return [c for c in picked if c in _ALERT_CLASSES]
+            raw = f.read()
     except Exception:
-        pass
-    return ['human', 'cat', 'dog']
+        return ['human', 'cat', 'dog']
+    picked = [c.strip().lower() for c in raw.replace('\n', ',').split(',') if c.strip()]
+    return [c for c in picked if c in _ALERT_CLASSES]
+
+
+@app.route('/api/hide-stops-detection', methods=['GET'])
+def hide_stops_detection_get():
+    """Does Hide stop detection on THIS node? Not here.
+
+    Hide replaces the PUBLISHED picture; the camera reader keeps running and
+    the detector keeps its own tap on it, so the room stays watched while
+    viewers see a placeholder. ariana answers true, because its Hide closes
+    the camera outright to put the indicator light out. The viewer asks
+    instead of assuming -- a warning about a consequence that does not exist
+    just teaches people to click through warnings.
+    """
+    return 'false', 200
 
 
 @app.route('/api/notify-classes', methods=['GET'])
@@ -2120,6 +2136,30 @@ def dark_post():
         return ('true' if os.path.exists(DARK_FLAG) else 'false'), 200
     except Exception:
         abort(500)
+
+@app.route('/api/snapshot', methods=['POST'])
+def snapshot_post():
+    """Send the room to the notification chat, now, on demand.
+
+    Sends the DETECTOR's frame -- the same picture an automatic alert is built
+    from -- in whatever mode the feed happens to be in. Hide is about what
+    VIEWERS see; it never meant the chat stops hearing, or automatic alerts
+    would have stopped too. One button cannot mean "the room" while the other
+    means "the room unless somebody picked a different view", when both land
+    in the same private chat.
+    """
+    proc = _cv_proc
+    n = getattr(proc, '_notifier', None) if proc is not None else None
+    if n is None or not n.enabled:
+        return 'notifications are not set up', 409
+    frame = proc.latest_frame() if proc is not None else None
+    if frame is None:
+        # None also means STALE, not merely absent: saying "nothing current"
+        # beats sending a frozen room as though it were now.
+        return 'no current picture', 503
+    return ('sent' if n.snapshot(np.array(frame, copy=True))
+            else 'busy, try again'), 200
+
 
 @app.route('/api/buzz', methods=['POST'])
 def buzz_post():
