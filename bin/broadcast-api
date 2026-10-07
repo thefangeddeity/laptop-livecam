@@ -52,6 +52,7 @@ DARK_FLAG      = os.path.join(STATE_DIR, "dark")
 LOCK_FILE      = os.path.join(STATE_DIR, "msg_lock")
 DETECT_ALWAYS_FILE = os.path.join(STATE_DIR, "detect_always")
 NOTIFY_CLASSES_FILE = os.path.join(STATE_DIR, "notify_classes")
+NOTIFY_VIDEO_FILE   = os.path.join(STATE_DIR, "notify_video")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
 GOL_COLS       = 80
@@ -2159,6 +2160,36 @@ def hide_stops_detection_get():
     never fires.
     """
     return 'false', 200
+
+
+# Whether an alert carries a clip as well as the still. Read by cv_notify at
+# send time, so this process only owns the switch. Defaults ON: a failed cut
+# degrades to stills by itself, so the safe default is the useful one.
+def _read_notify_video():
+    try:
+        with open(NOTIFY_VIDEO_FILE) as f:
+            return f.read().strip() != 'false'
+    except Exception:
+        return True
+
+
+@app.route('/api/notify-video', methods=['GET'])
+def notify_video_get():
+    return ('true' if _read_notify_video() else 'false'), 200
+
+
+@app.route('/api/notify-video', methods=['POST'])
+def notify_video_post():
+    val = request.get_data(as_text=True).strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    try:
+        os.makedirs(os.path.dirname(NOTIFY_VIDEO_FILE), exist_ok=True)
+        with open(NOTIFY_VIDEO_FILE, 'w') as f:
+            f.write(val)
+    except Exception:
+        abort(500)
+    return val, 200
 
 
 @app.route('/api/notify-classes', methods=['GET'])
