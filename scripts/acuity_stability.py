@@ -17,7 +17,11 @@ floor (Phase 4 rule: objectness, never class, under CV_DETECT_CONF).
 import argparse, json, subprocess, sys, time
 import numpy as np, cv2
 
-sys.path.insert(0, '/home/ron/Projects/hls-livecam-server/pkg/usr/share/hls-livecam-server')
+import os
+# Derived from this file's location rather than a hardcoded /home/<user>:
+# works on any checkout, and keeps a real username out of a public repo.
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_REPO, 'pkg/usr/share/hls-livecam-server'))
 import cv_detect as cvd
 
 W, H = 1280, 720

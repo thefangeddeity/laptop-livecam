@@ -22,7 +22,7 @@ to run directly.
 
 All four sections were investigated and measured. **§3 is applied to the repo.
 §1, §2 and §4 are diagnosed, coded and staged but not installed** — installing
-requires writing to `/usr/share`, `/usr/local/bin` and `/var/www`, and `ron`'s
+requires writing to `/usr/share`, `/usr/local/bin` and `/var/www`, and `dev`'s
 sudo rule for those paths is `(ALL) ALL`, which prompts for a password. There is
 no cached credential, so this run could not complete the live install.
 
@@ -434,8 +434,8 @@ $ sudo -n -l
   NOPASSWD: smartctl, hls-livecam-dark, systemctl {start,stop,enable,disable,mask,unmask} *
   (nothing else — no NOPASSWD path to any file write)
 
-$ id ron
-  groups: ron, http, autologin, systemd-journal, video, wheel, adm, sudo
+$ id dev
+  groups: dev, http, autologin, systemd-journal, video, wheel, adm, sudo
   (in `http` — the broadcast-api service user's group — but see below, doesn't help)
 
 $ ls -l / getfacl, all three targets + parent dirs:
@@ -445,7 +445,7 @@ $ ls -l / getfacl, all three targets + parent dirs:
   no ACL entries on any of the six paths — mode bits are the whole story
 ```
 
-`ron`'s `http` group membership doesn't help: the group *owner* on all three is
+`dev`'s `http` group membership doesn't help: the group *owner* on all three is
 `root`, not `http`, so group membership in `http` grants nothing here. No
 NOPASSWD rule covers a file write to any of the three paths, and no ACL grants
 access beyond the mode bits. **All three genuinely require root.** This closes

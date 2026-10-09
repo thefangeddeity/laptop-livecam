@@ -12,7 +12,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHARE=/usr/share/hls-livecam-server
 F=/etc/hls-livecam/device.env
 
-echo "== staging modules (no sudo: $SHARE is ron-owned on tina) =="
+echo "== staging modules (no sudo: $SHARE is dev-owned on tina) =="
 for f in cv_processor.py cv_occupancy.py cv_persist.py cv_detect.py cv_scene.py; do
   scp -q "$REPO/pkg$SHARE/$f" "tina:$SHARE/$f"
   echo "   $f"

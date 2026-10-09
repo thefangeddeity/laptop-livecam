@@ -4,8 +4,11 @@
 #     sudo bash deploy-local.sh
 set -euo pipefail
 
-REPO="/home/ron/Projects/hls-livecam-server"
-BK="/home/ron/Projects/_backups/LIVE-$(date +%Y%m%d-%H%M%S)"
+# Derived, not hardcoded: this runs under sudo, so $HOME would be root's,
+# and a hardcoded /home/<user> both breaks on any other machine and puts a
+# real username in a public repo.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BK="$(dirname "$REPO")/_backups/LIVE-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BK"
 
 # NOTE: the live docroot is nginx `root /var/www/hls-livecam` -- NOT
