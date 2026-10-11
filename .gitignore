@@ -59,3 +59,8 @@ state/*.pid
 # mediamtx MoQ auto-cert (1.19+); we run 1.15.2 and MoQ is off.
 auto.crt
 auto.key
+
+# Node-local runtime config: holds absolute paths for THIS machine and the
+# path to the notifier URL file (which carries a bot token). Tracked copy is
+# config.env.example; the real one stays out of this public repo.
+config.env
