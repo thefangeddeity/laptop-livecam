@@ -2657,20 +2657,26 @@ def pipeline():
     if capture != 'ok':
         audio_rate = audio_ch = audio_kbps = None
 
-    # While hidden the CAMERA is closed and black is published in its place.
-    # Reporting the capture stage as ok would be true of the process and false
-    # of the device, which is the distinction these lamps exist to make.
+    # Hide withholds the PICTURE. Whether it also closes the DEVICES depends
+    # on which publisher is running, so neither lamp is inferred from the mode
+    # any more -- both are read from the process that would be holding the
+    # hardware. See below; `capture` here stays as the *publisher* stage.
     #
-    # The MICROPHONE is no longer closed with it (see _mic_capture_cmd), so it
-    # is reported separately below from its own process. Saying "microphone
-    # closed" here while SoX is reading the room would be the worst direction
-    # for this lamp to be wrong in: a privacy indicator that under-reports
-    # live capture.
+    # This used to force capture='off' and report 'camera closed' whenever the
+    # mode was hide. On the CV path that is simply false: the writer loop
+    # keeps avfoundation open and publishes a black frame, precisely so the
+    # detector goes on watching the room. Measured in Hide: `-i 0:none` live,
+    # feeding the frame pipeline, FPS graphing, DET lit -- while the panel
+    # said the camera was closed and the Mac's camera LED was on.
+    #
+    # A privacy indicator that under-reports live capture is the worst
+    # direction for one to be wrong in, and this one was also contradicting
+    # hardware the operator can see.
     with _mode_lock:
         mode_now = _mode
     if mode_now == 'hide':
         capture = 'off'
-        detail = 'feed hidden; camera closed (microphone stays open)'
+        detail = 'feed hidden; publishing black'
         # Audio figures are NOT cleared here any more. They were, on the
         # premise that "nothing from the room is being encoded" -- no longer
         # true. Blanking RATE/BITS while the room is audible tells the panel
@@ -2707,6 +2713,15 @@ def pipeline():
     _mp = _mic_proc
     mic_state = 'ok' if (_mp is not None and _mp.poll() is None) else 'down'
 
+    # Same treatment for the camera: read the process that holds the device,
+    # not the mode. poll() rather than "is the object there" -- a dead child
+    # still answers to pid_exists and friends.
+    _cp = _cam_proc
+    cam_live = _cp is not None and getattr(_cp, 'poll', lambda: 0)() is None
+    camera_state = 'ok' if cam_live else capture
+    if mode_now == 'hide' and cam_live:
+        detail = 'feed hidden; publishing black -- camera and microphone OPEN'
+
     data = {
         'mode':     mode_now,
         'cv':       mode_now == 'cv',
@@ -2716,7 +2731,7 @@ def pipeline():
         'cv_text': cv_text,
         'cv_capability_text': cv_capability_text,
         'mic':      mic_state,
-        'camera':   capture,
+        'camera':   camera_state,
         'audio_rate_hz':  audio_rate,
         'audio_channels': audio_ch,
         'audio_kbps':     audio_kbps,
