@@ -1,0 +1,19 @@
+cambrian-perception's organism, vendored for CV Mode (cv_processor.py, CV_CAMBRIAN=1).
+
+Source:   https://github.com/thefangeddeity/cambrian-perception
+Commit:   34d6380
+Copied:   2026-09-26
+Files:    fishbowl/ -- only the modules a live host needs (the organism, its
+          eye, brain, body, the live actor and the lock HUD); no evolution
+          loop, no sandbox, no detector of its own (the node's detections
+          are its prey).
+champion.json: the frozen champion shipped with this package -- the
+          Tanzania lineage (full laptop-livecam), generation 253346. A local
+          cambrian-perception's newer champion (CV_CAMBRIAN_CHAMPION) is
+          adopted over it when present.
+
+Upstream is cambrian-perception; this is a copy, never edited here. To
+update: copy the same fishbowl/*.py files from a newer upstream commit,
+refresh champion.json from a running cambrian-perception
+(/dev/shm/cambrian-perception/champion.json), and update this file.
+Needs only python3, numpy and OpenCV, which CV Mode already uses.
