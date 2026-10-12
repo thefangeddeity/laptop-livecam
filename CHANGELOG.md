@@ -1,4 +1,17 @@
 # Changelog
+## 7.0.1
+
+- Camera lamp reads the device, not the mode. The writer loop runs in every
+  mode and only changes what it renders, so the camera goes on being read in
+  Hide; reporting "off" was a privacy indicator under-reporting live capture.
+- "All living beings" now means it: COCO's full animate set, person plus ten
+  animals, behind one "Other" row, instead of four species.
+- A "plant" class, off by default and deliberately outside "All living
+  beings", so a houseplant can be named correctly and silenced rather than
+  reported as a cat.
+- COCO_LIVING derives from COCO_LABELS instead of restating it.
+- main and cambrian-actor merged into one lineage.
+
 ## [5.5.1] - 2026-08-15
 ### Fixed
 - **Feed-mode and message-lock persistence were silently no-ops.**

@@ -35,9 +35,34 @@ import cv2
 
 # COCO indices that matter here. A general model gives these three; the
 # labels are renamed to what the operator actually calls them.
+# MODEL-COUPLED. These ids index COCO-80, which is what yolov8n.onnx emits.
+# A different model makes them mean something else and the detector will not
+# error -- it will confidently report 'cat' for whatever sits at 15. If the
+# model or class set changes, update BOTH this map and _OTHER_LIVING in
+# broadcast-api.
 COCO_LABELS = {
     0:  'human',
     15: 'cat',
+    16: 'dog',          # pets are not only cats
+    14: 'bird',
+    # The REST of COCO's animate classes, so "all living beings" can mean it.
+    # Grouped behind one 'other' key in the panel (_OTHER_LIVING in
+    # broadcast-api) rather than seven rows nobody wants to tick, but kept
+    # under real names here so the HUD and the logs say what the model
+    # actually claimed.
+    17: 'horse',
+    18: 'sheep',
+    19: 'cow',
+    20: 'elephant',
+    21: 'bear',
+    22: 'zebra',
+    23: 'giraffe',
+    # NOT animate, and present for the opposite reason to the rest: a
+    # houseplant moving in a draught was reported as a CAT at a flat 0.574
+    # every frame, because the model had no correct label available and
+    # returned the nearest one it was allowed to name. Off by default and
+    # deliberately NOT part of 'living'.
+    58: 'plant',
 #    24: 'handbag',      # helps find lost items
 #    24: 'backpack',    # helps find lost items
 #    56: 'chair',
@@ -67,10 +92,8 @@ STATIC_SCENE_LABELS = {
 # CV_DETECT_CLASSES gets them labelled -- not the default set (COCO_LABELS
 # stays what a node looks for when it sets nothing). These are what a
 # cambrian-perception organism eats (its prey).
-COCO_LIVING = {
-    0: 'human', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep',
-    19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe',
-}
+COCO_LIVING = {k: v for k, v in COCO_LABELS.items()
+               if v not in ('teddy bear', 'plant')}
 
 
 def parse_class_filter(spec):
