@@ -1532,8 +1532,13 @@ def notches_sort():
     return _notches_response(doc)
 
 
-def _mic_capture_cmd(mode):
+def _mic_capture_cmd(mode):  # noqa: ARG001 -- see MODE DOES NOT GATE below
     """Capture ONLY, with SoX. Raw PCM on stdout. No encoders, no sockets.
+
+    `mode` is accepted and deliberately unused: the publisher loop keys its
+    rebuild on the mode generation (which is also the notch reload path), so
+    the argument still documents what triggers a respawn. It must NOT be used
+    to gate the microphone again.
 
     SOX RATHER THAN FFMPEG, AND THIS IS NOT A PREFERENCE.
 
@@ -1556,15 +1561,22 @@ def _mic_capture_cmd(mode):
     The filter chain moves here with it -- highpass and gain are SoX effects
     now -- so the encoders downstream do nothing but encode.
     """
-    if mode == 'hide':
-        # Camera light off = mic off. No capture device is opened at all;
-        # silence is generated, and it still has to be PRODUCED or the
-        # encoders see EOF and the viewer gets a fault instead of a quiet room.
-        return [FFMPEG, '-hide_banner', '-loglevel', 'warning',
-                '-f', 'lavfi',
-                '-i', 'anullsrc=channel_layout=mono:sample_rate=48000',
-                '-f', 's16le', '-ar', '48000', '-ac', '1', 'pipe:1']
-
+    # MODE DOES NOT GATE THE MICROPHONE. Hide used to return an anullsrc
+    # silence generator here -- "camera light off = mic off" -- which made
+    # room audio unavailable exactly when someone is most likely to be
+    # listening without watching. It also contradicted the writer loop, which
+    # already keeps the camera open in Hide and publishes black on the grounds
+    # that "Hide means do not show me the picture, not stop watching the
+    # room"; two halves of one tree disagreeing about what Hide means.
+    #
+    # The viewer could not tell, either: the stream kept publishing, HLS went
+    # green, and what it carried was digital silence at a flat -91 dB. A lamp
+    # that says LIVE over silence is the failure mode this tree keeps paying
+    # for, so the fix is to make it true rather than to annotate it.
+    #
+    # Hide still closes the CAMERA and puts its indicator light out. Only the
+    # picture is withheld; the room is still audible, which is what Hide was
+    # always described as meaning.
     dev = str(_cfg.get('AUDIO_DEVICE_NAME',
                        _cfg.get('AUDIO_DEVICE', 'Built-in Microphone'))).strip()
     if not dev or dev.isdigit():
@@ -1660,23 +1672,49 @@ def _mp3_encoder_cmd():
             'icecast://source:roomaudio@127.0.0.1:8000/room.mp3']
 
 
-def _opus_encoder_cmd():
-    """TWO-WAY leg: PCM -> Opus -> mediamtx, for WebRTC.
+def _mic_denoise_filter():
+    """The optional speech denoiser, shared by every microphone encoder leg.
 
-    The speech denoiser, if enabled, belongs HERE rather than in the capture:
-    it is wanted for a call and not for the monitor, and putting it on the
-    shared capture would impose one leg's judgement on the other.
+    It belongs on the encoders rather than the capture: it is wanted for a
+    call and not for the monitor, and putting it on the shared capture would
+    impose one leg's judgement on the other. Shared across legs so the room
+    does not sound like a different room depending on which codec a listener
+    happened to be served.
     """
     dn = str(_cfg.get('AUDIO_DENOISE', '')).strip()
-    filt = []
     if dn:
         model = os.path.join(ROOT, 'models', f'{dn}.rnnn')
         if os.path.exists(model):
-            filt = ['-af', f'arnndn=m={model}']
+            return ['-af', f'arnndn=m={model}']
+    return []
+
+
+def _opus_encoder_cmd():
+    """TWO-WAY leg: PCM -> Opus -> mediamtx, for WebRTC."""
     return [FFMPEG, '-hide_banner', '-loglevel', 'warning', *_PCM_IN,
             '-c:a', 'libopus', '-b:a', '96k', '-application', 'audio',
-            *filt,
+            *_mic_denoise_filter(),
             '-rtsp_transport', 'tcp', '-f', 'rtsp', ROOM_AUDIO_URL]
+
+
+def _aac_encoder_cmd():
+    """LISTEN leg for Apple devices: PCM -> AAC -> mediamtx, for HLS.
+
+    Opus is not a codec Apple's HLS accepts. An iPhone served the Opus
+    roomaudio playlist gets picture and silence -- the stream negotiates,
+    the lamps go green, and nothing is audible, which is the exact class of
+    "healthy and producing nothing" this tree keeps paying for. AAC is what
+    HLS takes on that platform, so the same microphone is published a second
+    time, in the one codec every HLS client can decode.
+
+    A separate mediamtx path because one path carries one set of tracks; the
+    WebRTC/two-way leg keeps Opus, which is better and which Safari handles
+    perfectly well over WebRTC.
+    """
+    return [FFMPEG, '-hide_banner', '-loglevel', 'warning', *_PCM_IN,
+            '-c:a', 'aac', '-b:a', '96k',
+            *_mic_denoise_filter(),
+            '-rtsp_transport', 'tcp', '-f', 'rtsp', ROOM_SOUND_URL]
 
 
 def _mic_publisher_loop():
@@ -1703,7 +1741,13 @@ def _mic_publisher_loop():
             # dies on connect, every capture rebuild, with a BrokenPipe
             # traceback each time -- so it is started only when something is
             # listening on :8000. Listening goes over HLS (roomaudio) anyway.
-            legs = [('opus', _opus_encoder_cmd())]
+            # name -> builder, so a leg that dies is rebuilt with ITS OWN
+            # command. This was an inline mp3/opus conditional, which silently
+            # resurrects the wrong encoder the moment a third leg exists.
+            builders = {'opus': _opus_encoder_cmd,
+                        'aac': _aac_encoder_cmd,
+                        'mp3': _mp3_encoder_cmd}
+            legs = [('opus', _opus_encoder_cmd()), ('aac', _aac_encoder_cmd())]
             if _icecast_up():
                 legs.insert(0, ('mp3', _mp3_encoder_cmd()))
             for name, cmd in legs:
@@ -1747,8 +1791,7 @@ def _mic_publisher_loop():
                             _kill_hard(pr)
                         except Exception:
                             pass
-                        cmd = (_mp3_encoder_cmd() if name == 'mp3'
-                               else _opus_encoder_cmd())
+                        cmd = builders[name]()
                         try:
                             procs[name] = subprocess.Popen(
                                 cmd, stdin=subprocess.PIPE,
@@ -2571,17 +2614,24 @@ def pipeline():
     if capture != 'ok':
         audio_rate = audio_ch = audio_kbps = None
 
-    # While hidden, ffmpeg is publishing generated black and silence -- the
-    # camera and microphone are closed. Reporting the capture stage as ok
-    # would be true of the process and false of the devices, which is the
-    # distinction these lamps exist to make. Report it as off, and drop the
-    # audio figures: nothing from the room is being encoded.
+    # While hidden the CAMERA is closed and black is published in its place.
+    # Reporting the capture stage as ok would be true of the process and false
+    # of the device, which is the distinction these lamps exist to make.
+    #
+    # The MICROPHONE is no longer closed with it (see _mic_capture_cmd), so it
+    # is reported separately below from its own process. Saying "microphone
+    # closed" here while SoX is reading the room would be the worst direction
+    # for this lamp to be wrong in: a privacy indicator that under-reports
+    # live capture.
     with _mode_lock:
         mode_now = _mode
     if mode_now == 'hide':
         capture = 'off'
-        detail = 'feed hidden; camera and microphone closed'
-        audio_rate = audio_ch = audio_kbps = None
+        detail = 'feed hidden; camera closed (microphone stays open)'
+        # Audio figures are NOT cleared here any more. They were, on the
+        # premise that "nothing from the room is being encoded" -- no longer
+        # true. Blanking RATE/BITS while the room is audible tells the panel
+        # a quieter version of the same lie the mic lamp was telling.
 
     # Faculty lamps, read from the live CVProcessor instance rather than
     # asserted from config -- a stalled pipeline puts these out by itself
@@ -2607,9 +2657,14 @@ def pipeline():
         scene = None
         cv_text = cv_capability_text = None
 
+    # The mic is its OWN process now (SoX via CoreAudio), not a mapped output
+    # of the camera's AVFoundation session, so its lamp reads that process
+    # rather than the camera's state. poll() rather than "is the object
+    # there": a dead child still answers to pid_exists and friends.
+    _mp = _mic_proc
+    mic_state = 'ok' if (_mp is not None and _mp.poll() is None) else 'down'
+
     data = {
-        # The microphone opened iff the capture session did; they are one
-        # AVFoundation session and audio is a mapped output stream.
         'mode':     mode_now,
         'cv':       mode_now == 'cv',
         'cv_mog2':  mog2,
@@ -2617,8 +2672,8 @@ def pipeline():
         'cv_scene': scene,
         'cv_text': cv_text,
         'cv_capability_text': cv_capability_text,
-        'mic':      capture,
-        'camera':   capture,   # one AVFoundation session: camera and mic open together
+        'mic':      mic_state,
+        'camera':   capture,
         'audio_rate_hz':  audio_rate,
         'audio_channels': audio_ch,
         'audio_kbps':     audio_kbps,

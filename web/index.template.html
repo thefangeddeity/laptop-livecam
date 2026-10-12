@@ -3259,10 +3259,27 @@
           if (m) uri = m[1];
         }
         // No audio rendition: on macOS the room is not a track of the
-        // camera's feed but its own path, roomaudio (Opus, the same leg a
-        // two-way call hears), which mediamtx also serves as HLS.
+        // camera's feed but its own path, which mediamtx also serves as HLS.
+        //
+        // ALWAYS the AAC path for HLS listening, with no capability branch.
+        //
+        // Every HLS client decodes AAC -- Safari natively, hls.js, Firefox,
+        // Chrome. Opus-in-HLS is the one only some of them accept: Apple's
+        // HLS does not take it at all, so an iPhone served the Opus playlist
+        // gets a stream that negotiates, lights every lamp, and is silent.
+        //
+        // This WAS a canPlayType branch choosing Opus for non-WebKit. Two
+        // things were wrong with it. It probed roomAudio, an <audio> element,
+        // and WebKit advertises HLS on VIDEO elements -- so the test returned
+        // empty on the very phones it existed to catch, and sent them to Opus
+        // anyway. And the branch bought nothing: picking the codec every
+        // client can play is simply correct, and a branch that can only ever
+        // be wrong on one side is worse than no branch.
+        //
+        // Opus stays on roomaudio for the WebRTC/two-way leg, where it is the
+        // better codec and where Safari handles it perfectly well.
         var url = uri ? HLS_URL.replace(/[^/]*$/, uri)
-                      : HLS_URL.replace('/cam/', '/roomaudio/');
+                      : HLS_URL.replace('/cam/', '/roomsound/');
         _teardownRoomHls();
         if (window.Hls && Hls.isSupported()) {
           roomHls = new Hls({
