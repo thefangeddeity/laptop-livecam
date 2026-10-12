@@ -1824,6 +1824,14 @@
             </button>
             <span class="eng rstlab">Birds</span>
           </div>
+          <div class="pinrow sub">
+            <button class="pinled" id="clsOtherBtn" onclick="toggleCls('other')"
+                    aria-pressed="false" aria-label="Alert on other living things"
+                    title="Every animate class the model knows that is not a person, cat, dog or bird -- horse, sheep, cow, elephant, bear, zebra, giraffe. Indoors these are near-certainly misclassifications, which is the point: something alive that is not one of yours.">
+              <span class="bulb" id="clsOtherLamp"></span>
+            </button>
+            <span class="eng rstlab">Other</span>
+          </div>
           <div class="pdiv"></div>
           <div class="pinrow">
             <button class="pinled" id="clsMotionBtn" onclick="toggleCls('motion')"
@@ -4604,9 +4612,14 @@
   // phones looking at this panel can never disagree about what the camera is
   // doing. Detection is the master -- with it off, nothing below it can fire,
   // so the whole group is shown inert rather than live and tickable.
-  var SPECIES = ['human', 'cat', 'dog', 'bird'];
+  // 'other' is a species row like the rest: it stands for every animate class
+  // that is not one of the four named ones, so "All living beings" selects a
+  // set with nothing alive left out of it. The server expands it (see
+  // _OTHER_LIVING in broadcast-api); the panel only ever sends the key.
+  var SPECIES = ['human', 'cat', 'dog', 'bird', 'other'];
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
-                 cat: 'clsCat', dog: 'clsDog', bird: 'clsBird' };
+                 cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
+                 other: 'clsOther' };
   var clsOn = {}, detectOn = false, videoOn = false;
 
   function paintLed(id, on) {

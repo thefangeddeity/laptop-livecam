@@ -2160,16 +2160,54 @@ def cv_blur_post():
 #   motion  -- no model at all: MotionDetector turns moving regions into boxes
 #              labelled 'motion'. Catches what YOLO has no word for, at the
 #              cost of calling a curtain a visitor.
-_LIVING_CLASSES = ('human', 'cat', 'dog', 'bird')
-_ALERT_CLASSES = _LIVING_CLASSES + ('living', 'motion')
+# The living classes the panel gives a row of their own: the ones a household
+# actually expects to see.
+_NAMED_LIVING = ('human', 'cat', 'dog', 'bird')
+
+# Every OTHER animate class the model can emit. COCO's animate set is exactly
+# person plus ten animals, so with these there is nothing alive left over and
+# "All living beings" is finally a true statement rather than a shorthand for
+# four of them.
+#
+# One 'other' row rather than seven, because nobody wants to tick zebra. In a
+# living room every one of these is almost certainly a misclassification --
+# which is the point: it is the model saying something alive is there that is
+# not a person and not a pet, and that is worth a picture either way. The real
+# labels survive into the HUD and the logs (see COCO_LABELS in cv_detect), so
+# a spurious 'giraffe' is still diagnosable as a giraffe.
+#
+# NOT included: 'teddy bear', which is in COCO_LABELS as a known decoy and is
+# not alive, and 'potted plant', which is alive and never going to walk in.
+#
+# MODEL-COUPLED, and the reason "All living beings" can be trusted. This is
+# COCO-80's animate set minus the four named rows; it is complete only for
+# THAT class list. A new model, a retrain, or a CV_DETECT_CLASSES change can
+# add or rename animate classes, and nothing here will notice: the stored
+# setting still says 'other', the panel still says "All living beings", and
+# the new species is silently never alerted on.
+#
+# IF THE MODEL OR CLASS SET CHANGES, re-derive this from the new label map
+# (COCO_LABELS in cv_detect, which carries the matching note) and check that
+# _NAMED_LIVING + _OTHER_LIVING still covers every animate label it can emit.
+_OTHER_LIVING = ('horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe')
+
+_LIVING_CLASSES = _NAMED_LIVING + ('other',)
+_ALERT_CLASSES = _LIVING_CLASSES + _OTHER_LIVING + ('living', 'motion')
 
 
 def _expand_classes(picked):
     """'living' stands for every animate class; keep it in the stored value so
     the choice survives a future species being added."""
     out = list(picked)
+    # 'living' first: it adds 'other', which then expands below. Reversing
+    # these two means ticking "All living beings" quietly leaves out every
+    # animal that is not a cat, dog or bird.
     if 'living' in out:
         for c in _LIVING_CLASSES:
+            if c not in out:
+                out.append(c)
+    if 'other' in out:
+        for c in _OTHER_LIVING:
             if c not in out:
                 out.append(c)
     return out
