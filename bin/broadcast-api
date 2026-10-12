@@ -996,7 +996,14 @@ def _start_cv_publisher(mode='cv'):
         '-pixel_format', 'uyvy422',
         '-use_wallclock_as_timestamps', '1',
         '-i', f'{video_idx}:none',
-        '-f', 'rawvideo', '-pix_fmt', 'bgr24', 'pipe:1',
+        # rgb24, NOT bgr24. Every consumer downstream already assumes RGB --
+        # cv_notify converts RGB->BGR at the JPEG boundary, cv_processor does
+        # its tone work in RGB->LAB, and cv_detect passes the frame to YOLO
+        # with swapRB=False, which is correct only for RGB. The capture was the
+        # one place saying BGR, so it fed every one of them mirrored channels:
+        # alert photos came out with blue skin, and the detector was scoring a
+        # colour-swapped image the whole time.
+        '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1',
     ], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
        stderr=_open_ffmpeg_log(), bufsize=0)
 
@@ -1038,7 +1045,11 @@ def _start_cv_publisher(mode='cv'):
 
     b = subprocess.Popen([
         FFMPEG, '-hide_banner', '-loglevel', 'error',
-        '-f', 'rawvideo', '-pix_fmt', 'bgr24',
+        # rgb24, matching the capture and _start_publisher() above. These two
+        # publishers disagreed -- one declared rgb24, this one bgr24, against
+        # one bgr24 capture -- so the live picture was correct on this path and
+        # would have been channel-swapped on the other.
+        '-f', 'rawvideo', '-pix_fmt', 'rgb24',
         '-s', f'{FRAME_W}x{FRAME_H}', '-framerate', str(fr),
         '-use_wallclock_as_timestamps', '1',
         '-i', 'pipe:0',
