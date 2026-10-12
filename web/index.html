@@ -1369,7 +1369,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-92-g111cc73-dirty · dev · 111cc73"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-93-g41b8988-dirty · dev · 41b8988"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1840,6 +1840,14 @@
               <span class="bulb" id="clsMotionLamp"></span>
             </button>
             <span class="eng rstlab">All movements</span>
+          </div>
+          <div class="pinrow">
+            <button class="pinled" id="clsPlantBtn" onclick="toggleCls('plant')"
+                    aria-pressed="false" aria-label="Alert on plants"
+                    title="A houseplant moving in a draught was being reported as a cat, because the model had no 'plant' label available and returned the nearest class it was allowed to name. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings, so that option cannot switch it back on.">
+              <span class="bulb" id="clsPlantLamp"></span>
+            </button>
+            <span class="eng rstlab">Plants</span>
           </div>
           <!-- Content of an alert, not a trigger for one -- hence its own
                rule rather than another row in the list above. -->
@@ -4617,9 +4625,11 @@
   // set with nothing alive left out of it. The server expands it (see
   // _OTHER_LIVING in broadcast-api); the panel only ever sends the key.
   var SPECIES = ['human', 'cat', 'dog', 'bird', 'other'];
+  // 'plant' is in CLS_ID but NOT in SPECIES: it is togglable like any other
+  // class, and the living select-all must never reach it.
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
-                 other: 'clsOther' };
+                 other: 'clsOther', plant: 'clsPlant' };
   var clsOn = {}, detectOn = false, videoOn = false;
 
   function paintLed(id, on) {

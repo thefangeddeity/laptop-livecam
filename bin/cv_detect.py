@@ -65,6 +65,16 @@ COCO_LABELS = {
     21: 'bear',
     22: 'zebra',
     23: 'giraffe',
+    # NOT alive-and-animate, and present for the opposite reason to the rest:
+    # a houseplant that moves in a draught was being reported as a CAT at a
+    # flat 0.574 every frame, because 'potted plant' was absent from this map
+    # and the model had no correct answer available -- so it returned the
+    # nearest class it was allowed to name. Giving it the right label is the
+    # actual fix; the panel toggle is the safety net. Off by default, and
+    # deliberately NOT part of 'living' (see _OTHER_LIVING in broadcast-api):
+    # sweeping it into "All living beings" would reinstate the false alarm
+    # the moment anyone ticked the option.
+    58: 'plant',
 #    24: 'handbag',      # helps find lost items
 #    24: 'backpack',    # helps find lost items
 #    56: 'chair',

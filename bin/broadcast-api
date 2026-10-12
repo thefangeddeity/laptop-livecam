@@ -2192,7 +2192,12 @@ _NAMED_LIVING = ('human', 'cat', 'dog', 'bird')
 _OTHER_LIVING = ('horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe')
 
 _LIVING_CLASSES = _NAMED_LIVING + ('other',)
-_ALERT_CLASSES = _LIVING_CLASSES + _OTHER_LIVING + ('living', 'motion')
+# 'plant' is a real detector label but NOT a living row: it is here so a
+# houseplant can be named correctly and then silenced, not so it can be
+# alerted on as a living being. Keeping it out of _LIVING_CLASSES is what
+# stops "All living beings" from switching the false alarm back on.
+_ALERT_CLASSES = (_LIVING_CLASSES + _OTHER_LIVING
+                  + ('plant', 'living', 'motion'))
 
 
 def _expand_classes(picked):
