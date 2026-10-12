@@ -1841,6 +1841,14 @@
             </button>
             <span class="eng rstlab">Birds</span>
           </div>
+          <div class="pinrow sub">
+            <button class="pinled" id="clsOtherBtn" onclick="toggleCls('other')"
+                    aria-pressed="false" aria-label="Alert on other living things"
+                    title="Every animate class the model knows that is not a person, cat, dog or bird. Indoors these are near-certainly misclassifications, which is the point: something alive that is not one of yours.">
+              <span class="bulb" id="clsOtherLamp"></span>
+            </button>
+            <span class="eng rstlab">Other</span>
+          </div>
           <div class="pdiv"></div>
           <div class="pinrow">
             <button class="pinled" id="clsMotionBtn" onclick="toggleCls('motion')"
@@ -1849,6 +1857,14 @@
               <span class="bulb" id="clsMotionLamp"></span>
             </button>
             <span class="eng rstlab">All movements</span>
+          </div>
+          <div class="pinrow">
+            <button class="pinled" id="clsPlantBtn" onclick="toggleCls('plant')"
+                    aria-pressed="false" aria-label="Alert on plants"
+                    title="A houseplant moving in a draught was reported as a cat, because the model had no plant label available. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings.">
+              <span class="bulb" id="clsPlantLamp"></span>
+            </button>
+            <span class="eng rstlab">Plants</span>
           </div>
           <!-- Content of an alert, not a trigger for one -- hence its own
                rule rather than another row in the list above. -->
@@ -4619,9 +4635,12 @@
   // phones looking at this panel can never disagree about what the camera is
   // doing. Detection is the master -- with it off, nothing below it can fire,
   // so the whole group is shown inert rather than live and tickable.
-  var SPECIES = ['human', 'cat', 'dog', 'bird'];
+  // 'other' is a species row; 'plant' is in CLS_ID but NOT in SPECIES, so the
+  // living select-all can never reach it.
+  var SPECIES = ['human', 'cat', 'dog', 'bird', 'other'];
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
-                 cat: 'clsCat', dog: 'clsDog', bird: 'clsBird' };
+                 cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
+                 other: 'clsOther', plant: 'clsPlant' };
   var clsOn = {}, detectOn = false, videoOn = false;
 
   function paintLed(id, on) {

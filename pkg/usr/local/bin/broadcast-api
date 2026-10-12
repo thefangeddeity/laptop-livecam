@@ -1533,7 +1533,11 @@ def pipeline_get():
     out = {
         # Hidden is 'off', not 'down': the camera is deliberately not being
         # published. Calling that a fault would be as wrong as calling it ok.
-        'camera':   'off' if mode == 'hide' else ('ok' if fresh else 'down'),
+        # Read the DEVICE, not the mode. The writer loop runs in every mode and
+        # only changes what it renders into the loopback, so the camera goes on
+        # being read and the detector goes on watching. Reporting 'off' here was
+        # a privacy indicator under-reporting live capture.
+        'camera':   'ok' if fresh else 'down',
         'mediamtx': 'ok' if _port_listening(8554) else 'down',
         'rtsp':     'ok' if _tcp_established_to(8554) else 'down',
         # Mic is INDEPENDENT of the picture (Hide no longer closes it -- see
@@ -1736,16 +1740,34 @@ def blur_mode_post():
 #   motion  -- no model at all: moving regions become boxes labelled 'motion'.
 #              Catches what the detector has no word for, at the cost of
 #              calling a curtain a visitor.
-_LIVING_CLASSES = ('human', 'cat', 'dog', 'bird')
-_ALERT_CLASSES = _LIVING_CLASSES + ('living', 'motion')
+_NAMED_LIVING = ('human', 'cat', 'dog', 'bird')
+
+# Every OTHER animate class the model can emit. COCO's animate set is person
+# plus ten animals, so with these nothing alive is left out and "All living
+# beings" is a true statement. One row, because nobody wants to tick zebra.
+# MODEL-COUPLED -- see the note on COCO_LABELS in cv_detect.
+_OTHER_LIVING = ('horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe')
+
+_LIVING_CLASSES = _NAMED_LIVING + ('other',)
+
+# 'plant' is a real label but NOT a living row: it exists so a houseplant can
+# be named correctly and silenced, not alerted on. Keeping it out of
+# _LIVING_CLASSES stops "All living beings" switching that false alarm on.
+_ALERT_CLASSES = (_LIVING_CLASSES + _OTHER_LIVING
+                  + ('plant', 'living', 'motion'))
 
 
 def _expand_classes(picked):
     """'living' stands for every animate class; keep it in the stored value so
     the choice survives a future species being added."""
     out = list(picked)
+    # 'living' first: it adds 'other', which then expands below.
     if 'living' in out:
         for c in _LIVING_CLASSES:
+            if c not in out:
+                out.append(c)
+    if 'other' in out:
+        for c in _OTHER_LIVING:
             if c not in out:
                 out.append(c)
     return out
