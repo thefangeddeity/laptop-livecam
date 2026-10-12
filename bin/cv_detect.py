@@ -530,7 +530,7 @@ class Tracker:
 
     def __init__(self, max_misses=5, max_distance=180,
                  evidence_decay=0.85, promote_threshold=0.35,
-                 evidence_boost=0.0, scene_boost=0.0):
+                 evidence_boost=0.0, scene_boost=0.0, fg_decay=0.93):
         self.tracks = {}
         self._next_id = 1
         self.max_misses = int(max_misses)
@@ -539,6 +539,8 @@ class Tracker:
         self.promote_threshold = float(promote_threshold)
         self.evidence_boost = float(evidence_boost)
         self.scene_boost = float(scene_boost)
+        # How fast a track's motion evidence goes stale. See update().
+        self.fg_decay = min(1.0, max(0.0, float(fg_decay)))
 
     def update(self, detections):
         unmatched = dict(self.tracks)
@@ -556,7 +558,26 @@ class Tracker:
                 tr = self.tracks[best]
                 tr.box = det.box
                 tr.confidence = det.confidence
-                tr.fg_consistency = max(tr.fg_consistency, det.fg_consistency)
+                # DECAYING peak, not a lifetime one.
+                #
+                # This was max(tr.fg_consistency, det.fg_consistency) -- a
+                # monotonic high-water mark that never came down. One frame
+                # where a static object happened to overlap moving foreground
+                # (somebody walking past, a light change, a curtain) pinned
+                # the track at 1.0 for as long as it lived, and the notifier's
+                # motion gate compares against exactly this value. A black
+                # shoe under a sofa was reported as a cat at 0.52-0.57 for
+                # hours on fg=0.00 frames, riding one ancient spike.
+                #
+                # Decaying it means motion evidence has to be RECENT. An
+                # animal that walks in keeps refreshing it and alerts inside
+                # the 6s shot window; one that settles afterwards has already
+                # been reported; a shoe falls back to its own fg (0.00) within
+                # a few seconds and never qualifies again. Nodes without MOG2
+                # send fg=1.0 on every detection, so max() holds them at 1.0
+                # and this cannot silence them.
+                tr.fg_consistency = max(det.fg_consistency,
+                                        tr.fg_consistency * self.fg_decay)
                 tr.last_seen = det.timestamp
                 tr.state = 'present'
                 tr.misses = 0
