@@ -34,11 +34,37 @@ import cv2
 
 # COCO indices that matter here. A general model gives these three; the
 # labels are renamed to what the operator actually calls them.
+# MODEL-COUPLED. Every id here is an index into the COCO-80 class list, which
+# is what yolov8n.onnx emits. Swap the model, retrain it, or point the runtime
+# at a custom class set and these integers mean something else entirely -- the
+# detector will not error, it will just confidently report 'cat' for whatever
+# occupies index 15 in the new ordering.
+#
+# IF THE MODEL OR CLASS SET CHANGES, update BOTH:
+#   * this map, and
+#   * _OTHER_LIVING in broadcast-api, which lists the animate classes that are
+#     not person/cat/dog/bird and is what makes "All living beings" true.
+# Miss the second and the panel keeps offering the promise while quietly
+# covering fewer species than it claims -- the failure is silent on both ends.
 COCO_LABELS = {
     0:  'human',
     15: 'cat',
     16: 'dog',          # pets are not only cats
     14: 'bird',
+    # The REST of COCO's animate classes, so "all living beings" can mean it.
+    # Grouped behind one 'other' key in the panel (see _OTHER_LIVING in
+    # broadcast-api) rather than seven rows nobody wants to tick one by one,
+    # but kept under their real names HERE so the HUD and the logs say what
+    # the model actually claimed. In a living room most of these are a
+    # misclassification -- which is precisely the thing worth being told
+    # about, because it is something alive that is not a person or a pet.
+    17: 'horse',
+    18: 'sheep',
+    19: 'cow',
+    20: 'elephant',
+    21: 'bear',
+    22: 'zebra',
+    23: 'giraffe',
 #    24: 'handbag',      # helps find lost items
 #    24: 'backpack',    # helps find lost items
 #    56: 'chair',

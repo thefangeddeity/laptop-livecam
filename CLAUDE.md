@@ -104,3 +104,25 @@ On macOS, CV is additionally blocked — combined A/V removed the frame-processi
 stage entirely, so there is nothing to put CV *into*. `CV` and `Foveal layer`
 ship disabled with a SOON badge for that reason. `Foveal layer` reuses the Linux
 name deliberately; match those semantics rather than inventing a second meaning.
+
+## The alert class set is coupled to the model
+
+`"All living beings"` is a real promise: it selects every animate class the
+detector can emit, not a shorthand for the four with their own row. That holds
+only because two lists are kept in step, and **both are indexed against
+COCO-80, which is what `yolov8n.onnx` emits**:
+
+- `COCO_LABELS` in `bin/cv_detect.py` — integer id to label.
+- `_OTHER_LIVING` in `bin/broadcast-api` — the animate labels that are not
+  person/cat/dog/bird, which the `other` row expands to.
+
+**Changing the model, retraining it, or setting `CV_DETECT_CLASSES` means
+re-deriving both.** Nothing will error if you don't. The ids are positions in
+a class list, so a different ordering makes the detector report `cat` for
+whatever now sits at 15; and a new animate class is simply never alerted on
+while the panel goes on claiming it covers everything alive.
+
+The stored setting keeps the *unexpanded* keys (`living,human,…,other`) and
+the server expands them per request, so a species added to `_OTHER_LIVING` is
+picked up by existing saved settings without anyone re-ticking a box. That is
+the one part that updates itself — the lists above do not.
