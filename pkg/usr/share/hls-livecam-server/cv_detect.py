@@ -62,6 +62,17 @@ STATIC_SCENE_LABELS = {
     58: 'potted plant',
 }
 
+# Names for the living COCO classes (person / human, birds, cats, dogs and
+# the rest), so a node that asks for them by id or by name in
+# CV_DETECT_CLASSES gets them labelled -- not the default set (COCO_LABELS
+# stays what a node looks for when it sets nothing). These are what a
+# cambrian-perception organism eats (its prey).
+COCO_LIVING = {
+    0: 'human', 14: 'bird', 15: 'cat', 16: 'dog', 17: 'horse', 18: 'sheep',
+    19: 'cow', 20: 'elephant', 21: 'bear', 22: 'zebra', 23: 'giraffe',
+}
+
+
 def parse_class_filter(spec):
     """Turn a device.env CV_DETECT_CLASSES value into a {id: label} dict.
 
@@ -78,20 +89,24 @@ def parse_class_filter(spec):
     """
     if not spec:
         return None
-    by_name = {v.lower(): k for k, v in COCO_LABELS.items()}
+    by_name = {v.lower(): k for k, v in {**COCO_LIVING, **COCO_LABELS}.items()}
     # names the operator may reasonably use that differ from our relabelling
     by_name.setdefault('person', 0)
+    by_name.setdefault('living', -1)  # shorthand: every living COCO class
     out = {}
     for tok in str(spec).split(','):
         tok = tok.strip()
         if not tok:
             continue
-        if tok.isdigit():
+        if tok.lower() == 'living':
+            for cid, name in COCO_LIVING.items():
+                out[cid] = COCO_LABELS.get(cid, name)
+        elif tok.isdigit():
             cid = int(tok)
-            out[cid] = COCO_LABELS.get(cid, str(cid))
+            out[cid] = COCO_LABELS.get(cid, COCO_LIVING.get(cid, str(cid)))
         elif tok.lower() in by_name:
             cid = by_name[tok.lower()]
-            out[cid] = COCO_LABELS.get(cid, tok)
+            out[cid] = COCO_LABELS.get(cid, COCO_LIVING.get(cid, tok))
         else:
             print(f"CV DETECT: ignoring unknown class {tok!r} in "
                   f"CV_DETECT_CLASSES", flush=True)

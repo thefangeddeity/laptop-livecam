@@ -1354,6 +1354,14 @@
   .pinrow { display: flex; align-items: center; gap: 10px; margin: 9px 0 7px;
     justify-content: flex-start; flex-direction: row; }
   .pinrow .rstlab { text-align: left; }
+  /* A member of the group above it. Indent is the cheapest way to say
+     "contained by", and it keeps one row style instead of inventing a
+     second control. */
+  .pinrow.sub { padding-left: 20px; }
+  /* Detection off means every choice below it is inert. Showing them live
+     and tickable would be a control that does nothing -- the same opacity
+     .4 the panel already uses for .callctl:disabled and .combrow.bypassed. */
+  .alertgrp.inactive { opacity: .4; pointer-events: none; }
 </style>
 </head>
 <body>
@@ -1457,6 +1465,7 @@
              thing to compare against yesterday than 52 seconds, and the
              lamps lose nothing by being a row. -->
         <div class="ledstrip">
+          <div class="led" id="ledDet" title="Detection running -- switched in Settings"><span class="bulb" id="detectLamp"></span><span class="n">DET</span></div>
           <div class="led" id="ledMog2" title="Background model producing a foreground mask"><span class="bulb"></span><span class="n">MOG2</span></div>
           <div class="led" id="ledFov" title="Detection gated to the moving region"><span class="bulb"></span><span class="n">FOV</span></div>
           <div class="led" id="ledScene2d" title="Flat scene model: homography and region dictionary"><span class="bulb"></span><span class="n">2D</span></div>
@@ -1773,6 +1782,86 @@
         <div class="panel-title eng">Settings</div>
         <!-- Alphabetized (requirement: alphabetize these settings) -- Disable
              buzz, Light theme, Mute server speaker/headset in RTC. -->
+        <!-- Detection/alerting runs off its own tap on the camera, not off
+             the displayed picture: Show/CV/Hide/Night are what a viewer wants
+             to look at, and four viewers in four countries share one feed
+             mode. An alert must not depend on whoever clicked last. -->
+        <!-- Structure, not a flat list: "All living beings" is a SUPERSET of
+             the four indented under it, while "All movements" is a different
+             mechanism entirely (no model, so it sees what the detector has no
+             word for and will call a curtain a visitor). A rule separates the
+             orthogonal one; indentation carries the containment. -->
+        <!-- The master sits with the choices it governs, not in the Video
+             panel: everything below is inert without it. The Video panel
+             carries a DET readout instead, because whether the camera is
+             being watched belongs on the status strip with MOG2 and FOV. -->
+        <div class="pinrow">
+          <button class="pinled" id="detectBtn" onclick="toggleDetect()"
+                  aria-pressed="false" aria-label="Detection"
+                  title="Watch for people and pets, whatever the feed is showing -- off stops detection and alerts entirely">
+            <span class="bulb" id="detectBtnLamp"></span>
+          </button>
+          <span class="eng rstlab">Detection</span>
+        </div>
+        <div class="alertgrp" id="alertGroup">
+          <div class="sub-title">Alert me about</div>
+          <div class="pinrow">
+            <button class="pinled" id="clsLivingBtn" onclick="toggleLiving()"
+                    aria-pressed="false" aria-label="Alert on all living beings"
+                    title="Every animate class at once -- stays correct if a species is added later">
+              <span class="bulb" id="clsLivingLamp"></span>
+            </button>
+            <span class="eng rstlab">All living beings</span>
+          </div>
+          <div class="pinrow sub">
+            <button class="pinled" id="clsHumanBtn" onclick="toggleCls('human')"
+                    aria-pressed="false" aria-label="Alert on people">
+              <span class="bulb" id="clsHumanLamp"></span>
+            </button>
+            <span class="eng rstlab">People</span>
+          </div>
+          <div class="pinrow sub">
+            <button class="pinled" id="clsCatBtn" onclick="toggleCls('cat')"
+                    aria-pressed="false" aria-label="Alert on cats">
+              <span class="bulb" id="clsCatLamp"></span>
+            </button>
+            <span class="eng rstlab">Cats</span>
+          </div>
+          <div class="pinrow sub">
+            <button class="pinled" id="clsDogBtn" onclick="toggleCls('dog')"
+                    aria-pressed="false" aria-label="Alert on dogs">
+              <span class="bulb" id="clsDogLamp"></span>
+            </button>
+            <span class="eng rstlab">Dogs</span>
+          </div>
+          <div class="pinrow sub">
+            <button class="pinled" id="clsBirdBtn" onclick="toggleCls('bird')"
+                    aria-pressed="false" aria-label="Alert on birds">
+              <span class="bulb" id="clsBirdLamp"></span>
+            </button>
+            <span class="eng rstlab">Birds</span>
+          </div>
+          <div class="pdiv"></div>
+          <div class="pinrow">
+            <button class="pinled" id="clsMotionBtn" onclick="toggleCls('motion')"
+                    aria-pressed="false" aria-label="Alert on all movements"
+                    title="Anything that moves, with no model -- catches what the detector has no word for, and will call a curtain a visitor">
+              <span class="bulb" id="clsMotionLamp"></span>
+            </button>
+            <span class="eng rstlab">All movements</span>
+          </div>
+          <!-- Content of an alert, not a trigger for one -- hence its own
+               rule rather than another row in the list above. -->
+          <div class="pdiv"></div>
+          <div class="pinrow">
+            <button class="pinled" id="alertVideoBtn" onclick="toggleAlertVideo()"
+                    aria-pressed="false" aria-label="Include video in alerts"
+                    title="Attach a short clip as well as the still">
+              <span class="bulb" id="alertVideoLamp"></span>
+            </button>
+            <span class="eng rstlab">Include video</span>
+          </div>
+        </div>
         <!-- Disable buzz, moved here from the AV panel. -->
         <div class="pinrow">
           <button class="pinled" id="muteBuzzBtn" onclick="toggleMute()"
@@ -4520,6 +4609,91 @@
       }, 2500);
     });
   })();
+
+  // Per-class alert checkboxes. Server-backed like the toggles above, so two
+  // phones never disagree about what the camera is reporting.
+
+
+  // ── DETECTION + ALERTS ──
+  // Server-backed throughout, like Blur: the node owns every answer, so two
+  // phones looking at this panel can never disagree about what the camera is
+  // doing. Detection is the master -- with it off, nothing below it can fire,
+  // so the whole group is shown inert rather than live and tickable.
+  var SPECIES = ['human', 'cat', 'dog', 'bird'];
+  var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
+                 cat: 'clsCat', dog: 'clsDog', bird: 'clsBird' };
+  var clsOn = {}, detectOn = false, videoOn = false;
+
+  function paintLed(id, on) {
+    var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
+    if (!b) return;
+    b.classList.toggle('pressed', !!on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    var l = document.getElementById(id + 'Lamp');
+    if (l) l.classList.toggle('on', !!on);
+  }
+  function paintAll() {
+    // Two faces of one fact: the switch in Settings and the DET readout on
+    // the Video panel's status strip. They are painted together so they can
+    // never disagree about whether the room is being watched.
+    paintLed('detectBtn', detectOn);
+    var dl = document.getElementById('detectLamp');
+    if (dl) dl.classList.toggle('on', detectOn);
+    paintLed('alertVideo', videoOn);
+    Object.keys(CLS_ID).forEach(function(c) { paintLed(CLS_ID[c], clsOn[c]); });
+    // "All living beings" is lit when the four under it are, so the superset
+    // never disagrees with its members.
+    paintLed('clsLiving', SPECIES.every(function(s) { return clsOn[s]; }));
+    var g = document.getElementById('alertGroup');
+    if (g) g.classList.toggle('inactive', !detectOn);
+  }
+  function post(api, body, then) {
+    return fetch(api, { method: 'POST',
+        headers: { 'Content-Type': 'text/plain' }, body: body })
+      .then(function(r) { return r.ok ? r.text() : null; })
+      .catch(function() { return null; })
+      .then(function(v) { if (v !== null) then(v); paintAll(); });
+  }
+  function applyCls(text) {
+    var picked = (text || '').split(',').map(function(s) { return s.trim().toLowerCase(); });
+    Object.keys(CLS_ID).forEach(function(c) { clsOn[c] = picked.indexOf(c) !== -1; });
+  }
+  function sendCls() {
+    var want = Object.keys(CLS_ID).filter(function(k) {
+      return k !== 'living' && clsOn[k];
+    });
+    return post('/api/notify-classes', want.join(','), applyCls);
+  }
+  function toggleCls(c) { clsOn[c] = !clsOn[c]; sendCls(); }
+  // Select-all over the species, the familiar pattern: on unless they are all
+  // already on, in which case it clears them.
+  function toggleLiving() {
+    var all = SPECIES.every(function(s) { return clsOn[s]; });
+    SPECIES.forEach(function(s) { clsOn[s] = !all; });
+    sendCls();
+  }
+  function toggleDetect() {
+    post('/api/detect-always', detectOn ? 'false' : 'true',
+         function(v) { detectOn = v.trim() === 'true'; });
+  }
+  function toggleAlertVideo() {
+    post('/api/notify-video', videoOn ? 'false' : 'true',
+         function(v) { videoOn = v.trim() === 'true'; });
+  }
+  function pollAlerts() {
+    fetch('/api/detect-always', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null) detectOn = v.trim() === 'true'; paintAll(); });
+    fetch('/api/notify-video', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null) videoOn = v.trim() === 'true'; paintAll(); });
+    fetch('/api/notify-classes', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null) applyCls(v); paintAll(); });
+  }
+  pollAlerts();
+  setInterval(pollAlerts, 5000);
+
 </script>
 </body>
 </html>

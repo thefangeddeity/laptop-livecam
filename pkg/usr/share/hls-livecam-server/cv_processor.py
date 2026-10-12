@@ -70,6 +70,18 @@ try:
 except Exception:      # occupancy/grid tooling is optional
     _cvo = None
 
+# cambrian-perception's organism, vendored and pinned (vendor/cambrian). Optional
+# like every stage here: absent or broken, CV_CAMBRIAN=1 just logs and stays off.
+try:
+    import sys as _sys
+    _sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor', 'cambrian'))
+    from fishbowl.live import LiveActor as _LiveActor, load_champion as _load_champion
+    from fishbowl.hud import LockHUD as _LockHUD
+    _CAMBRIAN_IMPORT_ERROR = None
+except Exception as _exc:
+    _LiveActor = None
+    _CAMBRIAN_IMPORT_ERROR = f"{type(_exc).__name__}: {_exc}"
+
 # Flow is computed on a downscaled grayscale pair purely to build a coarse
 # motion mask -- a full-resolution dense flow field is not needed to answer
 # "is this pixel neighborhood moving," and it costs several times more.
@@ -549,6 +561,22 @@ _DEFAULTS = {
                                           # and the request reports failure.
                                           # A confidently wrong registration
                                           # is worse than none.
+
+    # cambrian-perception's organism (vendor/cambrian, pinned: see its
+    # VENDORED file). Off by default. On, it lives in this picture frame by
+    # frame -- its own eye, brain and body -- choosing where to look and when
+    # to lock on among this node's own detections of living things (this
+    # node still chooses what it detects: CV_DETECT_CLASSES), and its target
+    # lock replaces the detection boxes on the picture.
+    'CV_CAMBRIAN':            0,
+    'CV_CAMBRIAN_CHAMPION':   '/dev/shm/cambrian-perception/champion.json',
+                                      # a local cambrian-perception's newest
+                                      # champion, adopted as it changes;
+                                      # else the vendored one
+    'CV_CAMBRIAN_CAPTURE':    'off',  # off | picture: save a JPEG when a meal
+                                      # (a lock-on, grouped by its own bout
+                                      # criterion) starts -- the snapshot hook
+    'CV_CAMBRIAN_CAPTURE_DIR': '',    # where pictures go (required for picture)
 }
 
 
@@ -896,6 +924,14 @@ class CVProcessor:
             clipLimit=_read_float(denv, 'NIGHT_CLAHE_CLIP'),
             tileGridSize=(_read_int(denv, 'NIGHT_CLAHE_TILES'),) * 2)
 
+        # cambrian-perception's organism (off unless CV_CAMBRIAN=1).
+        self._cambrian = None
+        self._cambrian_hud = None
+        self._cambrian_state = None
+        self._cambrian_champion = None
+        if _read_int(denv, 'CV_CAMBRIAN'):
+            self._init_cambrian(denv)
+
         # Detection thread starts last, once everything it can touch
         # (_tracker, _fg_mask, _accum_*) is fully constructed. Daemon, no
         # explicit stop: this instance lives for the life of the writer-loop
@@ -922,7 +958,86 @@ class CVProcessor:
             # can show this and it can never drift from the picture's own.
             'text': getattr(self, '_hud_text', ''),
             'capability_text': getattr(self, '_hud_capability_text', ''),
+            'cambrian': self._cambrian_summary(),
         }
+
+    # ── cambrian-perception's organism (vendor/cambrian) ────────────────
+    def _init_cambrian(self, denv):
+        if _LiveActor is None:
+            print(f"CV CAMBRIAN: unavailable ({_CAMBRIAN_IMPORT_ERROR})", flush=True)
+            return
+        here = os.path.dirname(os.path.abspath(__file__))
+        self._cambrian_live_path = str((denv or {}).get('CV_CAMBRIAN_CHAMPION', _DEFAULTS['CV_CAMBRIAN_CHAMPION']))
+        champ = _load_champion(self._cambrian_live_path, os.path.join(here, 'vendor', 'cambrian', 'champion.json'))
+        if champ is None:
+            print("CV CAMBRIAN: no champion found -- staying off", flush=True)
+            return
+        self._cambrian = _LiveActor(champ, order='rgb')
+        self._cambrian_hud = _LockHUD(order='rgb')
+        self._cambrian_champion = champ
+        self._cambrian_checked = time.time()
+        self._cambrian_mtime = self._champion_mtime()
+        mode = str((denv or {}).get('CV_CAMBRIAN_CAPTURE', _DEFAULTS['CV_CAMBRIAN_CAPTURE'])).strip().lower()
+        where = str((denv or {}).get('CV_CAMBRIAN_CAPTURE_DIR', _DEFAULTS['CV_CAMBRIAN_CAPTURE_DIR'])).strip()
+        if mode == 'picture' and where:
+            os.makedirs(where, exist_ok=True)
+            self._cambrian.on_meal_start(lambda st, frame: self._cambrian_picture(where, st, frame))
+        elif mode not in ('off', ''):
+            print(f"CV CAMBRIAN: capture {mode!r} not available (off | picture, with a directory)", flush=True)
+        print(f"CV CAMBRIAN: on -- champion from {champ.get('_path')} "
+              f"({champ.get('host', '?')}, generation {champ.get('generation', '?')}); capture {mode or 'off'}",
+              flush=True)
+
+    def _champion_mtime(self):
+        try:
+            return os.path.getmtime(self._cambrian_live_path)
+        except OSError:
+            return None
+
+    def _cambrian_step(self, source_frame, tracks):
+        """One frame of the organism's life, among this node's detections."""
+        try:
+            # A local cambrian-perception's newer champion takes over the same
+            # body (checked once a minute; a file stat, nothing more).
+            now = time.time()
+            if now - self._cambrian_checked > 60:
+                self._cambrian_checked = now
+                m = self._champion_mtime()
+                if m is not None and m != self._cambrian_mtime:
+                    champ = _load_champion(self._cambrian_live_path)
+                    if champ is not None:
+                        self._cambrian.adopt(champ)
+                        self._cambrian_champion = champ
+                        print(f"CV CAMBRIAN: adopted generation {champ.get('generation')} "
+                              f"from {champ.get('host')}", flush=True)
+                    self._cambrian_mtime = m
+            h, w = source_frame.shape[:2]
+            dets = []
+            for t in tracks:
+                x, y, bw, bh = t.box
+                dets.append((str(t.cls), float(t.confidence), x / w, y / h, (x + bw) / w, (y + bh) / h))
+            self._cambrian_state = self._cambrian.frame(source_frame, dets)
+        except Exception as exc:
+            print(f"CV CAMBRIAN: error, turning it off: {type(exc).__name__}: {exc}", flush=True)
+            self._cambrian = None
+
+    def _cambrian_picture(self, where, st, frame):
+        t = st.get('target')
+        name = f"cambrian-meal-{time.strftime('%Y%m%d-%H%M%S')}-{(t[0] if t else 'prey')}.jpg".replace(' ', '_')
+        try:
+            cv2.imwrite(os.path.join(where, name), cv2.cvtColor(frame, cv2.COLOR_RGB2BGR))
+            print(f"CV CAMBRIAN: picture {name}", flush=True)
+        except Exception as exc:
+            print(f"CV CAMBRIAN: picture failed: {exc}", flush=True)
+
+    def _cambrian_summary(self):
+        st, ch = self._cambrian_state, self._cambrian_champion
+        if self._cambrian is None or not st:
+            return None
+        t = st.get('target')
+        return {'mode': st['mode'], 'target': t[0] if t else None, 'meals': st['meals'],
+                'energy': st['energy'], 'asleep': st['asleep'], 'receptors': st['receptors'],
+                'champion': {'host': ch.get('host'), 'generation': ch.get('generation')} if ch else None}
 
     def set_foveal(self, enabled):
         """Live toggle for the Foveal Layer, called every writer-loop
@@ -1669,9 +1784,15 @@ class CVProcessor:
         # burned into the picture, from the one place that computes them.
         self._hud_text = _cvd.hud_banner_text(tracks)
         self._hud_capability_text = self._capability_line()
+        # The organism lives every frame, HUD or not; drawing is the HUD's call.
+        if self._cambrian is not None:
+            self._cambrian_step(source_frame, tracks)
         if self._hud_enabled:
-            canvas = _cvd.draw_hud(canvas, tracks,
-                                   capabilities=self._hud_capability_text)
+            if self._cambrian is not None:
+                canvas = self._cambrian_hud.draw(canvas, self._cambrian_state)
+            else:
+                canvas = _cvd.draw_hud(canvas, tracks,
+                                       capabilities=self._hud_capability_text)
             # HUD labels for furniture come from the region dictionary, not
             # live inference (CV Mode Phase 3) -- the live detector never
             # spends a pass trying to reconfirm a couch. Suppressed while
