@@ -1369,7 +1369,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-90-g651c606-dirty · dev · 651c606"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-91-g4fce955-dirty · dev · 4fce955"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -4257,6 +4257,10 @@
     // Monitor, flat otherwise.
     var v = 0;
     if (audioMode === 'two-way' && levelRtcInAnalyser) {
+      // A context that lost its gesture (backgrounded tab, bfcache restore)
+      // comes back suspended, and _peak would report that as silence. Ask for
+      // it back rather than drawing a flat line that looks like a quiet room.
+      if (levelCtx && levelCtx.state === 'suspended') { try { levelCtx.resume(); } catch (e) {} }
       v = _peak(levelRtcInAnalyser);
     } else if (audioMode === 'play' && levelAnalyser && levelCtx && levelCtx.state === 'running') {
       v = _peak(levelAnalyser);
@@ -4425,8 +4429,19 @@
 
   // A gesture is what lets an AudioContext run at all on iOS, and every key
   // on this panel is a gesture.
+  //
+  // CREATE it here, not just resume it. This used to resume levelCtx only if
+  // it already existed, and on the RTC path it does not exist yet: the tap
+  // starts a WHEP negotiation, and the context is first built from ontrack,
+  // which fires whole seconds later with no gesture anywhere near it. iOS
+  // makes a context born outside a gesture 'suspended', the resume inside
+  // levelAttachStream is swallowed by its own try/catch, and the analyser
+  // then reads a suspended graph as a flat zero forever -- RTC lamp green,
+  // audio audible through the element (which needs no AudioContext), meter
+  // dead. Building it during the tap means ontrack finds a running context.
   document.addEventListener('click', function () {
-    if (levelCtx && levelCtx.state === 'suspended') levelCtx.resume();
+    var ctx = _ensureLevelCtx();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
     levelAttach(roomAudio);
   });
 
