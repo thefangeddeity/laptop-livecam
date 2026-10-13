@@ -110,7 +110,7 @@ class Notifier:
     def __init__(self, urls=None, classes=('human',), cooldown_sec=300,
                  enabled=False, snapshot_dir=None, queue_size=8,
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
-                 name=None):
+                 min_fg=0.0, name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
         self.urls = [u.strip() for u in (urls or []) if u.strip()]
@@ -133,6 +133,13 @@ class Notifier:
         self._q = queue.Queue(maxsize=int(queue_size))
         self._lock = threading.Lock()
         self._last_sent = {}        # class -> monotonic timestamp
+        # Motion gate. A detection that has never recently overlapped moving
+        # foreground is furniture: this node spent an hour reporting a
+        # crumpled bag as a cat every five minutes at fg=0.00 on every frame,
+        # while a real arrival necessarily disturbs the background model.
+        # 0 disables it, and detections default to 1.0 where there is no MOG2
+        # mask, so a node without motion data is never silenced by it.
+        self.min_fg = float(min_fg)
         self._notified_tracks = set()
         self._collecting = {}       # track_id -> open window
         self._chat_moves = {}       # telegram chat id -> the id it moved to
@@ -167,6 +174,14 @@ class Notifier:
                 self._close_expired(now)
                 return False
             self._close_expired(now)
+            if self.min_fg > 0:
+                fg = float(getattr(track, 'fg_consistency', 1.0))
+                if fg < self.min_fg:
+                    # Seen and deliberately not reported: it has not moved
+                    # recently. Marked notified so it is not reconsidered on
+                    # every frame.
+                    self._notified_tracks.add(track.track_id)
+                    return False
             # One notification per track, ever: a track that decays and
             # re-promotes is the same animal on the same visit.
             if track.track_id in self._notified_tracks:
@@ -397,6 +412,7 @@ def make_notifier(denv, log=None):
             return float(default)
 
     return Notifier(urls=urls, classes=classes, cooldown_sec=cooldown,
+                    min_fg=_num('NOTIFY_MIN_FG', 0.25),
                     enabled=enabled, log=log, name=_get('NOTIFY_NAME', '') or None,
                     shots=int(_num('NOTIFY_SHOTS', 3)),
                     window_sec=_num('NOTIFY_WINDOW_SEC', 6.0),

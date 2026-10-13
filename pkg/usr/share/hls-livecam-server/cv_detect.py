@@ -442,13 +442,18 @@ def classify_coat(frame, det):
 class Track:
     __slots__ = ('track_id', 'cls', 'confidence', 'box',
                  'first_seen', 'last_seen', 'state', 'misses',
-                 'evidence', 'promoted')
+                 'evidence', 'promoted', 'fg_consistency')
 
     def __init__(self, track_id, det):
         self.track_id = track_id
         self.cls = det.cls
         self.confidence = det.confidence
         self.box = det.box
+        # How recently this track overlapped MOVING foreground. Decays (see
+        # the absorb below), so stale motion cannot vouch for a static object
+        # forever. Detections arrive with 1.0 when there is no MOG2 mask, so a
+        # node without motion data is never silenced by the gate downstream.
+        self.fg_consistency = float(getattr(det, 'fg_consistency', 1.0))
         self.first_seen = det.timestamp
         self.last_seen = det.timestamp
         self.state = 'new'
@@ -543,6 +548,16 @@ class Tracker:
         tr = self.tracks[tid]
         tr.box = det.box
         tr.confidence = det.confidence
+        # DECAYING peak, not a lifetime one. A monotonic high-water mark means
+        # one frame where a motionless object happened to overlap moving
+        # foreground -- somebody walking past, a light change, a curtain --
+        # vouches for it for as long as the track lives. On the other node a
+        # black shoe under a sofa was reported as a cat at 0.52-0.57 for hours
+        # on fg=0.00 frames, riding a single ancient spike. Decaying it means
+        # the evidence has to be RECENT: an animal that walks in keeps
+        # refreshing it, a shoe falls back under the gate within seconds.
+        tr.fg_consistency = max(float(getattr(det, 'fg_consistency', 1.0)),
+                                tr.fg_consistency * 0.93)
         tr.last_seen = det.timestamp
         tr.state = 'present'
         tr.misses = 0
