@@ -727,6 +727,10 @@ class CVProcessor:
         self._foveal_pad = max(0.0, _read_float(denv, 'CV_FOVEAL_PAD'))
         self._foveal_evidence_boost = _read_float(denv, 'CV_FOVEAL_EVIDENCE_BOOST')
         self._fg_mask = None  # HxW uint8, most recent MOG2 foreground mask
+        # Motion-as-a-class. Off by default: it will call a curtain in a
+        # draught a visitor, which is the honest trade.
+        self._motion_alerts = False
+        self._motion_min_area_frac = _read_float(denv, 'CV_DETECT_MIN_AREA')
         # When each faculty was last OBSERVED doing its job, not when it was
         # configured to. A panel lamp fed by a config flag says the operator
         # asked for something; fed by these it says the thing happened.
@@ -1067,7 +1071,17 @@ class CVProcessor:
         l2 = self._night_clahe.apply(l)
         return cv2.cvtColor(cv2.merge((l2, a, b)), cv2.COLOR_LAB2RGB)
 
-    def process(self, frame):
+    def _observe_prefix(self, frame):
+        """Everything up to the detection handoff: correction, MOG2, foveal
+        crop, and publishing the frame to the detection thread.
+
+        Split out of process() so detection can run WITHOUT rendering. It used
+        to run only when the display asked for it -- process() was called for
+        cv/night and skipped for show and hide -- which tied an alerting path
+        to a viewing preference: the camera stopped watching the room because
+        somebody picked a different picture, and the snapshots exist precisely
+        for when nobody is watching the picture.
+        """
         t = {}
         t0 = time.perf_counter()
 
@@ -1122,6 +1136,60 @@ class CVProcessor:
             if crop_box is not None:
                 self._crop_at = time.time()
             self._detect_slot = (frame, crop_box, self._fg_mask)
+        return frame
+
+    def observe(self, frame):
+        """Feed the detector without rendering anything."""
+        self._observe_prefix(frame)
+
+    def latest_frame(self, max_age_s=3.0):
+        """The most recent frame the DETECTOR saw, or None if it is stale.
+
+        Deliberately the pre-render frame, the same one every automatic alert
+        is built from, so a manual snapshot and an automatic one are the same
+        picture of the same room. Age-checked because handing back a frozen
+        frame is how an old photograph gets sent as if it were current.
+        """
+        with self._detect_slot_lock:
+            slot = self._detect_slot
+        if not slot:
+            return None
+        if len(slot) > 3 and (time.time() - slot[3]) > max_age_s:
+            return None
+        return slot[0]
+
+    def set_motion_alerts(self, enabled):
+        """Live toggle, same pattern as set_foveal(). broadcast-api calls this
+        every detect-tap iteration; a build without it raised AttributeError
+        once a second and killed the tap outright."""
+        self._motion_alerts = bool(enabled)
+
+    def _motion_detections(self, fg_mask):
+        """Moving regions as 'motion' detections, from the existing mask.
+
+        fg_consistency is 1.0 by construction: this came FROM the foreground,
+        so it is movement by definition.
+        """
+        if fg_mask is None:
+            return []
+        min_area = max(1, int(self._motion_min_area_frac
+                              * fg_mask.shape[0] * fg_mask.shape[1]))
+        try:
+            cnts, _ = cv2.findContours(fg_mask, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        except Exception:
+            return []
+        out = []
+        for c in cnts:
+            x, y, w, h = cv2.boundingRect(c)
+            if w * h < min_area:
+                continue
+            out.append(_cvd.Detection('motion', 1.0, int(x), int(y),
+                                      int(w), int(h), fg_consistency=1.0))
+        return out
+
+    def process(self, frame):
+        frame = self._observe_prefix(frame)
 
         # Sharpie discards the photo, so everything that exists to improve the
         # photo is wasted work: optical flow, the temporal blend and the
@@ -2102,6 +2170,8 @@ class CVProcessor:
 
         if self._scene_enabled and self._scene_regions and not self._scene_stale:
             dets = self._suppress_static_region_detections(dets)
+        if self._motion_alerts and _cvd is not None:
+            dets = list(dets) + self._motion_detections(self._fg_mask)
             self._set_scene_consistency(dets)
 
         for d in dets:
