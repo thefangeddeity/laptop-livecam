@@ -4655,7 +4655,17 @@
     var g = document.getElementById('alertGroup');
     if (g) g.classList.toggle('inactive', !detectOn);
   }
+  // Bumped by every local mutation. A poll GET issued BEFORE a toggle can
+  // land AFTER it, carrying the pre-toggle value, and the old code let that
+  // stale answer overwrite the fresh one -- so unchecking Detection appeared
+  // not to take: the server went off, the 5s poll already in flight came back
+  // saying 'true', and the box ticked itself again within five seconds.
+  // Last-write-wins between a GET and a POST is decided by latency, which is
+  // not a decision anyone intended.
+  var alertsEpoch = 0;
+
   function post(api, body, then) {
+    alertsEpoch++;
     return fetch(api, { method: 'POST',
         headers: { 'Content-Type': 'text/plain' }, body: body })
       .then(function(r) { return r.ok ? r.text() : null; })
@@ -4689,15 +4699,21 @@
          function(v) { videoOn = v.trim() === 'true'; });
   }
   function pollAlerts() {
+    // Snapshot the epoch per request: if the operator changes anything while
+    // these are in flight, their answers are stale by definition and are
+    // dropped rather than painted over the operator's own intent.
+    var e1 = alertsEpoch;
     fetch('/api/detect-always', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
-      .then(function(v) { if (v !== null) detectOn = v.trim() === 'true'; paintAll(); });
+      .then(function(v) { if (v !== null && e1 === alertsEpoch) detectOn = v.trim() === 'true'; paintAll(); });
+    var e2 = alertsEpoch;
     fetch('/api/notify-video', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
-      .then(function(v) { if (v !== null) videoOn = v.trim() === 'true'; paintAll(); });
+      .then(function(v) { if (v !== null && e2 === alertsEpoch) videoOn = v.trim() === 'true'; paintAll(); });
+    var e3 = alertsEpoch;
     fetch('/api/notify-classes', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
-      .then(function(v) { if (v !== null) applyCls(v); paintAll(); });
+      .then(function(v) { if (v !== null && e3 === alertsEpoch) applyCls(v); paintAll(); });
   }
   pollAlerts();
   setInterval(pollAlerts, 5000);
