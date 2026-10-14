@@ -1071,7 +1071,7 @@ class CVProcessor:
         l2 = self._night_clahe.apply(l)
         return cv2.cvtColor(cv2.merge((l2, a, b)), cv2.COLOR_LAB2RGB)
 
-    def _observe_prefix(self, frame):
+    def _observe_prefix(self, frame, t=None):
         """Everything up to the detection handoff: correction, MOG2, foveal
         crop, and publishing the frame to the detection thread.
 
@@ -1082,7 +1082,8 @@ class CVProcessor:
         somebody picked a different picture, and the snapshots exist precisely
         for when nobody is watching the picture.
         """
-        t = {}
+        if t is None:
+            t = {}
         t0 = time.perf_counter()
 
         if self._grid_correct:
@@ -1136,11 +1137,11 @@ class CVProcessor:
             if crop_box is not None:
                 self._crop_at = time.time()
             self._detect_slot = (frame, crop_box, self._fg_mask)
-        return frame
+        return frame, t, t0
 
     def observe(self, frame):
         """Feed the detector without rendering anything."""
-        self._observe_prefix(frame)
+        self._observe_prefix(frame)   # timings discarded
 
     def latest_frame(self, max_age_s=3.0):
         """The most recent frame the DETECTOR saw, or None if it is stale.
@@ -1189,7 +1190,12 @@ class CVProcessor:
         return out
 
     def process(self, frame):
-        frame = self._observe_prefix(frame)
+        # t and t0 come back from the prefix because the render half below
+        # still records into them. Splitting observe() out of process() left
+        # them behind in the prefix's scope, so every process() call raised
+        # NameError on t0 -- CV and Night rendered nothing at all, while
+        # observe() (which needs neither) kept working and hid it.
+        frame, t, t0 = self._observe_prefix(frame)
 
         # Sharpie discards the photo, so everything that exists to improve the
         # photo is wasted work: optical flow, the temporal blend and the
