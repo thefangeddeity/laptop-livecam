@@ -1589,8 +1589,10 @@ def pipeline_get():
     if _PIPELINE_CACHE['val'] and now - _PIPELINE_CACHE['at'] < 2.0:
         return _PIPELINE_CACHE['val'], 200
 
-    with _mode_lock:
-        mode = _mode
+    # No mode read here any more. The camera lamp used to be inferred from it
+    # ("off" whenever hidden); it now reports the DEVICE via `fresh`, so the
+    # mode is not an input to this endpoint at all and holding _mode_lock for
+    # it was a lock taken for nothing.
     with _cam_frame_lock:
         fresh = (now - _cam_frame_at) < 3.0 if _cam_frame_at else False
 
