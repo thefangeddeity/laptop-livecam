@@ -2321,9 +2321,16 @@ def detect_always_get():
 def detect_always_post():
     global _detect_always, _mode_generation
     want = request.get_data(as_text=True).strip().lower()
+    # REJECT anything that is not an explicit true/false. This used to fall
+    # back to `not _detect_always` -- so a garbled, truncated or retried body
+    # FLIPPED the setting instead of setting it, and a client that believed it
+    # was turning detection off could turn it on. A toggle is the wrong
+    # default for a request whose intent could not be read: the safe answer to
+    # "I could not understand you" is to change nothing and say so.
+    if want not in ('true', 'false'):
+        abort(400)
     with _mode_lock:
-        _detect_always = (want == 'true') if want in ('true', 'false') \
-            else not _detect_always
+        _detect_always = (want == 'true')
         # Which publisher Show spawns depends on this, so the writer loop has
         # to rebuild -- same reason Blur bumps it and Foveal does not.
         _mode_generation += 1
