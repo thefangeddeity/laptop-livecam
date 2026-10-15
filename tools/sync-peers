@@ -158,11 +158,15 @@ def ingest(conn, doc, have):
     for m in doc.get('messages', []):
         if m['id'] in have:
             continue
+        # The exporter resolved NULL to its own name, so origin survives the
+        # hop. Without this every synced message would look locally authored
+        # and the fleet would lose track of which node is actually talking.
         conn.execute(
             'INSERT INTO messages (conversation_id, from_user, message, image_id, '
-            'timestamp, secret) VALUES (?, ?, ?, ?, ?, ?)',
+            'timestamp, secret, origin_node) VALUES (?, ?, ?, ?, ?, ?, ?)',
             (m['conversation_id'], m['from'], m.get('message'), m.get('image_id'),
-             m['timestamp'], 1 if m.get('secret') else 0))
+             m['timestamp'], 1 if m.get('secret') else 0,
+             m.get('origin_node') or doc.get('node')))
         have.add(m['id'])
         msgs += 1
     conn.commit()
