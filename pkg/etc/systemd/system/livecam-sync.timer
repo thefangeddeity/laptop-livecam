@@ -1,0 +1,23 @@
+[Unit]
+Description=Sync messages with peer nodes
+
+[Timer]
+OnBootSec=90s
+# Ten seconds, measured down from two minutes.
+#
+# Two minutes was chosen to spare the radios, but it cost 103 SECONDS of
+# measured end-to-end latency -- and silence that long is indistinguishable
+# from a system that is broken, which is the worst thing this can be in the
+# event it exists for. The exchange is one small HTTP GET per peer per tick
+# on a LAN the radios are already awake for; that is not the expensive part
+# of running a camera.
+#
+# For comparison, elemesh carries the same message between the same two
+# machines in 32ms, because it pushes over a held link instead of polling.
+# This is the cheap fix to the symptom; the cure is one transport, and that
+# is a deliberate piece of work rather than a timer value.
+OnUnitActiveSec=10s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
