@@ -3,60 +3,122 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark light">
 <title>Home</title>
 <link rel="icon" href="/brand.png">
+<script>
+  // Set the theme BEFORE first paint, from the same switch the viewer uses.
+  //
+  // This page previously honoured prefers-color-scheme while the viewer
+  // honoured localStorage['lightTheme'], so on a light-set browser the two
+  // always disagreed -- on every node, since every node serves an identical
+  // copy of this file. One switch, read in the head so there is no flash of
+  // the wrong theme on the way in.
+  try {
+    if (localStorage.getItem('lightTheme') === 'true')
+      document.documentElement.setAttribute('data-theme', 'light');
+  } catch (e) {}
+</script>
 <style>
-  /* A deliberately empty room. Neither app owns the index any more, so this
-     page carries no state, no polling loop and no camera -- it exists to put
-     two doors in front of you and then get out of the way. Anything that
-     belongs to an app belongs behind its door. */
-  :root { --bg:#0b1512; --fg:#cfe6de; --dim:#5f7d74; --line:#1d3730;
-          --tile:#10201c; --ok:#5fd3b2; --off:#4d6b63; }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
-      --bg:#fdf6e3; --fg:#33504a; --dim:#7b958c; --line:#ddd3b8;
-      --tile:#f4ecd8; --ok:#2a8f72; --off:#9fb0a8;
-    }
+  /* Tokens lifted from the viewer, names and values, so the two pages are
+     one product rather than two that resemble each other. */
+  :root {
+    --bg: #111113;
+    --panel: #1c1c1e;
+    --panel-2: #242426;
+    --border: #38383a;
+    --border-strong: #48484a;
+    --text: #f5f5f7;
+    --text-dim: #98989d;
+    --text-muted: #6e6e73;
+    --accent: #0a84ff;          /* ELE Messenger */
+    --success: #30d158;         /* the camera */
+    --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 4px 14px rgba(0,0,0,0.6);
+    --radius: 12px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  html[data-theme="light"] {
+    --bg: #e7e6df;
+    --panel: #fcfbf7;
+    --panel-2: #f0efe9;
+    --border: #dcdad0;
+    --border-strong: #cbc9bd;
+    --text: #073642;
+    --text-dim: #586e75;
+    --text-muted: #93a1a1;
+    /* Darkened for contrast: the dark-theme blue and green are both under
+       3:1 on a near-white panel, which is unreadable for a state line. */
+    --accent: #0a62c9;
+    --success: #1b7a46;
+    --shadow: 0 1px 3px rgba(0,0,0,0.10), 0 4px 14px rgba(0,0,0,0.10);
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-         display:flex; flex-direction:column; align-items:center;
-         justify-content:center; padding:24px 16px; gap:28px; }
-  h1 { margin:0; font-size:26px; font-weight:600; letter-spacing:.14em;
-       text-transform:uppercase; text-align:center; }
-  h1 .sub { display:block; margin-top:8px; font-size:11px; letter-spacing:.2em;
-            color:var(--dim); font-weight:400; }
-  .doors { display:flex; flex-wrap:wrap; gap:14px; justify-content:center;
-           width:100%; max-width:560px; }
-  a.door { flex:1 1 220px; min-height:132px; text-decoration:none; color:inherit;
-           background:var(--tile); border:1px solid var(--line); border-radius:8px;
-           padding:18px; display:flex; flex-direction:column; gap:6px;
-           transition:border-color .15s, transform .08s; }
-  a.door:hover, a.door:focus-visible { border-color:var(--ok); outline:none; }
-  a.door:active { transform:translateY(1px); }
-  .door .name { font-size:17px; letter-spacing:.08em; text-transform:uppercase; }
-  .door .what { color:var(--dim); font-size:12px; flex:1; }
-  .door .state { font-size:11px; letter-spacing:.1em; color:var(--off);
-                 text-transform:uppercase; }
-  .door .state.up { color:var(--ok); }
-  .door .path { color:var(--dim); font-size:11px; }
-  footer { color:var(--dim); font-size:11px; letter-spacing:.08em; text-align:center; }
+  html, body { min-height: 100%; }     /* min-, not height: a taller page at
+                                          large font sizes must still scroll */
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 var(--mono);
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 30px; padding: 32px 16px;
+  }
+  h1 {
+    margin: 0; font-size: 22px; font-weight: 600; letter-spacing: .22em;
+    text-transform: uppercase; text-align: center; color: var(--text);
+  }
+  h1 .sub {
+    display: block; margin-top: 10px; font-size: 10px; letter-spacing: .24em;
+    color: var(--text-muted); font-weight: 400;
+  }
+  .doors {
+    display: flex; flex-wrap: wrap; gap: 16px;
+    justify-content: center; width: 100%; max-width: 580px;
+  }
+  a.door {
+    flex: 1 1 240px; min-height: 140px; text-decoration: none; color: inherit;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 18px; display: flex; flex-direction: column; gap: 8px;
+    position: relative; overflow: hidden;
+    transition: border-color .15s, transform .08s;
+  }
+  /* The stripe is the only branding either door gets: green for the camera,
+     blue for ELE Messenger, matching the colours each app already uses. */
+  a.door::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: var(--door);
+  }
+  a.door.cam  { --door: var(--success); }
+  a.door.msgr { --door: var(--accent); }
+  a.door:hover, a.door:focus-visible { border-color: var(--door); outline: none; }
+  a.door:active { transform: translateY(1px); }
+  .door .name {
+    font-size: 15px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--door);
+  }
+  .door .what { color: var(--text-dim); font-size: 12px; flex: 1; }
+  .door .state {
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .door .state.up   { color: var(--door); }
+  .door .state.bad  { color: var(--text-dim); }
+  .door .path { color: var(--text-muted); font-size: 11px; }
+  footer {
+    color: var(--text-muted); font-size: 10px; letter-spacing: .14em;
+    text-align: center;
+  }
 </style>
 </head>
 <body>
   <h1>Home<span class="sub">this node</span></h1>
 
   <div class="doors">
-    <a class="door" href="/llc">
+    <a class="door cam" href="/llc">
       <span class="name">Camera</span>
       <span class="what">Live view, room audio, detection and the node note.</span>
       <span class="state" id="llcState">checking…</span>
       <span class="path">/llc</span>
     </a>
-    <a class="door" href="/elem">
+    <a class="door msgr" href="/elem">
       <span class="name">Messenger</span>
       <span class="what">ELE Messenger: household chat that keeps working without the internet.</span>
       <span class="state" id="elemState">checking…</span>
@@ -67,26 +129,36 @@
   <footer id="foot"></footer>
 
 <script>
-  // Both doors are always SHOWN, and their state is measured rather than
-  // assumed. A door that is merely greyed still tells you the name exists on
-  // this node; hiding it would make a node that lost a service look like a
-  // node that never had one.
+  // Both doors are always SHOWN, and their state is measured. A door that is
+  // greyed still says the name exists on this node; hiding it would make a
+  // node that lost a service look like one that never had it.
+  //
+  // Three outcomes, not two. A 5xx means the service is THERE and broken,
+  // which is different from absent, and reporting both as "not on this node"
+  // is the lamp-that-cannot-fail problem this fleet keeps paying for.
   function probe(url, el, upWord) {
-    fetch(url, { cache: 'no-store' })
-      .then(function (r) { return r.ok; })
-      .catch(function () { return false; })
-      .then(function (ok) {
-        el.textContent = ok ? upWord : 'not on this node';
-        el.classList.toggle('up', ok);
+    var ctl = new AbortController();
+    var timer = setTimeout(function () { ctl.abort(); }, 5000);
+    fetch(url, { cache: 'no-store', signal: ctl.signal })
+      .then(function (r) {
+        clearTimeout(timer);
+        if (r.ok) return 'up';
+        return r.status === 404 ? 'absent' : 'broken';
+      })
+      .catch(function () { clearTimeout(timer); return 'absent'; })
+      .then(function (state) {
+        el.classList.remove('up', 'bad');
+        if (state === 'up')          { el.textContent = upWord; el.classList.add('up'); }
+        else if (state === 'broken') { el.textContent = 'not responding'; el.classList.add('bad'); }
+        else                         { el.textContent = 'not on this node'; }
       });
   }
   probe('/api/pipeline', document.getElementById('llcState'), 'ready');
   probe('/ele-api/online', document.getElementById('elemState'), 'ready');
 
-  // Whatever name you reached this node by -- LAN address, tailnet name or
-  // mDNS. Read off the URL rather than fetched, because no endpoint reports
-  // the node's own name and a second request to learn it would be a request
-  // spent on nothing.
+  // Whatever name you reached this node by. Read off the URL rather than
+  // fetched: no endpoint reports the node's own name, and a request spent
+  // learning it would be a request spent on nothing.
   document.getElementById('foot').textContent = location.host;
 </script>
 </body>
