@@ -1399,6 +1399,13 @@
     /* The actions row is a 3-up grid by default, which leaves a two-button
        card with a ragged empty third. These say how many there actually are. */
     .msg-actions.one { grid-template-columns: 1fr; }
+    /* Restored. This rule was deleted along with the Expand button, but the
+       markup kept using the class -- so the row silently fell back to the
+       three-column default, two buttons filled two thirds, and the empty
+       third column was both the wasted space and the reason the labels had
+       to wrap. A class with no rule behind it fails quietly and looks like
+       a layout opinion. */
+    .msg-actions.two { grid-template-columns: 1fr 1fr; }
     .ele-list .lock { color: #5f7d74; font-style: italic; }
     /* Sign-in and compose rows. Both set `display`, so both state their
        own [hidden] case -- see the note by .msg-actions. */
@@ -1409,7 +1416,6 @@
               font: 11px ui-monospace, Menlo, monospace; }
     .ele-in:focus { outline: none; border-color: #5fd3b2; }
     .ele-pin { flex: 0 0 52px; text-align: center; letter-spacing: .18em; }
-    .ele-to  { flex: 0 0 80px; }
     .ele-row .pbtn { flex: 0 0 auto; padding: 5px 9px; font-size: 11px; }
     .ele-err { color: #e8a9a0; font: 10px/1.4 ui-monospace, Menlo, monospace;
                margin-top: 4px; }
@@ -1842,33 +1848,19 @@
           <span class="me" id="eleMe"></span>
         </div>
         <div class="ele-list" id="eleList">checking…</div>
-        <!-- Signing in happens HERE. Same origin, same four-digit PIN the
-             messenger itself asks for, so sending someone to another tab to
-             type it was a detour rather than a safeguard -- and it left the
-             card showing a stale signed-out state until they came back. -->
-        <div class="ele-row" id="eleAuth" hidden aria-label="Log in as yourself">
-          <input class="ele-in" id="eleUser" type="text" placeholder="name"
-                 autocomplete="username" maxlength="32" aria-label="Name">
-          <input class="ele-in ele-pin" id="elePin" type="password" placeholder="PIN"
-                 inputmode="numeric" pattern="[0-9]*" maxlength="4"
-                 autocomplete="current-password" aria-label="Four-digit PIN">
-          <button class="pbtn" id="eleAuthBtn" onclick="eleSignIn()">Sign in</button>
-        </div>
         <!-- And replying happens here. A card you can only read from is a
              link wearing a panel. -->
+        <!-- One field. There is a single rolling channel, so there is no
+             recipient to choose, and who you are comes from the session --
+             this machine, or you if you logged in. Nobody should be picking
+             from a dropdown to say the stairs are blocked. -->
         <div class="ele-row" id="eleSend" hidden>
-          <select class="ele-in ele-to" id="eleTo" aria-label="Send to"></select>
           <input class="ele-in" id="eleMsg" type="text" placeholder="message…"
                  maxlength="500" autocomplete="off" aria-label="Message">
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
-        <!-- One per row, full card width. Two columns squeezed "Log in as
-             you" onto two lines, and a wrapped label in a 11px mono face
-             reads as a mistake rather than a button. -->
         <div class="msg-actions one" id="eleActions" hidden>
-          <button class="pbtn" id="eleWhoBtn" onclick="eleToggleAuth()"
-                  title="Messages are sent as this node unless you log in">Log in as you</button>
           <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
                   title="Open the full chat in its own tab">New tab</button>
         </div>
@@ -4634,9 +4626,20 @@
   var elePanel = document.getElementById('elePanel');
   var eleList  = document.getElementById('eleList');
   var elePresent = false;
-  var eleLastFrom = null;   // who spoke last, so a reply defaults to them
-  var eleBusy = false;      // one history request at a time: on a slow node
-                            // two can overlap and the older reply wins
+  var eleBusy = false;      // one history request at a time
+  var eleTok  = null;       // the session, held in memory only
+  var eleWho  = null;       // who that session says we are
+  var eleHost = null;       // this machine's name
+
+  // This machine's name, for rendering person@machine. capabilities.json is
+  // the node stating its own name and is already served from this origin.
+  fetch('/capabilities.json', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .catch(function () { return null; })
+    .then(function (d) {
+      var n = d && d.identity && d.identity.node && d.identity.node.value;
+      if (n) { eleHost = n; eleRenderHistory(); }
+    });
 
   function eleEsc(t) {
     return String(t).replace(/[&<>"]/g, function (c) {
@@ -4647,17 +4650,9 @@
     var d = new Date(ts);
     if (isNaN(d)) return '';
     var now = new Date();
-    var sameDay = d.toDateString() === now.toDateString();
-    return sameDay
+    return d.toDateString() === now.toDateString()
       ? d.toTimeString().slice(0, 5)
       : (d.getMonth() + 1) + '/' + d.getDate();
-  }
-  function eleParts() {
-    return { signin:  document.getElementById('eleAuth'),
-             send:    document.getElementById('eleSend'),
-             actions: document.getElementById('eleActions'),
-             head:    document.getElementById('eleHead'),
-             me:      document.getElementById('eleMe') };
   }
   function eleSay(msg) {
     var e = document.getElementById('eleErr');
@@ -4665,281 +4660,156 @@
     e.textContent = msg || '';
     e.hidden = !msg;
   }
-  // Signed out shows one door and nothing else.
-  function eleShowSignedOut() {
-    var p = eleParts();
-    if (eleList) eleList.hidden = true;
-    if (p.head) p.head.hidden = true;
-    if (p.actions) p.actions.hidden = true;
-    if (p.send) p.send.hidden = true;
-    if (p.signin) p.signin.hidden = false;
-  }
 
-  // ── SIGNING IN ──
-  function eleSignIn() {
-    var u = document.getElementById('eleUser');
-    var k = document.getElementById('elePin');
-    var b = document.getElementById('eleAuthBtn');
-    if (!u || !k) return;
-    var name = (u.value || '').trim();
-    var pin  = (k.value || '').trim();
-    if (!name || !/^\d{4}$/.test(pin)) {
-      eleSay('name and a four-digit PIN'); return;
-    }
-    if (b) { b.disabled = true; b.textContent = '…'; }
-    eleSay('');
-    fetch('/ele-api/api/login', {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: name, pin: pin })
-    })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (b) { b.disabled = false; b.textContent = 'Sign in'; }
-        if (!j || !j.token) { eleSay('that name and PIN did not match'); return; }
-        try {
-          localStorage.setItem('ele-token', j.token);
-          localStorage.setItem('ele-username', j.username || name);
-        } catch (e) {
-          // Storage blocked: the session cannot be shared with the messenger
-          // tab, so say so rather than appear signed in and lose it.
-          eleSay('this browser is blocking storage'); return;
-        }
-        k.value = '';
-        var a = document.getElementById('eleAuth');
-        if (a) a.setAttribute('hidden', '');
-        var b = document.getElementById('eleWhoBtn');
-        if (b) b.textContent = 'Log in as you';
-        eleRenderHistory();
-      });
-  }
-
-  // ── SENDING ──
-  // The messenger keeps ONE websocket per person: connecting a second one as
-  // the same user replaces the first and closing it deletes the entry, so a
-  // socket from here would quietly stop the chat app from receiving anything.
-  // POST /api/send writes the same row and pushes the same payload without
-  // touching the socket registry; it was added to the messenger for this.
-  function eleContacts(tok, me) {
-    var sel = document.getElementById('eleTo');
-    if (!sel) return;
-    fetch('/ele-api/api/accounts?token=' + encodeURIComponent(tok), { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (!j || !j.accounts) return;
-        var keep = sel.value;
-        var others = j.accounts.filter(function (a) { return a !== me; });
-        sel.innerHTML = others.map(function (a) {
-          return '<option value="' + eleEsc(a) + '">' + eleEsc(a) + '</option>';
-        }).join('');
-        // Default to whoever spoke last -- the reply you are most likely
-        // to be writing -- and otherwise leave the first contact selected.
-        if (keep && others.indexOf(keep) > -1) sel.value = keep;
-        else if (eleLastFrom && others.indexOf(eleLastFrom) > -1) sel.value = eleLastFrom;
-      });
-  }
-  function eleSendMsg() {
-    var sel = document.getElementById('eleTo');
-    var box = document.getElementById('eleMsg');
-    var btn = document.getElementById('eleSendBtn');
-    if (!sel || !box) return;
-    var text = (box.value || '').trim();
-    var to = sel.value;
-    if (!text) return;
-    if (!to) { eleSay('no one to send to yet'); return; }
-    var tok;
-    try { tok = localStorage.getItem('ele-token'); } catch (e) { tok = null; }
-    if (!tok) { eleShowSignedOut(); return; }
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    eleSay('');
-    fetch('/ele-api/api/send', {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: tok, to: to, message: text })
-    })
-      .then(function (r) {
-        if (r.status === 401 || r.status === 403) return 'bad-token';
-        return r.ok ? r.json() : null;
-      })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
-        if (j === 'bad-token') {
-          try {
-            localStorage.removeItem('ele-token');
-            localStorage.removeItem('ele-username');
-          } catch (e) {}
-          eleShowSignedOut();
-          eleSay('signed out — sign in again');
-          return;
-        }
-        if (!j || !j.ok) { eleSay('not sent — messenger unreachable'); return; }
-        // Clear only on a confirmed write. Clearing optimistically loses
-        // what someone typed on exactly the node where sending is hardest.
-        box.value = '';
-        eleRenderHistory();
-      });
-  }
-
-  // The viewer reuses the session the MESSENGER already established, rather
-  // than growing a login of its own. /ele and / are the same origin, so its
-  // localStorage is readable from here -- which is the whole reason the two
-  // were put on one origin. No token means nobody has signed in on this
-  // browser yet; that is a normal state, not an error, so it says so plainly
-  // and offers the way through instead of demanding credentials in a camera
-  // panel.
-  // The node's own session. Held in memory, never in localStorage, so it
-  // cannot be mistaken for -- or outlive -- a person's login.
-  var eleNodeTok = null, eleNodeName = null, eleNodeTried = false;
-  // This machine's name, needed even when a PERSON is signed in, so the card
-  // can say ron@ariana rather than just ron -- which machine someone is
-  // speaking from is the half of the identity the words cannot supply.
-  // capabilities.json is the node stating its own name, and it is already
-  // served from this origin, so it costs one cached fetch.
-  var eleHostName = null;
-  fetch('/capabilities.json', { cache: 'no-store' })
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .catch(function () { return null; })
-    .then(function (d) {
-      var n = d && d.identity && d.identity.node && d.identity.node.value;
-      if (n) { eleHostName = n; eleRenderHistory(); }
-    });
-
-  function eleNodeLogin(then) {
-    if (eleNodeTried) { then(); return; }
-    eleNodeTried = true;
+  // ── THE SESSION IS NOT A GATE ───────────────────────────────────────────
+  // There is no sign-in here, by design. A browser open on this machine is
+  // already somebody: this machine. The card takes a node session, and when
+  // that session stops working -- the messenger holds sessions in memory, so
+  // every restart invalidates every one of them -- it takes a new one and
+  // carries on.
+  //
+  // It previously treated a 401 as "you are signed out" and put a name-and-PIN
+  // form on screen. That is a sign-in product's reflex, and it is wrong here:
+  // the one thing someone must be able to do is say something, and a restart
+  // of a service they cannot see is not a reason to ask them who they are.
+  // Connect first. Gating, if it is ever wanted, comes after and on purpose.
+  function eleSession(then) {
+    if (eleTok) { then(eleTok); return; }
     fetch('/ele-api/api/node-login', { method: 'POST', cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
       .then(function (j) {
-        if (j && j.token) { eleNodeTok = j.token; eleNodeName = j.username; }
-        then();
+        if (j && j.token) { eleTok = j.token; eleWho = j.username; }
+        then(eleTok);
       });
   }
 
-  function eleToggleAuth() {
-    var a = document.getElementById('eleAuth');
-    var b = document.getElementById('eleWhoBtn');
-    if (!a) return;
-    var open = a.hasAttribute('hidden');
-    if (open) a.removeAttribute('hidden'); else a.setAttribute('hidden', '');
-    if (b) b.textContent = open ? 'Cancel' : 'Log in as you';
+  function eleParts() {
+    return { send: document.getElementById('eleSend'),
+             actions: document.getElementById('eleActions'),
+             head: document.getElementById('eleHead'),
+             me: document.getElementById('eleMe') };
   }
 
-  function eleRenderHistory() {
-    if (!eleList) return;
-    var tok, me;
-    try {
-      tok = localStorage.getItem('ele-token');
-      me  = localStorage.getItem('ele-username');
-    } catch (e) { tok = null; }          // private window / blocked storage
-    // A viewer open on this node is already somebody: this machine. Falling
-    // back to the node's own session means the card works with nobody logged
-    // in, which is the state it will be in during the outage it exists for.
-    // Logging in as a person is an addition, not a gate.
-    if (!tok && eleNodeTok) { tok = eleNodeTok; me = eleNodeName; }
-    if (!tok) {
-      if (!eleNodeTried) { eleNodeLogin(eleRenderHistory); return; }
-      eleShowSignedOut();
-      return;
-    }
+  // from_user and origin_node are the SAME for a message a machine wrote, so
+  // printing both gave "ariana ariana:". One identity per line: the machine
+  // alone, or person@machine when a person wrote it. No "you" -- in a shared
+  // channel every line should name who said it, including your own, so the
+  // log reads the same to everyone looking at it.
+  function eleIdent(from, origin) {
+    if (!origin) return from || '';
+    if (!from || from === origin) return origin;
+    return from + '@' + origin;
+  }
 
+  function eleShowUnavailable(note) {
     var p = eleParts();
-    eleList.hidden = false;
-    if (p.head) p.head.hidden = false;
-    if (p.signin) p.signin.hidden = true;
-    if (p.actions) p.actions.hidden = false;
-    if (p.send) p.send.hidden = false;
-    if (p.me) {
-      var asNode = (me === eleNodeName && !!eleNodeTok);
-      var host = eleHostName || eleNodeName;
-      // Nobody signed in -> the machine's name alone. Somebody signed in ->
-      // person@machine, because both halves matter: who is writing, and
-      // which machine is still up to write from.
-      p.me.textContent = asNode
-        ? (host || me || '')
-        : (host ? (me + '@' + host) : (me || ''));
-      p.me.className = asNode ? 'me node' : 'me';
-      p.me.title = asNode
-        ? 'Sending as this machine. Log in to send as yourself.'
-        : 'Signed in as ' + (me || '') + (host ? ' on ' + host : '');
+    if (eleList) {
+      eleList.hidden = false;
+      eleList.innerHTML = '<span class="quiet">' + eleEsc(note) + '</span>';
     }
-    eleContacts(tok, me);
+    if (p.send) p.send.hidden = true;
+    if (p.head) p.head.hidden = true;
+    if (p.actions) p.actions.hidden = false;
+  }
 
-    if (eleBusy) return;
-    eleBusy = true;
-    fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
-      .then(function (r) {
-        // ONLY the server saying no is a bad token. Everything else -- a
-        // dropped wifi, an nginx reload, a 502 while the messenger restarts,
-        // a slow laptop timing out -- is this node being unreachable for a
-        // moment. Treating those as "signed out" and deleting the token
-        // would log the household out of the MESSENGER, from a read-only
-        // panel, during exactly the outage the messenger exists for.
-        if (r.status === 401 || r.status === 403) return 'bad-token';
-        return r.ok ? r.json() : null;
+  function eleRenderHistory(retrying) {
+    if (!eleList || eleBusy) return;
+    eleSession(function (tok) {
+      if (!tok) { eleShowUnavailable('messenger unavailable'); return; }
+      var p = eleParts();
+      eleList.hidden = false;
+      if (p.head) p.head.hidden = false;
+      if (p.send) p.send.hidden = false;
+      if (p.actions) p.actions.hidden = false;
+      if (p.me) {
+        var asNode = (eleWho === eleHost) || !eleHost;
+        p.me.textContent = eleIdent(eleWho, eleHost) || eleWho || '';
+        p.me.className = asNode ? 'me node' : 'me';
+      }
+      eleBusy = true;
+      fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 401 || r.status === 403) return 'stale';
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () { return null; })
+        .then(function (h) {
+          eleBusy = false;
+          if (h === 'stale') {
+            // ONCE. Clearing the token and calling straight back in is an
+            // infinite loop if the server keeps rejecting -- it spins and
+            // hammers a messenger that is already unhappy. One fresh session,
+            // one retry, then say so and wait for the next poll.
+            eleTok = null;
+            if (!retrying) { eleRenderHistory(true); return; }
+            eleList.innerHTML = '<span class="quiet">messenger not accepting this node</span>';
+            return;
+          }
+          if (!h) { eleList.innerHTML = '<span class="quiet">messenger unreachable</span>'; return; }
+          var msgs = (h.history || []).slice(-12);
+          if (!msgs.length) {
+            eleList.innerHTML = '<span class="quiet">nothing said yet</span>';
+            return;
+          }
+          var atBottom = (eleList.scrollHeight - eleList.scrollTop
+                          - eleList.clientHeight) < 24;
+          eleList.innerHTML = msgs.map(function (m) {
+            var body = m.secret
+              ? '<span class="lock">● encrypted — open to read</span>'
+              : eleEsc(m.message || (m.image_id ? '[image]' : ''));
+            return '<span class="em">' +
+                   '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
+                   '<span class="who">' + eleEsc(eleIdent(m.from, m.origin_node)) + '</span>: ' +
+                   body + '</span>';
+          }).join('');
+          if (atBottom) eleList.scrollTop = eleList.scrollHeight;
+        })
+        .catch(function () { eleBusy = false; });
+    });
+  }
+
+  function eleSendMsg(retrying) {
+    var box = document.getElementById('eleMsg');
+    var btn = document.getElementById('eleSendBtn');
+    if (!box) return;
+    var text = (box.value || '').trim();
+    if (!text) return;
+    eleSession(function (tok) {
+      if (!tok) { eleSay('messenger unavailable'); return; }
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      eleSay('');
+      fetch('/ele-api/api/send', {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        // The house channel: one rolling conversation everyone is in.
+        body: JSON.stringify({ token: tok, conversation_id: 'house', message: text })
       })
-      .catch(function () { return null; })
-      .then(function (h) {
-        eleBusy = false;
-        if (h === 'bad-token') {
-          try {
-            localStorage.removeItem('ele-token');
-            localStorage.removeItem('ele-username');   // never orphan the pair
-          } catch (e) {}
-          eleShowSignedOut();
-          return;
-        }
-        if (!h) {                         // unreachable: keep the session
-          eleList.innerHTML = '<span class="quiet">messenger unreachable</span>';
-          return;
-        }
-        var msgs = (h.history || []).slice(-12);
-        for (var _i = msgs.length - 1; _i >= 0; _i--) {
-          if (msgs[_i].from && msgs[_i].from !== me) { eleLastFrom = msgs[_i].from; break; }
-        }
-        if (!msgs.length) {
-          eleList.innerHTML = '<span class="quiet">no messages yet</span>';
-          return;
-        }
-        // Only follow the newest message if the reader is already at the
-        // bottom. Yanking the list down every 10s while someone scrolls back
-        // is worse than missing a line.
-        var atBottom = (eleList.scrollHeight - eleList.scrollTop
-                        - eleList.clientHeight) < 24;
-        eleList.innerHTML = msgs.map(function (m) {
-          var mine = (m.from === me);
-          // Secret messages are end-to-end encrypted and the key lives in the
-          // messenger, not here. Showing the ciphertext would be worse than
-          // saying plainly that this panel cannot read it.
-          var body = m.secret
-            ? '<span class="lock">● encrypted — open to read</span>'
-            : eleEsc(m.message || (m.image_id ? '[image]' : ''));
-          // The NODE is the headline, not the account. In an outage nobody
-          // needs to know which login typed it -- a writer says who they are
-          // in the words -- but which machine is still talking is the thing
-          // you cannot work out from the message itself.
-          var where = m.origin_node ? eleEsc(m.origin_node) : '';
-          return '<span class="em' + (mine ? ' mine' : '') + '">' +
-                 '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
-                 (where ? '<span class="node">' + where + '</span>' : '') +
-                 '<span class="who">' + eleEsc(mine ? 'you' : m.from) + '</span>: ' +
-                 body + '</span>';
-        }).join('');
-        if (atBottom) eleList.scrollTop = eleList.scrollHeight;
-      })
-      .catch(function () { eleBusy = false; });
+        .then(function (r) {
+          if (r.status === 401 || r.status === 403) return 'stale';
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () { return null; })
+        .then(function (j) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+          if (j === 'stale') {
+            // Take a fresh session and send again, once. The text stays in
+            // the box until something is actually written down.
+            eleTok = null;
+            if (!retrying) { eleSendMsg(true); return; }
+            eleSay('could not send');
+            return;
+          }
+          if (!j || !j.ok) { eleSay('not sent — messenger unreachable'); return; }
+          box.value = '';
+          eleRenderHistory();
+        });
+    });
   }
 
   function eleProbe() {
     fetch('/ele-api/online', { cache: 'no-store' })
       .then(function (r) {
-        // 404 means no messenger on this node and the card should not exist.
-        // A network failure means we do not know -- and hiding then would
-        // make a node that lost a service look like a node that never had
-        // one, which is the thing home.html is careful not to do.
         if (r.status === 404) return 'absent';
         return r.ok ? r.json() : 'unreachable';
       })
@@ -4951,10 +4821,8 @@
           return;
         }
         if (j === 'unreachable') {
-          if (!elePresent) return;        // never seen it; stay quiet
-          if (eleList && !eleList.hidden) {
-            eleList.innerHTML = '<span class="quiet">messenger unreachable</span>';
-          }
+          if (!elePresent) return;
+          eleShowUnavailable('messenger unreachable');
           return;
         }
         elePresent = true;
@@ -4965,13 +4833,6 @@
 
   eleProbe();
   setInterval(function () { if (!document.hidden) eleProbe(); }, 10000);
-  // Signing in happens in ANOTHER TAB, so the poll is not what should notice
-  // it. `storage` fires in this tab the instant the messenger writes the
-  // token next door; the other two cover coming back to a backgrounded page,
-  // where the poll is paused and the card would otherwise sit stale.
-  window.addEventListener('storage', function (e) {
-    if (!e.key || e.key === 'ele-token') eleRenderHistory();
-  });
   window.addEventListener('focus', function () { if (elePresent) eleRenderHistory(); });
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) eleProbe();
