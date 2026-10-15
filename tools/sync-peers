@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Pull messages from peer nodes discovered on the LAN. Text, store-and-forward.
+
+Every node keeps the WHOLE log and asks peers for what it lacks. Routing a
+message toward the node its recipient "lives on" would need a directory of who
+is where, kept correct while nodes come and go -- replication needs none of
+that, and it is idempotent, which is what you want when the transport is a
+house with the power out.
+
+A message's identity is a hash of its own content, so two nodes that
+independently hold the same message agree on that without an id allocator or
+a coordinator. Running this twice changes nothing the second time.
+
+PULL ONLY, on purpose. A node decides what enters its own store; nothing a
+peer says can make it delete or overwrite anything. The worst a hostile peer
+can do is offer messages, which is also the only thing an honest peer does.
+"""
+import json
+import os
+import re
+import sqlite3
+import ssl
+import subprocess
+import sys
+import time
+import urllib.request
+
+TOKEN_FILE = '/etc/ele-messenger/fleet.token'
+DB_CANDIDATES = ['/var/lib/ele-messenger/ele.db']
+TIMEOUT = 8
+
+
+def log(msg):
+    print('  %s' % msg, flush=True)
+
+
+def fleet_token():
+    try:
+        with open(TOKEN_FILE) as fh:
+            return fh.read().strip() or None
+    except Exception:
+        return None
+
+
+def find_db():
+    """Where the messenger actually keeps its store.
+
+    NOT os.path.expanduser('~'): this runs under sudo from a timer, so `~` is
+    ROOT's home and the lookup silently misses a store that lives in a user's
+    home -- which is exactly how this failed the first time. The service's own
+    WorkingDirectory is the authority, because it is what the running process
+    resolved its relative path against.
+    """
+    for p in DB_CANDIDATES:
+        if os.path.exists(p):
+            return p
+    try:
+        wd = subprocess.run(
+            ['systemctl', 'show', 'ele-messenger', '-p', 'WorkingDirectory',
+             '--value'], capture_output=True, text=True, timeout=6).stdout.strip()
+        if wd:
+            p = os.path.join(wd, 'ele.db')
+            if os.path.exists(p):
+                return p
+    except Exception:
+        pass
+    # Last resort: the invoking user's home, not root's.
+    sudo_user = os.environ.get('SUDO_USER')
+    if sudo_user:
+        try:
+            import pwd
+            home = pwd.getpwnam(sudo_user).pw_dir
+            p = os.path.join(home, 'Projects', 'ele-messenger', 'ele.db')
+            if os.path.exists(p):
+                return p
+        except Exception:
+            pass
+    return None
+
+
+def discover_peers():
+    """Peers from mDNS. No configuration, no addresses in any file.
+
+    Link-local and tailnet addresses are both skipped: link-local needs a
+    scope id to be useful, and a tailnet address is exactly the path that
+    disappears in the outage this is built for. If a peer is only reachable
+    over the tailnet, it is not a peer we can rely on.
+    """
+    out = subprocess.run(['avahi-browse', '-rtp', '_livecam-node._tcp'],
+                         capture_output=True, text=True, timeout=25).stdout
+    peers = {}
+    for line in out.splitlines():
+        if not line.startswith('='):
+            continue
+        f = line.split(';')
+        if len(f) < 9:
+            continue
+        host, addr, txt = f[6], f[7], ';'.join(f[9:]) if len(f) > 9 else ''
+        if ':' in addr:                       # IPv6: skip link-local
+            continue
+        if addr.startswith('100.') or addr.startswith('127.'):
+            continue                          # tailnet / loopback
+        name = re.search(r'"node=([^"]+)"', txt)
+        peers[addr] = (name.group(1) if name else host.split('.')[0])
+    return peers
+
+
+def reachable_base(addr):
+    """First base URL that answers. tina forces TLS and its :8080 redirects
+    to a tailnet name that does not resolve in an outage, so plain http is
+    tried last rather than first."""
+    ctx = ssl._create_unverified_context()    # LAN peer, cert names a tailnet host
+    for base in ('https://%s' % addr, 'http://%s:8080' % addr):
+        try:
+            req = urllib.request.Request(base + '/ele-api/online')
+            with urllib.request.urlopen(req, timeout=4, context=ctx) as r:
+                if r.status == 200:
+                    return base
+        except Exception:
+            continue
+    return None
+
+
+def fetch_export(base, token, days=30):
+    ctx = ssl._create_unverified_context()
+    url = '%s/ele-api/api/sync/export?token=%s&days=%d' % (base, token, days)
+    with urllib.request.urlopen(url, timeout=TIMEOUT, context=ctx) as r:
+        return json.load(r)
+
+
+def local_ids(conn, days=30):
+    """Ids of what we already hold, computed the same way the exporter does."""
+    import hashlib
+    cutoff = time.strftime('%Y-%m-%dT%H:%M:%S',
+                           time.localtime(time.time() - days * 86400))
+    rows = conn.execute(
+        'SELECT conversation_id, from_user, message, image_id, timestamp '
+        'FROM messages WHERE timestamp > ?', (cutoff,)).fetchall()
+    out = set()
+    for r in rows:
+        parts = [r[0] or '', r[1] or '', r[4] or '', r[2] or '', r[3] or '']
+        out.add(hashlib.sha256('\x1f'.join(parts).encode('utf-8')).hexdigest()[:32])
+    return out
+
+
+def ingest(conn, doc, have):
+    convos = members = msgs = 0
+    for c in doc.get('conversations', []):
+        cur = conn.execute(
+            'INSERT OR IGNORE INTO conversations (id, secret) VALUES (?, ?)',
+            (c['id'], 1 if c.get('secret') else 0))
+        convos += cur.rowcount if cur.rowcount > 0 else 0
+    for m in doc.get('members', []):
+        cur = conn.execute(
+            'INSERT OR IGNORE INTO conversation_members (conversation_id, username) '
+            'VALUES (?, ?)', (m['conversation_id'], m['username']))
+        members += cur.rowcount if cur.rowcount > 0 else 0
+    for m in doc.get('messages', []):
+        if m['id'] in have:
+            continue
+        conn.execute(
+            'INSERT INTO messages (conversation_id, from_user, message, image_id, '
+            'timestamp, secret) VALUES (?, ?, ?, ?, ?, ?)',
+            (m['conversation_id'], m['from'], m.get('message'), m.get('image_id'),
+             m['timestamp'], 1 if m.get('secret') else 0))
+        have.add(m['id'])
+        msgs += 1
+    conn.commit()
+    return convos, members, msgs
+
+
+def main():
+    token = fleet_token()
+    if not token:
+        log('no fleet token; sync is off on this node')
+        return 0
+    db = find_db()
+    if not db:
+        log('no messenger database found; nothing to sync into')
+        return 1
+    try:
+        peers = discover_peers()
+    except Exception as exc:
+        log('discovery failed: %s' % exc)
+        return 1
+    me = os.uname().nodename.split('.')[0]
+    peers = {a: n for a, n in peers.items() if n != me}
+    if not peers:
+        log('no peers announced on the LAN')
+        return 0
+
+    conn = sqlite3.connect(db, timeout=15)
+    have = local_ids(conn)
+    total = 0
+    for addr, name in sorted(peers.items()):
+        base = reachable_base(addr)
+        if not base:
+            log('%s (%s): announced but not reachable' % (name, addr))
+            continue
+        try:
+            doc = fetch_export(base, token)
+        except Exception as exc:
+            log('%s (%s): export failed: %s' % (name, addr, exc))
+            continue
+        c, mb, ms = ingest(conn, doc, have)
+        total += ms
+        log('%s (%s via %s): +%d messages, +%d conversations, +%d members'
+            % (name, addr, base.split("://")[0], ms, c, mb))
+    conn.close()
+    log('sync complete: %d new message(s)' % total)
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
