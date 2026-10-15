@@ -1417,6 +1417,16 @@
     .ele-in:focus { outline: none; border-color: #5fd3b2; }
     .ele-pin { flex: 0 0 52px; text-align: center; letter-spacing: .18em; }
     .ele-row .pbtn { flex: 0 0 auto; padding: 5px 9px; font-size: 11px; }
+    /* Send is a MOBILE affordance. On a keyboard, Enter sends and the button
+       is a second deliberate act between having something to say and saying
+       it. On a touch keyboard Enter is unreliable -- it inserts a newline,
+       or the layout hides it -- so the button is the only honest way there.
+       Matches the viewer's existing 720px breakpoint rather than inventing
+       one. */
+    #eleSendBtn { display: none; }
+    @media (max-width: 720px) {
+      #eleSendBtn { display: inline-flex; }
+    }
     .ele-err { color: #e8a9a0; font: 10px/1.4 ui-monospace, Menlo, monospace;
                margin-top: 4px; }
     .ele-err[hidden] { display: none; }
@@ -1438,7 +1448,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-120-gf150af3-dirty · dev · f150af3"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-122-gf912d8f-dirty · dev · f912d8f"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1856,7 +1866,8 @@
              from a dropdown to say the stairs are blocked. -->
         <div class="ele-row" id="eleSend" hidden>
           <input class="ele-in" id="eleMsg" type="text" placeholder="message…"
-                 maxlength="500" autocomplete="off" aria-label="Message">
+                 maxlength="500" autocomplete="off" aria-label="Message"
+                 enterkeyhint="send" title="Enter sends">
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
@@ -4829,6 +4840,17 @@
         if (elePanel) elePanel.hidden = false;
         eleRenderHistory();
       });
+  }
+
+  // Enter sends. In the event this is for, the Send button is a second
+  // deliberate act between having something to say and saying it.
+  var eleMsgBox = document.getElementById('eleMsg');
+  if (eleMsgBox) {
+    eleMsgBox.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      eleSendMsg();
+    });
   }
 
   eleProbe();
