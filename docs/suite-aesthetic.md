@@ -193,3 +193,33 @@ livecam's rule". It stays.
 - Grey-for-unknown.
 - A health score.
 - Red for a `false` that is merely a fact.
+
+---
+
+# Appendix: the suite's name
+
+**Status: adopted (panel, 2026-10-15).** The two packages ship as one suite
+with a metapackage that depends on both.
+
+**`laptop-comms`**, with `laptop-livecam` and `ele-messenger` as its members.
+
+| | |
+|---|---|
+| **Poettering** (packaging) | A metapackage must do nothing but depend. It carries no files, so it can never conflict with its members and can be removed without touching them. Debian and Arch both treat this as the normal shape; the AUR entry is a PKGBUILD with `depends=(laptop-livecam ele-messenger)` and an empty `package()`. |
+| **Russinovich** (systems) | The name must survive a member leaving. `livecam-suite` names one member and strands the other if the camera is ever dropped; `laptop-comms` names what the suite *does*, which is the only part that will not change. |
+| **Gregg** (operability) | It should read correctly in `pacman -Qi` and `apt show` output with no prose around it. Lowercase, hyphenated, no capitals, matching the two existing names. |
+| **Karlton's rule** (naming) | `comms` with two m's. "Coms" is not the standard abbreviation for communications and will be mistyped and mis-searched forever. This is the one correction the panel made to the proposal. |
+
+**Vote 4-0 for `laptop-comms`**, with one dissent recorded on scope rather
+than name:
+
+> **Minority (Gelman).** A metapackage implies the members are usually
+> installed together, and that is not yet true: ariana runs no messenger and
+> tina ran no camera viewer worth the name. Ship the metapackage only once
+> every node in the fleet actually carries both, or it documents an intention
+> rather than a fact.
+
+The minority position is **accepted as a gate**: the READMEs state the suite
+relationship now, because that is already true — the two packages share an
+origin, a theme and a `/` that offers both. The metapackage itself waits
+until every node carries both members, which is tracked as a pending.
