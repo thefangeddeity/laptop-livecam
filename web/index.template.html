@@ -1351,7 +1351,21 @@
      and tickable would be a control that does nothing -- the same opacity
      .4 the panel already uses for .callctl:disabled and .combrow.bypassed. */
   .alertgrp.inactive { opacity: .4; pointer-events: none; }
-</style>
+    /* ELE Messenger list. Sized to show the last few exchanges without
+       becoming a second application inside the panel -- it scrolls rather
+       than growing, so the card never pushes the controls below it off
+       screen on a phone. */
+    .ele-list { max-height: 9.5em; overflow-y: auto; font: 11px/1.45 ui-monospace,
+                SFMono-Regular, Menlo, monospace; color: #9fb4ad;
+                background: #10201c; border: 1px solid #1d3730; border-radius: 6px;
+                padding: 6px 8px; }
+    .ele-list .em { display: block; margin-bottom: 4px; word-break: break-word; }
+    .ele-list .em:last-child { margin-bottom: 0; }
+    .ele-list .who { color: #5fd3b2; }
+    .ele-list .when { color: #4d6b63; float: right; margin-left: 6px; }
+    .ele-list .mine .who { color: #c9b071; }
+    .ele-list .quiet { color: #4d6b63; }
+  </style>
 <script>
   // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
   (function () {
@@ -1745,7 +1759,7 @@
            else, which is the intended degradation rather than an error. -->
       <div class="panel" id="elePanel" hidden>
         <div class="panel-title eng">Messages <span id="eleHint" class="msg-hint"></span></div>
-        <div class="msg2" id="eleBody" style="min-height:3.2em">checking…</div>
+        <div class="ele-list" id="eleList">checking…</div>
         <div class="msg-actions">
           <button class="pbtn" id="eleOpenBtn" onclick="window.open('/ele','_blank')">Open</button>
         </div>
@@ -4528,6 +4542,7 @@
   // messenger proper. Composing lives in the messenger until this card has
   // earned more.
   var elePanel = document.getElementById('elePanel');
+  var eleList  = document.getElementById('eleList');
   var eleBody  = document.getElementById('eleBody');
   var eleHint  = document.getElementById('eleHint');
   var elePresent = false;
@@ -4545,14 +4560,68 @@
         elePresent = true;
         if (elePanel) elePanel.hidden = false;
         var who = (j.online || []);
-        if (eleBody) {
-          eleBody.textContent = who.length
-            ? who.join(', ') + (who.length === 1 ? ' is online' : ' are online')
-            : 'nobody online';
-          eleBody.classList.toggle('empty', !who.length);
-        }
-        if (eleHint) eleHint.textContent = who.length ? String(who.length) : '';
+        if (eleHint) eleHint.textContent = who.length ? (who.length + ' online') : '';
+        eleRenderHistory(who);
       });
+  // The viewer reuses the session the MESSENGER already established, rather
+  // than growing a login of its own. /ele and / are the same origin, so its
+  // localStorage is readable from here -- which is the whole reason the two
+  // were put on one origin. No token means nobody has signed in on this
+  // browser yet; that is a normal state, not an error, so it says so plainly
+  // and offers the way through instead of demanding credentials in a camera
+  // panel.
+  function eleEsc(t) {
+    return String(t).replace(/[&<>"]/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    });
+  }
+  function eleWhen(ts) {
+    var d = new Date(ts);
+    if (isNaN(d)) return '';
+    var now = new Date();
+    var sameDay = d.toDateString() === now.toDateString();
+    return sameDay
+      ? d.toTimeString().slice(0, 5)
+      : (d.getMonth() + 1) + '/' + d.getDate();
+  }
+  function eleRenderHistory(who) {
+    if (!eleList) return;
+    var tok, me;
+    try {
+      tok = localStorage.getItem('ele-token');
+      me  = localStorage.getItem('ele-username');
+    } catch (e) { tok = null; }          // private window / blocked storage
+    if (!tok) {
+      eleList.innerHTML = '<span class="quiet">' +
+        (who.length ? eleEsc(who.join(', ')) + ' online. ' : '') +
+        'Sign in via Open to see messages.</span>';
+      return;
+    }
+    fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (h) {
+        if (!h) {                         // token expired, or the node restarted
+          eleList.innerHTML = '<span class="quiet">session expired &mdash; open to sign in again</span>';
+          return;
+        }
+        var msgs = (h.history || []).slice(-12);
+        if (!msgs.length) {
+          eleList.innerHTML = '<span class="quiet">no messages yet</span>';
+          return;
+        }
+        eleList.innerHTML = msgs.map(function (m) {
+          var mine = (m.from === me);
+          var body = m.message || (m.image_id ? '[image]' : '');
+          return '<span class="em' + (mine ? ' mine' : '') + '">' +
+                 '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
+                 '<span class="who">' + eleEsc(mine ? 'you' : m.from) + '</span>: ' +
+                 eleEsc(body) + '</span>';
+        }).join('');
+        eleList.scrollTop = eleList.scrollHeight;   // newest in view
+      });
+  }
+
   }
   eleProbe();
   setInterval(function () { if (!document.hidden) eleProbe(); }, 10000);
