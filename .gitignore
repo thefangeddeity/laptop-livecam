@@ -65,3 +65,4 @@ auto.key
 # config.env.example; the real one stays out of this public repo.
 config.env
 state/cv_verdict.json
+web/capabilities.json
