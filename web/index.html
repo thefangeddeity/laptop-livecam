@@ -1374,6 +1374,10 @@
     .ele-list .when { color: #4d6b63; float: right; margin-left: 6px; }
     .ele-list .mine .who { color: #c9b071; }
     .ele-list .quiet { color: #4d6b63; }
+    /* Which machine is speaking. Given its own weight because in an outage
+       it is the useful identity -- the account is not. */
+    .ele-list .node { color: #7fd8c0; font-weight: 600; margin-right: 5px; }
+    html[data-theme="light"] .ele-list .node { color: #1f7a63; }
     /* The mini messenger. NOTE the explicit [hidden] rules: a class or id
        rule carrying `display` outranks the browser's [hidden]{display:none},
        which is how the first version of this shipped permanently on screen.
@@ -1389,6 +1393,9 @@
                      color: #5f7d74; }
     .ele-head .me { margin-left: auto; font: 10px/1 ui-monospace, Menlo, monospace;
                     color: #c9b071; }
+    /* Speaking as the machine rather than as a person: same slot, different
+       colour, so you can tell at a glance without reading it. */
+    .ele-head .me.node { color: #7fd8c0; }
     /* The actions row is a 3-up grid by default, which leaves a two-button
        card with a ragged empty third. These say how many there actually are. */
     .msg-actions.one { grid-template-columns: 1fr; }
@@ -1425,7 +1432,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-109-g5b8bbf2-dirty · dev · 5b8bbf2"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-110-g9963e9b-dirty · dev · 9963e9b"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1839,7 +1846,7 @@
              messenger itself asks for, so sending someone to another tab to
              type it was a detour rather than a safeguard -- and it left the
              card showing a stale signed-out state until they came back. -->
-        <div class="ele-row" id="eleAuth" hidden>
+        <div class="ele-row" id="eleAuth" hidden aria-label="Log in as yourself">
           <input class="ele-in" id="eleUser" type="text" placeholder="name"
                  autocomplete="username" maxlength="32" aria-label="Name">
           <input class="ele-in ele-pin" id="elePin" type="password" placeholder="PIN"
@@ -1856,7 +1863,9 @@
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
-        <div class="msg-actions one" id="eleActions" hidden>
+        <div class="msg-actions two" id="eleActions" hidden>
+          <button class="pbtn" id="eleWhoBtn" onclick="eleToggleAuth()"
+                  title="Messages are sent as this node unless you log in">Log in as you</button>
           <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
                   title="Open the full chat in its own tab">New tab</button>
         </div>
@@ -4695,6 +4704,10 @@
           eleSay('this browser is blocking storage'); return;
         }
         k.value = '';
+        var a = document.getElementById('eleAuth');
+        if (a) a.setAttribute('hidden', '');
+        var b = document.getElementById('eleWhoBtn');
+        if (b) b.textContent = 'Log in as you';
         eleRenderHistory();
       });
   }
@@ -4774,6 +4787,31 @@
   // browser yet; that is a normal state, not an error, so it says so plainly
   // and offers the way through instead of demanding credentials in a camera
   // panel.
+  // The node's own session. Held in memory, never in localStorage, so it
+  // cannot be mistaken for -- or outlive -- a person's login.
+  var eleNodeTok = null, eleNodeName = null, eleNodeTried = false;
+
+  function eleNodeLogin(then) {
+    if (eleNodeTried) { then(); return; }
+    eleNodeTried = true;
+    fetch('/ele-api/api/node-login', { method: 'POST', cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (j && j.token) { eleNodeTok = j.token; eleNodeName = j.username; }
+        then();
+      });
+  }
+
+  function eleToggleAuth() {
+    var a = document.getElementById('eleAuth');
+    var b = document.getElementById('eleWhoBtn');
+    if (!a) return;
+    var open = a.hasAttribute('hidden');
+    if (open) a.removeAttribute('hidden'); else a.setAttribute('hidden', '');
+    if (b) b.textContent = open ? 'Cancel' : 'Log in as you';
+  }
+
   function eleRenderHistory() {
     if (!eleList) return;
     var tok, me;
@@ -4781,7 +4819,16 @@
       tok = localStorage.getItem('ele-token');
       me  = localStorage.getItem('ele-username');
     } catch (e) { tok = null; }          // private window / blocked storage
-    if (!tok) { eleShowSignedOut(); return; }
+    // A viewer open on this node is already somebody: this machine. Falling
+    // back to the node's own session means the card works with nobody logged
+    // in, which is the state it will be in during the outage it exists for.
+    // Logging in as a person is an addition, not a gate.
+    if (!tok && eleNodeTok) { tok = eleNodeTok; me = eleNodeName; }
+    if (!tok) {
+      if (!eleNodeTried) { eleNodeLogin(eleRenderHistory); return; }
+      eleShowSignedOut();
+      return;
+    }
 
     var p = eleParts();
     eleList.hidden = false;
@@ -4789,7 +4836,14 @@
     if (p.signin) p.signin.hidden = true;
     if (p.actions) p.actions.hidden = false;
     if (p.send) p.send.hidden = false;
-    if (p.me) p.me.textContent = me || '';
+    if (p.me) {
+      var asNode = (me === eleNodeName && !!eleNodeTok);
+      p.me.textContent = me || '';
+      p.me.className = asNode ? 'me node' : 'me';
+      p.me.title = asNode
+        ? 'Sending as this node. Log in to send as yourself.'
+        : 'Logged in as ' + (me || '');
+    }
     eleContacts(tok, me);
 
     if (eleBusy) return;
@@ -4841,8 +4895,14 @@
           var body = m.secret
             ? '<span class="lock">● encrypted — open to read</span>'
             : eleEsc(m.message || (m.image_id ? '[image]' : ''));
+          // The NODE is the headline, not the account. In an outage nobody
+          // needs to know which login typed it -- a writer says who they are
+          // in the words -- but which machine is still talking is the thing
+          // you cannot work out from the message itself.
+          var where = m.origin_node ? eleEsc(m.origin_node) : '';
           return '<span class="em' + (mine ? ' mine' : '') + '">' +
                  '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
+                 (where ? '<span class="node">' + where + '</span>' : '') +
                  '<span class="who">' + eleEsc(mine ? 'you' : m.from) + '</span>: ' +
                  body + '</span>';
         }).join('');
