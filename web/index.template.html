@@ -1984,8 +1984,8 @@
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
         <div class="msg-actions one" id="eleActions" hidden>
-          <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
-                  title="Open the full chat in its own tab">New tab</button>
+          <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
+                  title="Open the full chat in its own window">Open chat</button>
         </div>
       </div>
 
@@ -4967,6 +4967,31 @@
           eleRenderHistory();
         });
     });
+  }
+
+  // A window, not a tab -- the shape a chat client had before everything
+  // became a tab, and the right one for something you keep beside the camera
+  // rather than switch to.
+  //
+  // Pop-up blockers are not a risk here: they block opens that are
+  // PROGRAMMATIC or deferred, not ones made synchronously inside a click
+  // handler, which this is. If one refuses anyway, window.open returns null
+  // and we fall back to a tab rather than appearing to do nothing.
+  //
+  // The window is NAMED, so pressing the button again brings the existing one
+  // forward instead of opening a second copy of the same conversation.
+  function eleOpenWindow() {
+    var w = 420, h = 660;
+    var left = 0, top = 0;
+    try {
+      left = (window.screenX || 0) + Math.max(0, (window.outerWidth || w) - w - 24);
+      top  = (window.screenY || 0) + 48;
+    } catch (e) {}
+    var win = window.open('/elem', 'elemesh',
+      'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top +
+      ',resizable=yes,scrollbars=yes');
+    if (!win) { window.open('/elem', '_blank'); return; }
+    try { win.focus(); } catch (e) {}
   }
 
   function eleProbe() {
