@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Ghost Mode: take this node off the internet, keep it on the LAN.
+#
+# Deleting the default route is the whole trick -- the LAN is on-link, so it
+# keeps working, while anything needing a gateway (the internet, and every
+# tailscale relay) stops. That makes the fallback behaviour observable: turn
+# it on and watch nodes keep finding each other over mDNS and the LAN, with
+# no path out of the house.
+#
+# The gateway is REMEMBERED on the way in, because once the route is gone
+# there is nothing left to read it from and `off` would have nothing to
+# restore. A node that cannot leave Ghost Mode is a node someone has to walk
+# to, so `on` also arms a detached timer that restores it regardless of what
+# happens to the shell that started it.
+set -u
+STATE=/var/lib/hls-livecam/ghost-mode.state
+HOLD="${GHOST_HOLD:-900}"          # seconds; 0 disables the safety restore
+
+usage() { echo "usage: ghost-mode on|off|status [--hold SECONDS]"; exit 2; }
+
+case "${1:-}" in
+  status)
+    if [ -f "$STATE" ]; then
+      . "$STATE"
+      echo "  Ghost Mode: ON since $SINCE"
+      echo "  blackhole:     $(ip route show | grep -c '^blackhole default') route(s)"
+    else
+      echo "  Ghost Mode: OFF"
+    fi
+    # `exit` after the first: a node can carry more than one default route
+    # (tailscale adds its own), and printing them all made the status read
+    # like a duplicated line rather than two real routes.
+    echo "  default route: $(ip route | awk '/^default/{print $3" via "$5; exit}' | grep . || echo none)"
+    echo "  internet:      $(curl -s -m 5 -o /dev/null -w '%{http_code}' https://1.1.1.1 2>/dev/null || echo unreachable)"
+    echo "  tailscale:     $(tailscale status --self=false >/dev/null 2>&1 && echo up || echo down)"
+    echo "  LAN peers:     $(timeout 8 avahi-browse -rtp _livecam-node._tcp 2>/dev/null | grep -c '^=' || echo 0) announcement(s)"
+    ;;
+  on)
+    [ -f "$STATE" ] && { echo "  already on"; exit 0; }
+    mkdir -p "$(dirname "$STATE")"
+    printf 'SINCE=%s\n' "$(date -Is)" > "$STATE"
+    if [ "$HOLD" -gt 0 ]; then
+      # Detached, so losing the shell cannot strand the node.
+      nohup bash -c "sleep $HOLD; [ -f '$STATE' ] && $0 off >/dev/null 2>&1" \
+        >/dev/null 2>&1 &
+      echo "  safety restore armed: ${HOLD}s"
+    fi
+    tailscale down >/dev/null 2>&1 || true
+    # A BLACKHOLE route at metric 1, not a deletion.
+    #
+    # Deleting the default route does not hold: NetworkManager owns this link
+    # and re-adds its DHCP default within seconds, so the node is back on the
+    # internet while still reporting Ghost Mode ON. A blackhole at a lower
+    # metric outranks the DHCP route (600) without removing it, so there is
+    # nothing for NM to restore and nothing for `off` to reconstruct.
+    #
+    # The LAN is unaffected: its on-link /24 is more specific than 0.0.0.0/0
+    # and wins regardless of metric.
+    ip route replace blackhole default metric 1
+    echo "  Ghost Mode ON -- default blackholed, LAN intact"
+    ;;
+  off)
+    [ -f "$STATE" ] || { echo "  already off"; exit 0; }
+    ip route del blackhole default metric 1 2>/dev/null
+    tailscale up >/dev/null 2>&1 || true
+    rm -f "$STATE"
+    echo "  Ghost Mode OFF -- blackhole removed"
+    ;;
+  *) usage ;;
+esac

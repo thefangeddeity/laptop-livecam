@@ -1,0 +1,14 @@
+[Unit]
+Description=Sync messages with peer nodes
+
+[Timer]
+OnBootSec=90s
+# Two minutes is a compromise: often enough that a message feels delivered,
+# rare enough that three laptops are not constantly waking their radios.
+# The websocket already carries anything between two nodes that are both up;
+# this is the store-and-forward path for the ones that were not.
+OnUnitActiveSec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

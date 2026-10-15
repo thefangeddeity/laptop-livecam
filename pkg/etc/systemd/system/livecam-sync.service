@@ -1,0 +1,7 @@
+[Unit]
+Description=Pull messages from peer nodes discovered on the LAN
+After=network.target avahi-daemon.service ele-messenger.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/livecam-tools/sync-peers
