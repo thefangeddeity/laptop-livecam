@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Probe this node and publish the result where peers can read it.
+#
+# Deliberately a FILE in the web root, not a new API route: the fleet runs
+# three different broadcast-api codebases and an endpoint would have to be
+# written, reviewed and shipped three times. Every node already serves its
+# web root, so a file is served everywhere the moment it is written.
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROBE="$HERE/node-capabilities"
+for ROOT in /var/www/hls-livecam "$(dirname "$HERE")/web"; do
+  [ -d "$ROOT" ] || continue
+  TMP="$ROOT/.capabilities.json.$$"
+  if python3 "$PROBE" > "$TMP" 2>/dev/null && [ -s "$TMP" ]; then
+    # Written aside and moved, so a reader never sees a half-written file.
+    mv "$TMP" "$ROOT/capabilities.json"
+    chmod 644 "$ROOT/capabilities.json"
+    echo "  published -> $ROOT/capabilities.json"
+  else
+    rm -f "$TMP"
+    echo "  FAILED to probe; left previous capabilities.json untouched" >&2
+    exit 1
+  fi
+done
