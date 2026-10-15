@@ -105,8 +105,14 @@ def probe_radio():
             if block:
                 modes += [m.strip() for m in re.findall(r'\*\s*(\S[^\n]*)', block.group(1))]
     if not modes:
+        # Same KEYS as the success path. This branch used to emit
+        # `can_host_link` while the other emitted `could_host_link`, and
+        # omitted link_hosting_proven altogether -- so the least capable node
+        # produced the least readable document, and a consumer looking for
+        # the usual key found nothing and could easily read that as false.
         return {'modes': unknown('iw absent or no phy'),
-                'can_host_link': unknown('cannot enumerate modes'),
+                'could_host_link': unknown('cannot enumerate modes'),
+                'link_hosting_proven': unknown('modes unknown; nothing proven'),
                 'interface': probe_linux_wifi_iface()}
     modes = sorted(set(modes))
     hosts = [m for m in ('AP', 'IBSS', 'mesh point') if m in modes]
@@ -270,9 +276,14 @@ def probe_services():
                 return 200 <= r.status < 400
         except Exception as exc:
             code = getattr(exc, 'code', None)
-            # A 4xx is still the service answering; only a refused
-            # connection or a timeout means it is not there.
-            return bool(code and 400 <= code < 500)
+            # A 404 means NOTHING IS THERE at that path, and counting it as
+            # "the service answered" made this field disagree with the live
+            # probe on the home page, which calls 404 `absent`. One fleet
+            # cannot hold two meanings for the same status code.
+            # 401/403 DO prove a service is present and guarding itself.
+            if code in (401, 403):
+                return True
+            return bool(code and 400 <= code < 500 and code != 404)
 
     def listening(port):
         try:
@@ -319,8 +330,12 @@ def probe_power():
         except Exception:
             continue
     return {
+        # Was `reported: True` with a note. On a fleet that is mostly laptops
+        # that is a GUESS SHAPED LIKE GOOD NEWS -- and "will this node stay
+        # up" is the question the whole emergency case rests on. If sysfs
+        # lists no mains supply we do not know, and we say so.
         'on_mains': cap(on_ac, 'measured') if on_ac is not None
-        else cap(True, 'reported', note='no mains supply listed; likely a desktop'),
+        else unknown('no mains supply listed in sysfs'),
         'battery_pct': (cap(pct, 'measured') if pct is not None and pct <= 100
                         else cap(pct, 'measured', note='sysfs reports >100%; '
                                  'calibration drift, treat as full')
