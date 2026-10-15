@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>HLS Livecam</title>
 <!-- The browser-tab art, same brand mark the header already uses --
-     Tanzania never had a favicon link at all (requirement: you forgot to add the
-     browser tab art... on Tanzania), so tabs fell back to the browser's
+     Tanzania never had a favicon link at all (requirement: "you forgot to add the
+     browser tab art... on Tanzania"), so tabs fell back to the browser's
      blank default. Ariana already links hers; this is the missing half. -->
 <link rel="icon" href="/brand.png">
 <link rel="apple-touch-icon" href="/brand.png">
@@ -180,9 +180,9 @@
        height comes from flex (the parent, not its content), so this is safe
        containment, not a collapse risk. */
     container-type: size;
-    /* No reason to letterbox when there's room to fit exactly (requirement: plenty
+    /* No reason to letterbox when there's room to fit exactly (requirement: "plenty
        of wiggle room to adjust display rectangle... no reason to have
-       letterboxing -- "without prejudice to when video feed size forces
+       letterboxing" -- "without prejudice to when video feed size forces
        letterboxing", i.e. this is a should-fit-exactly default, not a
        guarantee). --feed-ar is the single feed-dimensions reference (see
        updateFeedAR in the script) -- when this box can actually BE that
@@ -238,8 +238,8 @@
      is the one thing CSS cannot measure (a font's cap-height/em ratio) --
      JS sets it ONCE, with no video-dimension dependency, so no race there
      either; the value below is only the fallback before that runs. */
-  /* GRID ABSTRACTION (requirement: back-end grid abstraction for display screen,
-     HUD goes one character indented and on row 2). Two independent
+  /* GRID ABSTRACTION (requirement: "back-end grid abstraction for display screen,
+     HUD goes one character indented and on row 2"). Two independent
      mathematical constants, one per axis, per dev -- no font measurement,
      no eyeballing: row pitch (vertical) is e% (2.71828cqh, the same cap-
      height constant every other HUD metric on this page already uses);
@@ -249,8 +249,8 @@
     --hud-cap-ratio: 0.716;
     --grid-row: 2.71828cqh;
     --grid-col: calc(var(--grid-row) / 1.41421356);
-    /* TWO separately-named units, a common middle point (requirement: concrete
-       padding -- the top-edge gap and the between-lines gap render
+    /* TWO separately-named units, a common middle point (requirement: "concrete
+       padding" -- the top-edge gap and the between-lines gap render
        differently at equal raw values because a between-lines gap sums
        BOTH adjacent lines' own leading while an edge gap only picks up
        one, so pure equality doesn't read as equal; split the difference
@@ -260,8 +260,8 @@
        is vertical rhythm, not character width. */
     --edge-padding-unit: calc(var(--grid-row) * 0.225);
     --linespace-padding-unit: calc(var(--grid-row) * 0.225);
-    /* FOUND IT, ROUND TWO (requirement: right edge has no limit... now do bottom
-       edge): padding only reserves space for content that FITS -- it is
+    /* FOUND IT, ROUND TWO (requirement: "right edge has no limit... now do bottom
+       edge"): padding only reserves space for content that FITS -- it is
        not a wall. Overflowing block content just flows straight through
        padding-bottom and gets clipped at the outer padding-box edge, past
        where the margin should be (this is exactly why padding-right didn't
@@ -274,14 +274,14 @@
        all four sides by construction, nothing left to special-case. */
     /* z-index 25, not 6: above .crt-stage (22) and .switch-overlay, so the
        HUD keeps reading through a switch/power-off transition instead of
-       being buried under the snow (requirement: HUD should draw over static
-       too) -- pointer-events:none below means it still never eats the
+       being buried under the snow (requirement: "HUD should draw over static
+       too") -- pointer-events:none below means it still never eats the
        static's own clicks/animation underneath it. */
     position: absolute; z-index: 25; inset: var(--grid-col); overflow: hidden;
     display: grid; grid-auto-rows: auto; row-gap: var(--linespace-padding-unit);
     align-items: start;
     font-size: calc(2.71828cqh / var(--hud-cap-ratio));
-    /* Back to Arial (requirement: get the friggin font) -- matches the burned-in
+    /* Back to Arial (requirement: "get the friggin font") -- matches the burned-in
        server HUD's FONT_HERSHEY_SIMPLEX look, which is the point of a HUD
        that's meant to read as the SAME telemetry as the picture's own.
        The brief var(--mono) experiment bought exact per-glyph grid width
@@ -295,7 +295,7 @@
   }
   .video-hud.show { opacity: 1; }
   .hud-line { line-height: normal; }
-  /* CV telemetry, bottom-left (requirement: bottom two lines for CV status) --
+  /* CV telemetry, bottom-left (requirement: "bottom two lines for CV status") --
      the same corner the burned-in server HUD occupies, so the client
      overlay reads as the SAME instrument rather than a second one stuck at
      the top. Its own flex stack, not a row in .video-hud's top grid: left:0/
@@ -309,19 +309,8 @@
     display: flex; flex-direction: column;
     gap: var(--linespace-padding-unit);
   }
-  /* cambrian-perception's own live snapshot -- a separate experiment, not
-     gated to feedMode==='cv' the way hudCvBlock is, so it gets the
-     mirrored corner (bottom-right) rather than sharing hudCvBlock's:
-     the two are independent instruments and shouldn't visually merge
-     into one just because they're both CV-adjacent. */
-  #hudCambrianBlock {
-    position: absolute; right: 0; bottom: 0;
-    display: flex; flex-direction: column;
-    align-items: flex-end;
-    gap: var(--linespace-padding-unit);
-  }
-  /* Warnings/errors get the viewer's eye, not a corner (requirement: centered
-     horizontally too, not just vertically): breaks #hudError out of the
+  /* Warnings/errors get the viewer's eye, not a corner (requirement: "centered
+     horizontally too, not just vertically"): breaks #hudError out of the
      grid's row-2 slot (absolute + inset:0 removes it from grid flow
      entirely) and centers it over the WHOLE picture on both axes.
      #hudStatus is untouched -- routine state stays put in the grid corner.
@@ -367,8 +356,8 @@
   .callctl:disabled.end { background: linear-gradient(180deg,#2c2c30,#232326); border-color: #34343a; }
   .callctl:disabled.end svg { stroke: #d6d6da; }
   .setsubtoggle { font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--phos-label); padding: 4px 2px 2px; text-align: left; }
-  /* #combToggle is a PLAIN, UNMODIFIED .reset -- a clone of Reload (requirement: you're
-     thrashing; remove button altogether and clone Reload button, no LED).
+  /* #combToggle is a PLAIN, UNMODIFIED .reset -- a clone of Reload (requirement: "you're
+     thrashing; remove button altogether and clone Reload button, no LED").
      No dedicated CSS at all: every custom touch tried so far (an led-on
      green pin, a repositioned-but-still-glowing pin, a corrected-geometry
      slide) kept reading as a lamp in one way or another. It does not need to
@@ -376,7 +365,7 @@
   .combrow { display: flex; align-items: center; gap: 8px; padding: 3px 2px; font-size: 10.5px; }
   /* Bypass, not delete: a pilot light per notch, lit = filtering, dark = held
      in the list but not applied to the audio right now. .pinled + .bulb now
-     (requirement: exactly like the global pilot button), not a bespoke flat dot --
+     (requirement: "exactly like the global pilot button"), not a bespoke flat dot --
      .pinled/.bulb/.bulb.on already provide the full look, this rule is just
      the row-scoped margin that keeps it flush with the compact combrow text. */
   .combrow .combtoggle { margin: 0; }
@@ -385,8 +374,8 @@
   .combrow .combnote { flex: 0 1 auto; max-width: 220px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--emboss-dim); }
   .combrow .combx { flex: 0 0 auto; width: 18px; height: 18px; line-height: 16px; text-align: center; padding: 0;
     border-radius: 4px; background: rgba(0,0,0,.18); border: 1px solid var(--border-strong); color: var(--text-dim); cursor: pointer; }
-  /* Sunk-in subsection (requirement: draw sunk-in textured border around notch
-     filters so it looks like a subsection) -- same recessed language the
+  /* Sunk-in subsection (requirement: "draw sunk-in textured border around notch
+     filters so it looks like a subsection") -- same recessed language the
      LED wells already use on this page (--led-well's inset shadow), so the
      whole notch bank reads as ONE carved-in region under the Reload-style
      disclosure toggle, not just a loose stack of rows. */
@@ -535,13 +524,13 @@
     gap: 6px;
     pointer-events: none;
     z-index: 15;
-    /* Same family as .video-hud (requirement: for consistency, let's update this
-       font too, so it matches HUD) -- one look for everything drawn over
+    /* Same family as .video-hud (requirement: "for consistency, let's update this
+       font too, so it matches HUD") -- one look for everything drawn over
        the picture, not a second typeface for "no signal" specifically. */
     font-family: Arial, "Helvetica Neue", Helvetica, "Liberation Sans", sans-serif;
   }
-  /* Removed (requirement: get rid of that basic no video message; it's obvious
-     from panel and graphics) -- the VIDEO panel's Hide button/LEDs and the
+  /* Removed (requirement: "get rid of that basic no video message; it's obvious
+     from panel and graphics") -- the VIDEO panel's Hide button/LEDs and the
      plain dark picture already say this, and the centered text was
      colliding with #hudError's own centered messages with nowhere clean to
      put either one. JS still toggles .visible/.lit on hideOverlay (see
@@ -966,8 +955,8 @@
   .badge.scene-registered { color: var(--success); background: color-mix(in srgb, var(--success) 8%, var(--panel)); border-color: color-mix(in srgb, var(--success) 30%, var(--border)); }
   .badge.scene-stale { color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, var(--panel)); border-color: color-mix(in srgb, var(--warn) 30%, var(--border)); }
   .badge.scene-unregistered { color: var(--text-muted); }
-  /* flex:1 + flex-start (requirement: have panels snug together toward top; I
-     don't like them spaced out like that -- reverses an earlier
+  /* flex:1 + flex-start (requirement: "have panels snug together toward top; I
+     don't like them spaced out like that" -- reverses an earlier
      space-between pass that spread leftover height evenly BETWEEN panels
      so the last one's bottom edge lined up with the video's; dev now
      prefers panels packed together with the leftover height collecting
@@ -1379,16 +1368,43 @@
                 SFMono-Regular, Menlo, monospace; color: #9fb4ad;
                 background: #10201c; border: 1px solid #1d3730; border-radius: 6px;
                 padding: 6px 8px; }
-    .ele-list .em { display: block; margin-bottom: 4px; word-break: break-word; }
+    /* Three columns so a run of messages from one machine lines up under
+       its name instead of repeating it on every line. */
+    .ele-list .em { display: grid; grid-template-columns: 5.2em 1fr auto;
+                    gap: 0 6px; margin-bottom: 3px; word-break: break-word; }
+    .ele-list .em .who { grid-column: 1; }
+    .ele-list .em .txt { grid-column: 2; }
+    .ele-list .em .when { grid-column: 3; float: none; margin-left: 0; }
     .ele-list .em:last-child { margin-bottom: 0; }
     .ele-list .who { color: #5fd3b2; }
     .ele-list .when { color: #4d6b63; float: right; margin-left: 6px; }
     .ele-list .mine .who { color: #c9b071; }
     .ele-list .quiet { color: #4d6b63; }
+    /* Which machine is speaking. Given its own weight because in an outage
+       it is the useful identity -- the account is not. */
+    .ele-list .node { color: #7fd8c0; font-weight: 600; margin-right: 5px; }
+    html[data-theme="light"] .ele-list .node { color: #1f7a63; }
     /* The mini messenger. NOTE the explicit [hidden] rules: a class or id
        rule carrying `display` outranks the browser's [hidden]{display:none},
        which is how the first version of this shipped permanently on screen.
        Any rule here that sets display states its own hidden case. */
+    .ele-top { display: flex; align-items: center; justify-content: space-between;
+               gap: 8px; }
+    .ele-top[hidden] { display: none; }
+    .ele-what { font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+                color: var(--emboss); }
+    .ele-brand { display: flex; align-items: center; gap: 5px;
+                 font: 10px/1 ui-monospace, Menlo, monospace; letter-spacing: .12em;
+                 color: #5f7d74; }
+    .ele-brand img { border-radius: 3px; opacity: .9; flex: none; }
+    /* The rule sits under the second row, so the two header lines read as
+       one block rather than two unrelated strips. */
+    .ele-sub { padding-bottom: 5px; margin-bottom: 5px;
+               border-bottom: 1px solid #1d3730; }
+    .ele-transport { font: 10px/1 ui-monospace, Menlo, monospace;
+                     letter-spacing: .16em; text-transform: uppercase;
+                     color: #7fd8c0; }
+    html[data-theme="light"] .ele-transport { color: #1f7a63; }
     .ele-head { display: flex; align-items: center; gap: 6px;
                 padding: 0 0 4px; margin-bottom: 4px;
                 border-bottom: 1px solid #1d3730; }
@@ -1400,9 +1416,19 @@
                      color: #5f7d74; }
     .ele-head .me { margin-left: auto; font: 10px/1 ui-monospace, Menlo, monospace;
                     color: #c9b071; }
+    /* Speaking as the machine rather than as a person: same slot, different
+       colour, so you can tell at a glance without reading it. */
+    .ele-head .me.node { color: #7fd8c0; }
     /* The actions row is a 3-up grid by default, which leaves a two-button
        card with a ragged empty third. These say how many there actually are. */
     .msg-actions.one { grid-template-columns: 1fr; }
+    /* Restored. This rule was deleted along with the Expand button, but the
+       markup kept using the class -- so the row silently fell back to the
+       three-column default, two buttons filled two thirds, and the empty
+       third column was both the wasted space and the reason the labels had
+       to wrap. A class with no rule behind it fails quietly and looks like
+       a layout opinion. */
+    .msg-actions.two { grid-template-columns: 1fr 1fr; }
     .ele-list .lock { color: #5f7d74; font-style: italic; }
     /* Sign-in and compose rows. Both set `display`, so both state their
        own [hidden] case -- see the note by .msg-actions. */
@@ -1413,12 +1439,31 @@
               font: 11px ui-monospace, Menlo, monospace; }
     .ele-in:focus { outline: none; border-color: #5fd3b2; }
     .ele-pin { flex: 0 0 52px; text-align: center; letter-spacing: .18em; }
-    .ele-to  { flex: 0 0 80px; }
     .ele-row .pbtn { flex: 0 0 auto; padding: 5px 9px; font-size: 11px; }
+    /* Send is a MOBILE affordance. On a keyboard, Enter sends and the button
+       is a second deliberate act between having something to say and saying
+       it. On a touch keyboard Enter is unreliable -- it inserts a newline,
+       or the layout hides it -- so the button is the only honest way there.
+       Matches the viewer's existing 720px breakpoint rather than inventing
+       one. */
+    #eleSendBtn { display: none; }
+    @media (max-width: 720px) {
+      #eleSendBtn { display: inline-flex; }
+    }
     .ele-err { color: #e8a9a0; font: 10px/1.4 ui-monospace, Menlo, monospace;
                margin-top: 4px; }
     .ele-err[hidden] { display: none; }
   </style>
+<script>
+  // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
+  (function () {
+    if (/[?&]full\b/.test(location.search)) return;
+    fetch('/api/is-host', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.text() : 'false'; })
+      .then(function (t) { if (t.trim() === 'true') location.replace('/host.html'); })
+      .catch(function () {});
+  })();
+</script>
 </head>
 <body>
 
@@ -1426,7 +1471,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-123-ga82705b-dirty · dev · a82705b"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1689,15 +1734,6 @@
         <div class="hud-line" id="hudCv"></div>
         <div class="hud-line" id="hudCvCap"></div>
       </div>
-      <!-- cambrian-perception's live snapshot (see /api/cambrian-state,
-           broadcast-api's sibling to /api/cv-state) -- a separate
-           evolutionary-perception experiment reading its own state file,
-           not gated to feedMode; empty/hidden whenever it hasn't produced
-           a generation yet (organism not running is the common case). -->
-      <div id="hudCambrianBlock">
-        <div class="hud-line" id="hudCambrian"></div>
-        <div class="hud-line" id="hudCambrianFovea"></div>
-      </div>
     </div>
     <!-- Room audio rides its own element on the audio-only rendition, the
          way ariana does it. The <video> above stays muted permanently: it
@@ -1777,10 +1813,6 @@
                     title="Shake and sound every viewer's screen">
               <span class="cap2">BUZZ</span>
             </button>
-            <button class="modem" id="snapBtn" onclick="sendSnapshot()"
-                    title="Send the picture as it is now to the notification chat (Telegram)">
-              <span class="cap2">SNAPSHOT</span>
-            </button>
           </div>
         </div>
 
@@ -1838,35 +1870,29 @@
            A node with no messenger therefore shows Node Note and nothing
            else, which is the intended degradation rather than an error. -->
       <div class="panel" id="elePanel" hidden>
-        <div class="panel-title eng">Messages</div>
-        <!-- The messenger's own logo is the ONLY thing borrowed from it. The
-             app's chrome is its own blue world and it does not belong in a
-             panel built out of lamps and mono type, so this is the viewer
-             rendering the messenger's data, not the messenger embedded. -->
-        <div class="ele-head" id="eleHead" hidden>
-          <img src="/ele/icons/ELE-messenger-favicon-32px.png" alt="" width="14" height="14">
-          <span class="lab">ELE Messenger</span>
+        <!-- Two rows and a rule. Left is what this card IS and how it is
+             reaching the fleet; right is whose software and which machine.
+             The messenger's logo is the only thing borrowed from it. -->
+        <div class="ele-top">
+          <span class="ele-what eng">Messages</span>
+          <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-32px.png"
+                alt="" width="13" height="13"> ELEM</span>
+        </div>
+        <div class="ele-top ele-sub">
+          <span class="ele-transport" id="eleTransport">—</span>
           <span class="me" id="eleMe"></span>
         </div>
         <div class="ele-list" id="eleList">checking…</div>
-        <!-- Signing in happens HERE. Same origin, same four-digit PIN the
-             messenger itself asks for, so sending someone to another tab to
-             type it was a detour rather than a safeguard -- and it left the
-             card showing a stale signed-out state until they came back. -->
-        <div class="ele-row" id="eleAuth" hidden>
-          <input class="ele-in" id="eleUser" type="text" placeholder="name"
-                 autocomplete="username" maxlength="32" aria-label="Name">
-          <input class="ele-in ele-pin" id="elePin" type="password" placeholder="PIN"
-                 inputmode="numeric" pattern="[0-9]*" maxlength="4"
-                 autocomplete="current-password" aria-label="Four-digit PIN">
-          <button class="pbtn" id="eleAuthBtn" onclick="eleSignIn()">Sign in</button>
-        </div>
         <!-- And replying happens here. A card you can only read from is a
              link wearing a panel. -->
+        <!-- One field. There is a single rolling channel, so there is no
+             recipient to choose, and who you are comes from the session --
+             this machine, or you if you logged in. Nobody should be picking
+             from a dropdown to say the stairs are blocked. -->
         <div class="ele-row" id="eleSend" hidden>
-          <select class="ele-in ele-to" id="eleTo" aria-label="Send to"></select>
           <input class="ele-in" id="eleMsg" type="text" placeholder="message…"
-                 maxlength="500" autocomplete="off" aria-label="Message">
+                 maxlength="500" autocomplete="off" aria-label="Message"
+                 enterkeyhint="send" title="Enter sends">
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
@@ -1888,12 +1914,9 @@
       </div>
       <div class="panel" id="settingsPanel" hidden style="margin-top:6px;">
         <div class="panel-title eng">Settings</div>
-        <!-- Alphabetized (requirement: alphabetize these settings) -- Disable
+        <!-- Alphabetized (requirement: "alphabetize these settings") -- Disable
              buzz, Light theme, Mute server speaker/headset in RTC. -->
-        <!-- Detection/alerting runs off its own tap on the camera, not off
-             the displayed picture: Show/CV/Hide/Night are what a viewer wants
-             to look at, and four viewers in four countries share one feed
-             mode. An alert must not depend on whoever clicked last. -->
+        <div class="pdiv"></div>
         <!-- Structure, not a flat list: "All living beings" is a SUPERSET of
              the four indented under it, while "All movements" is a different
              mechanism entirely (no model, so it sees what the detector has no
@@ -1952,7 +1975,7 @@
           <div class="pinrow sub">
             <button class="pinled" id="clsOtherBtn" onclick="toggleCls('other')"
                     aria-pressed="false" aria-label="Alert on other living things"
-                    title="Every animate class the model knows that is not a person, cat, dog or bird. Indoors these are near-certainly misclassifications, which is the point: something alive that is not one of yours.">
+                    title="Every animate class the model knows that is not a person, cat, dog or bird -- horse, sheep, cow, elephant, bear, zebra, giraffe. Indoors these are near-certainly misclassifications, which is the point: something alive that is not one of yours.">
               <span class="bulb" id="clsOtherLamp"></span>
             </button>
             <span class="eng rstlab">Other</span>
@@ -1969,7 +1992,7 @@
           <div class="pinrow">
             <button class="pinled" id="clsPlantBtn" onclick="toggleCls('plant')"
                     aria-pressed="false" aria-label="Alert on plants"
-                    title="A houseplant moving in a draught was reported as a cat, because the model had no plant label available. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings.">
+                    title="A houseplant moving in a draught was being reported as a cat, because the model had no 'plant' label available and returned the nearest class it was allowed to name. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings, so that option cannot switch it back on.">
               <span class="bulb" id="clsPlantLamp"></span>
             </button>
             <span class="eng rstlab">Plants</span>
@@ -2044,9 +2067,9 @@
           <span class="eng rstlab">Notch filters (<span id="combCount">0</span>)</span>
         </div>
         <div id="combMenu" hidden>
-          <!-- Bulk actions, not a sticky master switch (requirement: Logic of 'All
+          <!-- Bulk actions, not a sticky master switch (requirement: "Logic of 'All
                notch filters' toggle is wrong... you should still be able to
-               hand-select which ones you want -- the old master silenced
+               hand-select which ones you want" -- the old master silenced
                every notch AND blocked editing individual ones while off,
                via #combList.bypassed-all's pointer-events:none). One-shot:
                click sets every entry's flag once, then individual toggles
@@ -2098,8 +2121,8 @@
   // blank on exactly the address people need to use to talk.
   var HLS_URL = window.location.origin + '/hls/cam/index.m3u8';
   var video        = document.getElementById('video');
-  // SINGLE feed-dimensions reference (requirement: one single 'feed dimensions'
-  // reference that all these anchor to, provided by cam or empirically).
+  // SINGLE feed-dimensions reference (requirement: "one single 'feed dimensions'
+  // reference that all these anchor to, provided by cam or empirically").
   // Anything that needs the camera's real aspect ratio -- the static-noise
   // texture below, and anything future that needs to reason about the
   // letterboxed picture rect rather than the outer wrap box -- reads THIS,
@@ -2151,7 +2174,7 @@
     // Platform-prefixed so a screenshot from any fleet member identifies
     // itself without anyone having to recognise the layout.
     var host = (info.hostname || window.location.hostname || '').split('.')[0];
-    var build = info.version ? 'linux-v' + info.version : '';
+    var build = 'mac-v1.8.0';   // macOS: stamped by livecam-setup / the DMG build
     var bl = document.getElementById('buildLabel');
     if (bl) bl.textContent = (build ? build + ' ' : '') + '@' + host;
     // The tab has to identify the node without the page being visible: with
@@ -2425,9 +2448,9 @@
     list.forEach(function (n, i) {
       var enabled = n.enabled !== false;   // absent key = enabled (matches the server default)
       var row = document.createElement('div'); row.className = 'combrow' + (enabled ? '' : ' bypassed');
-      // Exactly the master pilot light's own markup (requirement: individual notch
+      // Exactly the master pilot light's own markup (requirement: "individual notch
       // filter pilot switches need to be exactly like the global pilot
-      // button) -- .pinled wrapping a .bulb, not the flat dot this used to
+      // button") -- .pinled wrapping a .bulb, not the flat dot this used to
       // be. The .on class lives on the BULB, matching every other lamp.
       var t = document.createElement('button'); t.type = 'button';
       t.className = 'pinled combtoggle';
@@ -2455,7 +2478,7 @@
       .then(function (data) { if (data) renderNotches(data); })
       .catch(function () {});
   }
-  // Bulk action (requirement: Turn on all notch filters / "Turn off all notch
+  // Bulk action (requirement: "Turn on all notch filters" / "Turn off all notch
   // filters"), replacing the old sticky master switch: same PATCH endpoint,
   // no ?i -- the server reads that as "every entry", sets them all once,
   // and holds no state of its own. Individual toggles stay live always.
@@ -2509,28 +2532,6 @@
   loadNotches();
 
   applyTheme();
-
-  // SNAPSHOT: the picture as the feed shows it now, to the notification chat
-  // (Telegram), via /api/snapshot. Pressed while it goes; the label says
-  // whether it went, the hover title says why not.
-  function sendSnapshot() {
-    var b = document.getElementById('snapBtn');
-    if (!b || b.disabled) return;
-    var cap = b.querySelector('.cap2'), idle = b.title;
-    b.classList.add('pressed'); b.disabled = true;
-    fetch('/api/snapshot', { method: 'POST' })
-      .then(function (r) { return r.text().then(function (t) { return { ok: r.ok, t: t }; }); })
-      .catch(function () { return { ok: false, t: 'no answer from the node' }; })
-      .then(function (res) {
-        if (cap) cap.textContent = res.ok ? 'SENT' : 'NOT SENT';
-        b.title = res.ok ? 'Sent to the notification chat' : 'Not sent: ' + res.t;
-        setTimeout(function () {
-          b.classList.remove('pressed'); b.disabled = false;
-          if (cap) cap.textContent = 'SNAPSHOT';
-          b.title = idle;
-        }, 2500);
-      });
-  }
 
   function sendBuzz() {
     if (buzzMuted) return;   // opted out of the channel, both directions
@@ -2800,12 +2801,12 @@
   // 'weak' hides the key. 'unknown' does NOT -- a probe that failed to run is
   // not evidence a machine is slow, and a control that silently vanishes
   // because a measurement errored is worse than one that stays and performs
-  // badly. The server never reports 'weak' without a measured reason, which
-  // goes in the tooltip so the decision is inspectable, not mysterious.
+  // badly. 'weak' always carries a measured reason, which goes in the tooltip
+  // so the decision is inspectable, not mysterious.
   function cvAllowed() {
     // Only a machine that cannot render inside the frame interval loses the
-    // key. There is no middle verdict: a node that does the work in time
-    // keeps its control, whatever the margin.
+    // key. `weak` renders -- with no margin, which the title says -- and a
+    // control that works should not vanish because it is not comfortable.
     return !pipeline || pipeline.cv_capable !== 'unfit';
   }
   function applyCvCapability() {
@@ -2815,7 +2816,7 @@
     cvBtn.disabled = !ok;
     var cap = (pipeline && pipeline.cv_capability) || null;
     cvBtn.title = ok ? '' :
-      ('CV rendering is too slow on this machine' +
+      ('CV rendering cannot keep up on this machine' +
        (cap && cap.reason ? ' -- ' + cap.reason : '') +
        '. Detection and alerts are unaffected.');
   }
@@ -2987,9 +2988,23 @@
 
   // Show/Hide/CV come through here; Blur no longer does -- it is
   // independent now (toggleBlur() above), not coupled to a mode switch.
+  // Does Hide cost detection on THIS node? Asked, not assumed: here Hide
+  // closes the camera, on the Linux node it only swaps the published picture
+  // and the detector keeps watching. Warning about a consequence that does
+  // not exist is how people learn to click through warnings.
+  var hideStopsDetection = false;
+  fetch('/api/hide-stops-detection', { cache: 'no-store' })
+    .then(function(r) { return r.ok ? r.text() : null; })
+    .catch(function() { return null; })
+    .then(function(v) { if (v !== null) hideStopsDetection = v.trim() === 'true'; });
+
   function setPicture(which) {
     if (!feedModeKnown) return;
     if (which === feedMode) return;
+    // Hide is never overridden on detection's behalf, and never gated behind
+    // a dialog. It no longer costs detection anything either -- the camera
+    // keeps running and the detector keeps its tap -- so there is nothing to
+    // warn about here any more.
     setFeedMode(which);
   }
 
@@ -3016,7 +3031,7 @@
   }
   function toggleFoveal() {
     if (fovealBtn.disabled) return;
-    fetch('/api/foveal-mode', {
+    fetch('/api/cv-foveal-mode', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: (!fovealOn) ? 'true' : 'false'
@@ -3030,7 +3045,7 @@
   // there's no checkbox state of its own to paint first.
   function clickFoveal() { toggleFoveal(); }
   function pollFoveal() {
-    fetch('/api/foveal-mode', { cache: 'no-store' })
+    fetch('/api/cv-foveal-mode', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; })
       .catch(function() { return null; })
       .then(function(v) { if (v !== null) applyFoveal(v.trim() === 'true'); });
@@ -3051,29 +3066,6 @@
   }
   setInterval(function () { if (!document.hidden) pollCvState(); }, 2000);
   pollCvState();
-
-  // ── CAMBRIAN — cambrian-perception's evolutionary organism, a separate
-  // project polled the same way CV state is (see /api/cambrian-state on
-  // broadcast-api). generation===0 means "no organism running / hasn't
-  // finished a generation yet" -- the common case -- and hides the block
-  // entirely rather than showing stale zeros as if they were real.
-  function pollCambrianState() {
-    fetch('/api/cambrian-state', { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (j) { if (j) paintCambrian(j); })
-      .catch(function () {});
-  }
-  function paintCambrian(j) {
-    var a = document.getElementById('hudCambrian'), b = document.getElementById('hudCambrianFovea');
-    if (!a || !b) return;
-    if (!j.generation) { a.textContent = ''; b.textContent = ''; _hudShow(); return; }
-    a.textContent = 'CAMBRIAN gen ' + j.generation + ' fit ' + j.best_fitness.toFixed(3);
-    b.textContent = 'fovea (' + j.fovea_cx.toFixed(2) + ',' + j.fovea_cy.toFixed(2) + ') '
-      + 'r=' + j.fovea_fraction.toFixed(2) + ' resp ' + j.response.toFixed(3);
-    _hudShow();
-  }
-  setInterval(function () { if (!document.hidden) pollCambrianState(); }, 2000);
-  pollCambrianState();
   function applySceneState(state) {
     sceneState = state;
     paintAnalysis();
@@ -3463,8 +3455,28 @@
           var m = txt.match(/#EXT-X-MEDIA:[^\n]*TYPE=AUDIO[^\n]*URI="([^"]+)"/);
           if (m) uri = m[1];
         }
-        // No rendition found: fall back to the master. Worse, but audible.
-        var url = uri ? HLS_URL.replace(/[^/]*$/, uri) : HLS_URL;
+        // No audio rendition: on macOS the room is not a track of the
+        // camera's feed but its own path, which mediamtx also serves as HLS.
+        //
+        // ALWAYS the AAC path for HLS listening, with no capability branch.
+        //
+        // Every HLS client decodes AAC -- Safari natively, hls.js, Firefox,
+        // Chrome. Opus-in-HLS is the one only some of them accept: Apple's
+        // HLS does not take it at all, so an iPhone served the Opus playlist
+        // gets a stream that negotiates, lights every lamp, and is silent.
+        //
+        // This WAS a canPlayType branch choosing Opus for non-WebKit. Two
+        // things were wrong with it. It probed roomAudio, an <audio> element,
+        // and WebKit advertises HLS on VIDEO elements -- so the test returned
+        // empty on the very phones it existed to catch, and sent them to Opus
+        // anyway. And the branch bought nothing: picking the codec every
+        // client can play is simply correct, and a branch that can only ever
+        // be wrong on one side is worse than no branch.
+        //
+        // Opus stays on roomaudio for the WebRTC/two-way leg, where it is the
+        // better codec and where Safari handles it perfectly well.
+        var url = uri ? HLS_URL.replace(/[^/]*$/, uri)
+                      : HLS_URL.replace('/cam/', '/roomsound/');
         _teardownRoomHls();
         if (window.Hls && Hls.isSupported()) {
           roomHls = new Hls({
@@ -3661,8 +3673,8 @@
     }
   }
   function toggleMuteAudio() {
-    // Always toggleable (requirement: I can want to remember to toggle it off
-    // without needing it to be live), not gated on a call being open. When
+    // Always toggleable (requirement: "I can want to remember to toggle it off
+    // without needing it to be live"), not gated on a call being open. When
     // no call exists there is nothing for applyMicMute() to actually mute
     // yet -- it no-ops on the twoWayStream check -- but the STATE still
     // changes and persists, so it is already armed the moment a call starts
@@ -3687,9 +3699,9 @@
   // business changing the play key's appearance, and the volume slider
   // shares this because a slider at zero is silence by another route.
   function paintMute() {
-    // NOT gated on a live call any more (requirement: I don't see why Mute mic
+    // NOT gated on a live call any more (requirement: "I don't see why Mute mic
     // button has to be suppressed in Silence or HLS modes; I can want to
-    // remember to toggle it off without needing it to be live) -- always
+    // remember to toggle it off without needing it to be live") -- always
     // clickable, so the remembered state can be armed ahead of a call. The
     // same reasoning applies to the speaker test-mute below, symmetrically.
     // .pbtn.pressed matches the HLS/Silence/RTC language, AND the lamp is
@@ -4187,13 +4199,13 @@
     if (el) el.style.setProperty('--hud-cap-ratio', ratio);
   })();
 
-  // Picture HUD (requirement: off my panel), through the universal renderer. Line
+  // Picture HUD (requirement: "off my panel"), through the universal renderer. Line
   // 1 = live A/V status (TWO-WAY LIVE / HLS AUDIO LIVE); CV mode adds its
   // own two rows (see setHudCv below); errors get their own centered
   // overlay (#hudError). The whole HUD shows while ANY row has text.
   function _hudShow() {
     var hud = document.getElementById('videoHud');
-    var ids = ['hudStatus', 'hudCv', 'hudCvCap', 'hudCambrian', 'hudCambrianFovea', 'hudError'];
+    var ids = ['hudStatus', 'hudCv', 'hudCvCap', 'hudError'];
     var on = ids.some(function (id) {
       var el = document.getElementById(id);
       return !!(el && el.textContent.trim());
@@ -4442,6 +4454,10 @@
     // Monitor, flat otherwise.
     var v = 0;
     if (audioMode === 'two-way' && levelRtcInAnalyser) {
+      // A context that lost its gesture (backgrounded tab, bfcache restore)
+      // comes back suspended, and _peak would report that as silence. Ask for
+      // it back rather than drawing a flat line that looks like a quiet room.
+      if (levelCtx && levelCtx.state === 'suspended') { try { levelCtx.resume(); } catch (e) {} }
       v = _peak(levelRtcInAnalyser);
     } else if (audioMode === 'play' && levelAnalyser && levelCtx && levelCtx.state === 'running') {
       v = _peak(levelAnalyser);
@@ -4453,8 +4469,8 @@
     // the connection) -- which keeps reading the room even while muted,
     // since it taps the mic itself, not what's being sent. That is correct
     // for diagnosing "is my mic dead vs just muted", but it gave no visual
-    // confirmation that Mute mic actually did anything (requirement: I don't see a
-    // difference in sound graph after pressing Mute mic) -- forced to 0
+    // confirmation that Mute mic actually did anything (requirement: "I don't see a
+    // difference in sound graph after pressing Mute mic") -- forced to 0
     // here, display-layer only, so the underlying tap/architecture is
     // unchanged for anyone who still wants that distinction later.
     var o = 0;
@@ -4542,8 +4558,8 @@
   var _monLastTime = -1, _monLastChangeAt = 0;
   // Two DIFFERENT stalls, both real: "playing but frozen" (currentTime stuck,
   // caught below) and "just stopped" (.paused went true with nothing to
-  // un-pause it). The second one was the actual bug (requirement: still need to hit
-  // reload... otherwise inbound audio gets stuck on off position) -- a
+  // un-pause it). The second one was the actual bug (requirement: "still need to hit
+  // reload... otherwise inbound audio gets stuck on off position") -- a
   // settings-triggered publisher restart can pause the element WITHOUT ever
   // firing a DOM 'error' event (browsers are inconsistent about this for a
   // brief manifest gap), and the old check explicitly SKIPPED recovery
@@ -4595,8 +4611,8 @@
     // stalled/emptied) -- a transient error that fires once and then quietly
     // self-recovers (segments resume, roomAudio keeps playing) never refires
     // any of those, so the LED/HUD stay stuck on the stale paint forever.
-    // Cheap className/text writes, safe every tick (requirement: Says live but HLS
-    // LED is red and no graph).
+    // Cheap className/text writes, safe every tick (requirement: "Says live but HLS
+    // LED is red and no graph").
     paintAudioModes();
     // Likewise the level meter's AudioContext only ever resumes from a page
     // click -- if it suspended with no click since, the graph reads flat
@@ -4610,8 +4626,19 @@
 
   // A gesture is what lets an AudioContext run at all on iOS, and every key
   // on this panel is a gesture.
+  //
+  // CREATE it here, not just resume it. This used to resume levelCtx only if
+  // it already existed, and on the RTC path it does not exist yet: the tap
+  // starts a WHEP negotiation, and the context is first built from ontrack,
+  // which fires whole seconds later with no gesture anywhere near it. iOS
+  // makes a context born outside a gesture 'suspended', the resume inside
+  // levelAttachStream is swallowed by its own try/catch, and the analyser
+  // then reads a suspended graph as a flat zero forever -- RTC lamp green,
+  // audio audible through the element (which needs no AudioContext), meter
+  // dead. Building it during the tap means ontrack finds a running context.
   document.addEventListener('click', function () {
-    if (levelCtx && levelCtx.state === 'suspended') levelCtx.resume();
+    var ctx = _ensureLevelCtx();
+    if (ctx && ctx.state === 'suspended') ctx.resume();
     levelAttach(roomAudio);
   });
 
@@ -4635,9 +4662,20 @@
   var elePanel = document.getElementById('elePanel');
   var eleList  = document.getElementById('eleList');
   var elePresent = false;
-  var eleLastFrom = null;   // who spoke last, so a reply defaults to them
-  var eleBusy = false;      // one history request at a time: on a slow node
-                            // two can overlap and the older reply wins
+  var eleBusy = false;      // one history request at a time
+  var eleTok  = null;       // the session, held in memory only
+  var eleWho  = null;       // who that session says we are
+  var eleHost = null;       // this machine's name
+
+  // This machine's name, for rendering person@machine. capabilities.json is
+  // the node stating its own name and is already served from this origin.
+  fetch('/capabilities.json', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .catch(function () { return null; })
+    .then(function (d) {
+      var n = d && d.identity && d.identity.node && d.identity.node.value;
+      if (n) { eleHost = n; eleRenderHistory(); }
+    });
 
   function eleEsc(t) {
     return String(t).replace(/[&<>"]/g, function (c) {
@@ -4648,17 +4686,9 @@
     var d = new Date(ts);
     if (isNaN(d)) return '';
     var now = new Date();
-    var sameDay = d.toDateString() === now.toDateString();
-    return sameDay
+    return d.toDateString() === now.toDateString()
       ? d.toTimeString().slice(0, 5)
       : (d.getMonth() + 1) + '/' + d.getDate();
-  }
-  function eleParts() {
-    return { signin:  document.getElementById('eleAuth'),
-             send:    document.getElementById('eleSend'),
-             actions: document.getElementById('eleActions'),
-             head:    document.getElementById('eleHead'),
-             me:      document.getElementById('eleMe') };
   }
   function eleSay(msg) {
     var e = document.getElementById('eleErr');
@@ -4666,211 +4696,180 @@
     e.textContent = msg || '';
     e.hidden = !msg;
   }
-  // Signed out shows one door and nothing else.
-  function eleShowSignedOut() {
+
+  // ── THE SESSION IS NOT A GATE ───────────────────────────────────────────
+  // There is no sign-in here, by design. A browser open on this machine is
+  // already somebody: this machine. The card takes a node session, and when
+  // that session stops working -- the messenger holds sessions in memory, so
+  // every restart invalidates every one of them -- it takes a new one and
+  // carries on.
+  //
+  // It previously treated a 401 as "you are signed out" and put a name-and-PIN
+  // form on screen. That is a sign-in product's reflex, and it is wrong here:
+  // the one thing someone must be able to do is say something, and a restart
+  // of a service they cannot see is not a reason to ask them who they are.
+  // Connect first. Gating, if it is ever wanted, comes after and on purpose.
+  function eleSession(then) {
+    if (eleTok) { then(eleTok); return; }
+    fetch('/ele-api/api/node-login', { method: 'POST', cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (j && j.token) { eleTok = j.token; eleWho = j.username; }
+        then(eleTok);
+      });
+  }
+
+  function eleParts() {
+    return { send: document.getElementById('eleSend'),
+             actions: document.getElementById('eleActions'),
+             head: document.getElementById('eleHead'),
+             me: document.getElementById('eleMe') };
+  }
+
+  // from_user and origin_node are the SAME for a message a machine wrote, so
+  // printing both gave "ariana ariana:". One identity per line: the machine
+  // alone, or person@machine when a person wrote it. No "you" -- in a shared
+  // channel every line should name who said it, including your own, so the
+  // log reads the same to everyone looking at it.
+  // Which network this page came in over. Read off the address bar rather
+  // than asserted: it is the one thing we know for certain about the path,
+  // and a label that cannot be wrong beats one that is merely optimistic.
+  // When mesh or BLE carry this, they can report instead of being inferred.
+  function eleNetwork() {
+    var h = (location.hostname || '').toLowerCase();
+    if (/\.ts\.net$/.test(h)) return 'tailnet';
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return 'local';
+    if (/\.local$/.test(h)) return 'lan';
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return 'lan';
+    return 'network';
+  }
+
+  function eleIdent(from, origin) {
+    if (!origin) return from || '';
+    if (!from || from === origin) return origin;
+    return from + '@' + origin;
+  }
+
+  function eleShowUnavailable(note) {
     var p = eleParts();
-    if (eleList) eleList.hidden = true;
-    if (p.head) p.head.hidden = true;
-    if (p.actions) p.actions.hidden = true;
-    if (p.send) p.send.hidden = true;
-    if (p.signin) p.signin.hidden = false;
-  }
-
-  // ── SIGNING IN ──
-  function eleSignIn() {
-    var u = document.getElementById('eleUser');
-    var k = document.getElementById('elePin');
-    var b = document.getElementById('eleAuthBtn');
-    if (!u || !k) return;
-    var name = (u.value || '').trim();
-    var pin  = (k.value || '').trim();
-    if (!name || !/^\d{4}$/.test(pin)) {
-      eleSay('name and a four-digit PIN'); return;
+    if (eleList) {
+      eleList.hidden = false;
+      eleList.innerHTML = '<span class="quiet">' + eleEsc(note) + '</span>';
     }
-    if (b) { b.disabled = true; b.textContent = '…'; }
-    eleSay('');
-    fetch('/ele-api/api/login', {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: name, pin: pin })
-    })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (b) { b.disabled = false; b.textContent = 'Sign in'; }
-        if (!j || !j.token) { eleSay('that name and PIN did not match'); return; }
-        try {
-          localStorage.setItem('ele-token', j.token);
-          localStorage.setItem('ele-username', j.username || name);
-        } catch (e) {
-          // Storage blocked: the session cannot be shared with the messenger
-          // tab, so say so rather than appear signed in and lose it.
-          eleSay('this browser is blocking storage'); return;
-        }
-        k.value = '';
-        eleRenderHistory();
-      });
+    if (p.send) p.send.hidden = true;
+    if (p.head) p.head.hidden = true;
+    if (p.actions) p.actions.hidden = false;
   }
 
-  // ── SENDING ──
-  // The messenger keeps ONE websocket per person: connecting a second one as
-  // the same user replaces the first and closing it deletes the entry, so a
-  // socket from here would quietly stop the chat app from receiving anything.
-  // POST /api/send writes the same row and pushes the same payload without
-  // touching the socket registry; it was added to the messenger for this.
-  function eleContacts(tok, me) {
-    var sel = document.getElementById('eleTo');
-    if (!sel) return;
-    fetch('/ele-api/api/accounts?token=' + encodeURIComponent(tok), { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (!j || !j.accounts) return;
-        var keep = sel.value;
-        var others = j.accounts.filter(function (a) { return a !== me; });
-        sel.innerHTML = others.map(function (a) {
-          return '<option value="' + eleEsc(a) + '">' + eleEsc(a) + '</option>';
-        }).join('');
-        // Default to whoever spoke last -- the reply you are most likely
-        // to be writing -- and otherwise leave the first contact selected.
-        if (keep && others.indexOf(keep) > -1) sel.value = keep;
-        else if (eleLastFrom && others.indexOf(eleLastFrom) > -1) sel.value = eleLastFrom;
-      });
+  function eleRenderHistory(retrying) {
+    if (!eleList || eleBusy) return;
+    eleSession(function (tok) {
+      if (!tok) { eleShowUnavailable('messenger unavailable'); return; }
+      var p = eleParts();
+      eleList.hidden = false;
+      if (p.head) p.head.hidden = false;
+      if (p.send) p.send.hidden = false;
+      if (p.actions) p.actions.hidden = false;
+      if (p.me) {
+        var asNode = (eleWho === eleHost) || !eleHost;
+        p.me.textContent = eleIdent(eleWho, eleHost) || eleWho || '';
+        p.me.className = asNode ? 'me node' : 'me';
+      }
+      var netEl = document.getElementById('eleTransport');
+      if (netEl) netEl.textContent = eleNetwork();
+      eleBusy = true;
+      fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
+        .then(function (r) {
+          if (r.status === 401 || r.status === 403) return 'stale';
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () { return null; })
+        .then(function (h) {
+          eleBusy = false;
+          if (h === 'stale') {
+            // ONCE. Clearing the token and calling straight back in is an
+            // infinite loop if the server keeps rejecting -- it spins and
+            // hammers a messenger that is already unhappy. One fresh session,
+            // one retry, then say so and wait for the next poll.
+            eleTok = null;
+            if (!retrying) { eleRenderHistory(true); return; }
+            eleList.innerHTML = '<span class="quiet">messenger not accepting this node</span>';
+            return;
+          }
+          if (!h) { eleList.innerHTML = '<span class="quiet">messenger unreachable</span>'; return; }
+          var msgs = (h.history || []).slice(-12);
+          if (!msgs.length) {
+            eleList.innerHTML = '<span class="quiet">nothing said yet</span>';
+            return;
+          }
+          var atBottom = (eleList.scrollHeight - eleList.scrollTop
+                          - eleList.clientHeight) < 24;
+          // A run of messages from one machine names it once and the rest
+          // line up underneath -- the shape a chat log has had since AOL,
+          // and the reason is unchanged: the name repeated on every line is
+          // noise that pushes the words themselves out of the column.
+          var lastWho = null;
+          eleList.innerHTML = msgs.map(function (m) {
+            var body = m.secret
+              ? '<span class="lock">● encrypted — open to read</span>'
+              : eleEsc(m.message || (m.image_id ? '[image]' : ''));
+            var who = eleIdent(m.from, m.origin_node);
+            var runs = (who === lastWho);
+            lastWho = who;
+            return '<span class="em' + (runs ? ' cont' : '') + '">' +
+                   '<span class="who">' + (runs ? '' : eleEsc(who) + ':') + '</span>' +
+                   '<span class="txt">' + body + '</span>' +
+                   '<span class="when">' + (runs ? '' : eleEsc(eleWhen(m.timestamp))) + '</span>' +
+                   '</span>';
+          }).join('');
+          if (atBottom) eleList.scrollTop = eleList.scrollHeight;
+        })
+        .catch(function () { eleBusy = false; });
+    });
   }
-  function eleSendMsg() {
-    var sel = document.getElementById('eleTo');
+
+  function eleSendMsg(retrying) {
     var box = document.getElementById('eleMsg');
     var btn = document.getElementById('eleSendBtn');
-    if (!sel || !box) return;
+    if (!box) return;
     var text = (box.value || '').trim();
-    var to = sel.value;
     if (!text) return;
-    if (!to) { eleSay('no one to send to yet'); return; }
-    var tok;
-    try { tok = localStorage.getItem('ele-token'); } catch (e) { tok = null; }
-    if (!tok) { eleShowSignedOut(); return; }
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    eleSay('');
-    fetch('/ele-api/api/send', {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: tok, to: to, message: text })
-    })
-      .then(function (r) {
-        if (r.status === 401 || r.status === 403) return 'bad-token';
-        return r.ok ? r.json() : null;
+    eleSession(function (tok) {
+      if (!tok) { eleSay('messenger unavailable'); return; }
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      eleSay('');
+      fetch('/ele-api/api/send', {
+        method: 'POST', cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+        // The house channel: one rolling conversation everyone is in.
+        body: JSON.stringify({ token: tok, conversation_id: 'house', message: text })
       })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
-        if (j === 'bad-token') {
-          try {
-            localStorage.removeItem('ele-token');
-            localStorage.removeItem('ele-username');
-          } catch (e) {}
-          eleShowSignedOut();
-          eleSay('signed out — sign in again');
-          return;
-        }
-        if (!j || !j.ok) { eleSay('not sent — messenger unreachable'); return; }
-        // Clear only on a confirmed write. Clearing optimistically loses
-        // what someone typed on exactly the node where sending is hardest.
-        box.value = '';
-        eleRenderHistory();
-      });
-  }
-
-  // The viewer reuses the session the MESSENGER already established, rather
-  // than growing a login of its own. /ele and / are the same origin, so its
-  // localStorage is readable from here -- which is the whole reason the two
-  // were put on one origin. No token means nobody has signed in on this
-  // browser yet; that is a normal state, not an error, so it says so plainly
-  // and offers the way through instead of demanding credentials in a camera
-  // panel.
-  function eleRenderHistory() {
-    if (!eleList) return;
-    var tok, me;
-    try {
-      tok = localStorage.getItem('ele-token');
-      me  = localStorage.getItem('ele-username');
-    } catch (e) { tok = null; }          // private window / blocked storage
-    if (!tok) { eleShowSignedOut(); return; }
-
-    var p = eleParts();
-    eleList.hidden = false;
-    if (p.head) p.head.hidden = false;
-    if (p.signin) p.signin.hidden = true;
-    if (p.actions) p.actions.hidden = false;
-    if (p.send) p.send.hidden = false;
-    if (p.me) p.me.textContent = me || '';
-    eleContacts(tok, me);
-
-    if (eleBusy) return;
-    eleBusy = true;
-    fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
-      .then(function (r) {
-        // ONLY the server saying no is a bad token. Everything else -- a
-        // dropped wifi, an nginx reload, a 502 while the messenger restarts,
-        // a slow laptop timing out -- is this node being unreachable for a
-        // moment. Treating those as "signed out" and deleting the token
-        // would log the household out of the MESSENGER, from a read-only
-        // panel, during exactly the outage the messenger exists for.
-        if (r.status === 401 || r.status === 403) return 'bad-token';
-        return r.ok ? r.json() : null;
-      })
-      .catch(function () { return null; })
-      .then(function (h) {
-        eleBusy = false;
-        if (h === 'bad-token') {
-          try {
-            localStorage.removeItem('ele-token');
-            localStorage.removeItem('ele-username');   // never orphan the pair
-          } catch (e) {}
-          eleShowSignedOut();
-          return;
-        }
-        if (!h) {                         // unreachable: keep the session
-          eleList.innerHTML = '<span class="quiet">messenger unreachable</span>';
-          return;
-        }
-        var msgs = (h.history || []).slice(-12);
-        for (var _i = msgs.length - 1; _i >= 0; _i--) {
-          if (msgs[_i].from && msgs[_i].from !== me) { eleLastFrom = msgs[_i].from; break; }
-        }
-        if (!msgs.length) {
-          eleList.innerHTML = '<span class="quiet">no messages yet</span>';
-          return;
-        }
-        // Only follow the newest message if the reader is already at the
-        // bottom. Yanking the list down every 10s while someone scrolls back
-        // is worse than missing a line.
-        var atBottom = (eleList.scrollHeight - eleList.scrollTop
-                        - eleList.clientHeight) < 24;
-        eleList.innerHTML = msgs.map(function (m) {
-          var mine = (m.from === me);
-          // Secret messages are end-to-end encrypted and the key lives in the
-          // messenger, not here. Showing the ciphertext would be worse than
-          // saying plainly that this panel cannot read it.
-          var body = m.secret
-            ? '<span class="lock">● encrypted — open to read</span>'
-            : eleEsc(m.message || (m.image_id ? '[image]' : ''));
-          return '<span class="em' + (mine ? ' mine' : '') + '">' +
-                 '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
-                 '<span class="who">' + eleEsc(mine ? 'you' : m.from) + '</span>: ' +
-                 body + '</span>';
-        }).join('');
-        if (atBottom) eleList.scrollTop = eleList.scrollHeight;
-      })
-      .catch(function () { eleBusy = false; });
+        .then(function (r) {
+          if (r.status === 401 || r.status === 403) return 'stale';
+          return r.ok ? r.json() : null;
+        })
+        .catch(function () { return null; })
+        .then(function (j) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+          if (j === 'stale') {
+            // Take a fresh session and send again, once. The text stays in
+            // the box until something is actually written down.
+            eleTok = null;
+            if (!retrying) { eleSendMsg(true); return; }
+            eleSay('could not send');
+            return;
+          }
+          if (!j || !j.ok) { eleSay('not sent — messenger unreachable'); return; }
+          box.value = '';
+          eleRenderHistory();
+        });
+    });
   }
 
   function eleProbe() {
     fetch('/ele-api/online', { cache: 'no-store' })
       .then(function (r) {
-        // 404 means no messenger on this node and the card should not exist.
-        // A network failure means we do not know -- and hiding then would
-        // make a node that lost a service look like a node that never had
-        // one, which is the thing home.html is careful not to do.
         if (r.status === 404) return 'absent';
         return r.ok ? r.json() : 'unreachable';
       })
@@ -4882,10 +4881,8 @@
           return;
         }
         if (j === 'unreachable') {
-          if (!elePresent) return;        // never seen it; stay quiet
-          if (eleList && !eleList.hidden) {
-            eleList.innerHTML = '<span class="quiet">messenger unreachable</span>';
-          }
+          if (!elePresent) return;
+          eleShowUnavailable('messenger unreachable');
           return;
         }
         elePresent = true;
@@ -4894,15 +4891,19 @@
       });
   }
 
+  // Enter sends. In the event this is for, the Send button is a second
+  // deliberate act between having something to say and saying it.
+  var eleMsgBox = document.getElementById('eleMsg');
+  if (eleMsgBox) {
+    eleMsgBox.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      eleSendMsg();
+    });
+  }
+
   eleProbe();
   setInterval(function () { if (!document.hidden) eleProbe(); }, 10000);
-  // Signing in happens in ANOTHER TAB, so the poll is not what should notice
-  // it. `storage` fires in this tab the instant the messenger writes the
-  // token next door; the other two cover coming back to a backgrounded page,
-  // where the poll is paused and the card would otherwise sit stale.
-  window.addEventListener('storage', function (e) {
-    if (!e.key || e.key === 'ele-token') eleRenderHistory();
-  });
   window.addEventListener('focus', function () { if (elePresent) eleRenderHistory(); });
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) eleProbe();
@@ -5056,8 +5057,6 @@
     });
   })();
 
-  // Per-class alert checkboxes. Server-backed like the toggles above, so two
-  // phones never disagree about what the camera is reporting.
 
 
   // ── DETECTION + ALERTS ──
@@ -5065,9 +5064,13 @@
   // phones looking at this panel can never disagree about what the camera is
   // doing. Detection is the master -- with it off, nothing below it can fire,
   // so the whole group is shown inert rather than live and tickable.
-  // 'other' is a species row; 'plant' is in CLS_ID but NOT in SPECIES, so the
-  // living select-all can never reach it.
+  // 'other' is a species row like the rest: it stands for every animate class
+  // that is not one of the four named ones, so "All living beings" selects a
+  // set with nothing alive left out of it. The server expands it (see
+  // _OTHER_LIVING in broadcast-api); the panel only ever sends the key.
   var SPECIES = ['human', 'cat', 'dog', 'bird', 'other'];
+  // 'plant' is in CLS_ID but NOT in SPECIES: it is togglable like any other
+  // class, and the living select-all must never reach it.
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
@@ -5096,12 +5099,13 @@
     var g = document.getElementById('alertGroup');
     if (g) g.classList.toggle('inactive', !detectOn);
   }
-  // Bumped by every local mutation. A poll GET issued BEFORE a toggle can land
-  // AFTER it, carrying the pre-toggle value; the old code let that stale answer
-  // overwrite the fresh one, so unchecking Detection appeared not to take --
-  // the server went off and the in-flight 5s poll ticked the box back on.
-  // Last-write-wins between a GET and a POST, decided by latency, which is not
-  // a decision anyone intended.
+  // Bumped by every local mutation. A poll GET issued BEFORE a toggle can
+  // land AFTER it, carrying the pre-toggle value, and the old code let that
+  // stale answer overwrite the fresh one -- so unchecking Detection appeared
+  // not to take: the server went off, the 5s poll already in flight came back
+  // saying 'true', and the box ticked itself again within five seconds.
+  // Last-write-wins between a GET and a POST is decided by latency, which is
+  // not a decision anyone intended.
   var alertsEpoch = 0;
 
   function post(api, body, then) {
