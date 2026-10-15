@@ -1389,21 +1389,10 @@
                      color: #5f7d74; }
     .ele-head .me { margin-left: auto; font: 10px/1 ui-monospace, Menlo, monospace;
                     color: #c9b071; }
-    .ele-list.big { max-height: min(30vh, 190px); }
     /* The actions row is a 3-up grid by default, which leaves a two-button
        card with a ragged empty third. These say how many there actually are. */
-    .msg-actions.two { grid-template-columns: 1fr 1fr; }
     .msg-actions.one { grid-template-columns: 1fr; }
-    .ele-list .sep { display: block; margin: 6px 0 3px; padding-top: 4px;
-                     border-top: 1px dashed #1d3730; color: #5f7d74;
-                     font-size: 10px; letter-spacing: .1em;
-                     text-transform: uppercase; }
-    .ele-list .em:first-child + .sep, .ele-list .sep:first-child { border-top: 0;
-                     margin-top: 0; padding-top: 0; }
     .ele-list .lock { color: #5f7d74; font-style: italic; }
-    .ele-foot { font: 10px/1.4 ui-monospace, Menlo, monospace; color: #4d6b63;
-                margin-top: 4px; }
-    .ele-foot[hidden] { display: none; }
   </style>
 <script>
   // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
@@ -1838,13 +1827,10 @@
         <div class="msg-actions one" id="eleSignin" hidden>
           <button class="pbtn" onclick="window.open('/elem','_blank')">Sign in</button>
         </div>
-        <div class="msg-actions two" id="eleActions" hidden>
-          <button class="pbtn" id="eleExpandBtn" onclick="eleExpand()"
-                  title="Show more of the thread">Expand</button>
+        <div class="msg-actions one" id="eleActions" hidden>
           <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
                   title="Open the full chat in its own tab">New tab</button>
         </div>
-        <div class="ele-foot" id="eleFoot" hidden></div>
       </div>
 
       <!-- Reset (left) + Settings (right) share this row. Settings opens the
@@ -4599,26 +4585,6 @@
   // Deliberately read-only for now: who is online, and a way through to the
   // messenger proper. Composing lives in the messenger until this card has
   // earned more.
-  // Expand does not load anything: it is the same native list, taller, with
-  // the messenger's name on it. Nothing is fetched that was not already being
-  // fetched, which is the point of rendering this ourselves.
-  var eleBig = false;
-  function eleExpand(force) {
-    var list = document.getElementById('eleList');
-    var head = document.getElementById('eleHead');
-    var foot = document.getElementById('eleFoot');
-    var btn  = document.getElementById('eleExpandBtn');
-    eleBig = (typeof force === 'boolean') ? force : !eleBig;
-    if (list) list.classList.toggle('big', eleBig);
-    if (head) head.hidden = !eleBig;
-    if (foot) foot.hidden = !eleBig;
-    if (btn) {
-      btn.textContent = eleBig ? 'Collapse' : 'Expand';
-      btn.setAttribute('aria-expanded', eleBig ? 'true' : 'false');
-    }
-    eleRenderHistory(eleWho);
-  }
-
   var elePanel = document.getElementById('elePanel');
   var eleList  = document.getElementById('eleList');
   var eleBody  = document.getElementById('eleBody');
@@ -4634,7 +4600,6 @@
         if (j === null) {                 // absent, or not answering
           elePresent = false;
           if (elePanel) elePanel.hidden = true;
-          eleExpand(false);
           return;
         }
         elePresent = true;
@@ -4675,16 +4640,15 @@
     var signin  = document.getElementById('eleSignin');
     var actions = document.getElementById('eleActions');
     var head    = document.getElementById('eleHead');
-    var foot    = document.getElementById('eleFoot');
     if (!tok) {
       eleList.hidden = true;
       if (head) head.hidden = true;
-      if (foot) foot.hidden = true;
       if (actions) actions.hidden = true;
       if (signin) signin.hidden = false;
       return;
     }
     eleList.hidden = false;
+    if (head) head.hidden = false;
     if (signin) signin.hidden = true;
     if (actions) actions.hidden = false;
     fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
@@ -4696,44 +4660,27 @@
           // show the same single door rather than a sentence about it.
           eleList.hidden = true;
           if (head) head.hidden = true;
-          if (foot) foot.hidden = true;
           if (actions) actions.hidden = true;
           if (signin) signin.hidden = false;
           try { localStorage.removeItem('ele-token'); } catch (e) {}
           return;
         }
-        var msgs = (h.history || []).slice(eleBig ? -60 : -12);
-        var foot = document.getElementById('eleFoot');
+        var msgs = (h.history || []).slice(-12);
         var meEl = document.getElementById('eleMe');
         if (meEl) meEl.textContent = me || '';
-        if (foot) {
-          foot.textContent = (h.history || []).length
-            ? ((h.history || []).length + ' messages \u00b7 last 7 days')
-            : 'no messages in the last 7 days';
-        }
         if (!msgs.length) {
           eleList.innerHTML = '<span class="quiet">no messages yet</span>';
           return;
         }
-        // Expanded, the thread each message belongs to is worth showing; at
-        // card size it is noise, so the separators only appear when there is
-        // room for them.
-        var lastConvo = null;
         eleList.innerHTML = msgs.map(function (m) {
           var mine = (m.from === me);
-          var out = '';
-          if (eleBig && m.conversation_id !== lastConvo) {
-            lastConvo = m.conversation_id;
-            var other = mine ? (m.to || '') : m.from;
-            out += '<span class="sep">' + eleEsc(other || 'thread') + '</span>';
-          }
           // Secret messages are end-to-end encrypted and the key lives in the
           // messenger, not here. Showing the ciphertext would be worse than
           // saying plainly that this panel cannot read it.
           var body = m.secret
             ? '<span class="lock">\u25cf encrypted \u2014 open to read</span>'
             : eleEsc(m.message || (m.image_id ? '[image]' : ''));
-          return out + '<span class="em' + (mine ? ' mine' : '') + '">' +
+          return '<span class="em' + (mine ? ' mine' : '') + '">' +
                  '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
                  '<span class="who">' + eleEsc(mine ? 'you' : m.from) + '</span>: ' +
                  body + '</span>';
