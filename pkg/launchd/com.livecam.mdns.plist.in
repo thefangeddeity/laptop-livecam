@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Holds the mDNS registration open. dns-sd -R only advertises while it
+     runs, so this is KeepAlive rather than a timer. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.livecam.mdns</string>
+  <key>ProgramArguments</key>
+  <array><string>@REPO@/tools/mdns-announce</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>@REPO@/state/logs/mdns.err</string>
+  <key>ProcessType</key><string>Background</string>
+</dict>
+</plist>

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Announce this node's capability summary over mDNS, on macOS.
+#
+# The Linux nodes do this by writing a file into /etc/avahi/services, which
+# avahi picks up and re-reads on change. There is no avahi here: mDNSResponder
+# is built in, but registering a service means holding a long-running
+# `dns-sd -R` process, which is why this is run by launchd and not a timer.
+#
+# Without it a Mac node is INVISIBLE to the fleet -- it can discover peers and
+# pull from them, but nothing can pull from it, so anything written here never
+# reaches the other machines.
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CAPS="$(dirname "$HERE")/web/capabilities.json"
+
+# Summary only, same keys the Linux announcement uses, and 'u' for unknown so
+# a peer can tell "cannot" from "nobody checked".
+read -r NODE HOST PROVEN TLSOFF CV MIC MSGR FREE <<<"$(python3 - "$CAPS" <<'PY'
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    print("unknown u u u u u u u"); raise SystemExit
+def tri(sec, key):
+    c = d.get(sec, {}).get(key, {})
+    if c.get('source') == 'unknown' or c.get('value') is None:
+        return 'u'
+    return '1' if c['value'] else '0'
+print(' '.join([
+    d['identity']['node']['value'],
+    tri('radio', 'could_host_link'), tri('radio', 'link_hosting_proven'),
+    tri('secure_context', 'survives_offline'), tri('cv', 'can_render'),
+    tri('mic', 'has_signal'), tri('services', 'messenger'),
+    str(d.get('storage', {}).get('free_mb', {}).get('value', 'u')),
+]))
+PY
+)"
+
+exec dns-sd -R "livecam on $NODE" _livecam-node._tcp local 8080 \
+  "node=$NODE" "host=$HOST" "proven=$PROVEN" "tlsoff=$TLSOFF" \
+  "cv=$CV" "mic=$MIC" "msgr=$MSGR" "free=$FREE" \
+  "doc=/capabilities.json" "schema=1"
