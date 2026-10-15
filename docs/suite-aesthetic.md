@@ -223,3 +223,38 @@ The minority position is **accepted as a gate**: the READMEs state the suite
 relationship now, because that is already true — the two packages share an
 origin, a theme and a `/` that offers both. The metapackage itself waits
 until every node carries both members, which is tracked as a pending.
+
+---
+
+# Appendix: two clients, one identity
+
+**Status: adopted (panel, 2026-10-15).** The question was whether the full ELE
+web client should still exist, now that the camera viewer's Messages card
+reads and sends on its own — and whether opening it in a new tab should demand
+a sign-in.
+
+**It should not demand a sign-in. The client stays. The card gets depth, not
+feature parity.**
+
+| | |
+|---|---|
+| **Spolsky** (rewrite risk) | Measured before arguing: the client carries emoji with recents (107 references), GIF search (76), end-to-end "secret" conversations with public-key exchange (78), group chats (36) and image upload (40). That is years of accreted behaviour, most of it invisible until it is missing. Deleting it to rebuild the same thing inside a camera panel is the classic rewrite that never lands. |
+| **Brooks** (second-system) | "The card becomes the whole client" is the second-system effect exactly: it will grow an emoji picker, then attachments, then key exchange, each one worse than the version already written next door. The card's job is the glance and the one-line reply. |
+| **Norman** (coherence) | The real defect is not that two clients exist, it is that they disagree about **who you are**. One adopts the machine's identity and works immediately; the other presents a login wall. Two identity models in one product is the thing to fix — not the second codebase. |
+| **Nielsen** (consistency) | A door that demands credentials the room behind it did not is a broken affordance. If the card can read and send as this node, the tab it opens must start in exactly that state. |
+
+**Vote 4-0.** Resolution:
+
+1. **The full client adopts the node session.** No sign-in wall; it opens as
+   this machine, like the card. "Log in as yourself" stays, as a feature.
+2. **The client takes the suite aesthetic.** Its own blue chrome is the last
+   place in the suite that does not follow §1–§7.
+3. **The card gets an expand**, for reading more of the thread in place. It is
+   not a route to feature parity.
+4. **The client is not deleted**, and deletion is not scheduled. If the card
+   ever genuinely covers what the client does, that is the moment to revisit.
+
+> **Minority (Gelman), recorded.** Keeping both means every future feature has
+> two possible homes and will sometimes be built in neither. Whoever adds the
+> next thing should have to say which client owns it, in writing, before
+> building it.
