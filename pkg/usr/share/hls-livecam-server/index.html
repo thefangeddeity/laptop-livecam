@@ -2774,7 +2774,10 @@
   // badly. The server never reports 'weak' without a measured reason, which
   // goes in the tooltip so the decision is inspectable, not mysterious.
   function cvAllowed() {
-    return !pipeline || pipeline.cv_capable !== 'weak';
+    // Only a machine that cannot render inside the frame interval loses the
+    // key. There is no middle verdict: a node that does the work in time
+    // keeps its control, whatever the margin.
+    return !pipeline || pipeline.cv_capable !== 'unfit';
   }
   function applyCvCapability() {
     if (!cvBtn) return;
@@ -4600,35 +4603,12 @@
   // earned more.
   var elePanel = document.getElementById('elePanel');
   var eleList  = document.getElementById('eleList');
-  var eleBody  = document.getElementById('eleBody');
   var eleHint  = document.getElementById('eleHint');
   var elePresent = false;
-  var eleWho = [];          // last known online list, so a re-render can reuse it
+  var eleWho  = [];         // last known online list, reused by a re-render
+  var eleBusy = false;      // one history request at a time: on a slow node
+                            // two can overlap and the older reply wins
 
-  function eleProbe() {
-    fetch('/ele-api/online', { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (j === null) {                 // absent, or not answering
-          elePresent = false;
-          if (elePanel) elePanel.hidden = true;
-          return;
-        }
-        elePresent = true;
-        if (elePanel) elePanel.hidden = false;
-        var who = (j.online || []);
-        eleWho = who;
-        if (eleHint) eleHint.textContent = who.length ? (who.length + ' online') : '';
-        eleRenderHistory(who);
-      });
-  // The viewer reuses the session the MESSENGER already established, rather
-  // than growing a login of its own. /ele and / are the same origin, so its
-  // localStorage is readable from here -- which is the whole reason the two
-  // were put on one origin. No token means nobody has signed in on this
-  // browser yet; that is a normal state, not an error, so it says so plainly
-  // and offers the way through instead of demanding credentials in a camera
-  // panel.
   function eleEsc(t) {
     return String(t).replace(/[&<>"]/g, function (c) {
       return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
@@ -4643,68 +4623,149 @@
       ? d.toTimeString().slice(0, 5)
       : (d.getMonth() + 1) + '/' + d.getDate();
   }
-  function eleRenderHistory(who) {
+  function eleParts() {
+    return { signin:  document.getElementById('eleSignin'),
+             actions: document.getElementById('eleActions'),
+             head:    document.getElementById('eleHead'),
+             me:      document.getElementById('eleMe') };
+  }
+  // Signed out shows one door and nothing else -- including no roster. The
+  // online list needs no token, but printing "3 online" next to a Sign in
+  // button hands household presence to anyone who opens the camera.
+  function eleShowSignedOut() {
+    var p = eleParts();
+    if (eleList) eleList.hidden = true;
+    if (p.head) p.head.hidden = true;
+    if (p.actions) p.actions.hidden = true;
+    if (p.signin) p.signin.hidden = false;
+    if (eleHint) eleHint.textContent = '';
+  }
+
+  // The viewer reuses the session the MESSENGER already established, rather
+  // than growing a login of its own. /ele and / are the same origin, so its
+  // localStorage is readable from here -- which is the whole reason the two
+  // were put on one origin. No token means nobody has signed in on this
+  // browser yet; that is a normal state, not an error, so it says so plainly
+  // and offers the way through instead of demanding credentials in a camera
+  // panel.
+  function eleRenderHistory() {
     if (!eleList) return;
     var tok, me;
     try {
       tok = localStorage.getItem('ele-token');
       me  = localStorage.getItem('ele-username');
     } catch (e) { tok = null; }          // private window / blocked storage
-    var signin  = document.getElementById('eleSignin');
-    var actions = document.getElementById('eleActions');
-    var head    = document.getElementById('eleHead');
-    if (!tok) {
-      eleList.hidden = true;
-      if (head) head.hidden = true;
-      if (actions) actions.hidden = true;
-      if (signin) signin.hidden = false;
-      return;
-    }
+    if (!tok) { eleShowSignedOut(); return; }
+
+    var p = eleParts();
     eleList.hidden = false;
-    if (head) head.hidden = false;
-    if (signin) signin.hidden = true;
-    if (actions) actions.hidden = false;
+    if (p.head) p.head.hidden = false;
+    if (p.signin) p.signin.hidden = true;
+    if (p.actions) p.actions.hidden = false;
+    if (p.me) p.me.textContent = me || '';
+    if (eleHint) eleHint.textContent = eleWho.length ? (eleWho.length + ' online') : '';
+
+    if (eleBusy) return;
+    eleBusy = true;
     fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        // ONLY the server saying no is a bad token. Everything else -- a
+        // dropped wifi, an nginx reload, a 502 while the messenger restarts,
+        // a slow laptop timing out -- is this node being unreachable for a
+        // moment. Treating those as "signed out" and deleting the token
+        // would log the household out of the MESSENGER, from a read-only
+        // panel, during exactly the outage the messenger exists for.
+        if (r.status === 401 || r.status === 403) return 'bad-token';
+        return r.ok ? r.json() : null;
+      })
       .catch(function () { return null; })
       .then(function (h) {
-        if (!h) {                         // token expired, or the node restarted
-          // An expired token is the signed-out state wearing a stale badge;
-          // show the same single door rather than a sentence about it.
-          eleList.hidden = true;
-          if (head) head.hidden = true;
-          if (actions) actions.hidden = true;
-          if (signin) signin.hidden = false;
-          try { localStorage.removeItem('ele-token'); } catch (e) {}
+        eleBusy = false;
+        if (h === 'bad-token') {
+          try {
+            localStorage.removeItem('ele-token');
+            localStorage.removeItem('ele-username');   // never orphan the pair
+          } catch (e) {}
+          eleShowSignedOut();
+          return;
+        }
+        if (!h) {                         // unreachable: keep the session
+          eleList.innerHTML = '<span class="quiet">messenger unreachable</span>';
           return;
         }
         var msgs = (h.history || []).slice(-12);
-        var meEl = document.getElementById('eleMe');
-        if (meEl) meEl.textContent = me || '';
         if (!msgs.length) {
           eleList.innerHTML = '<span class="quiet">no messages yet</span>';
           return;
         }
+        // Only follow the newest message if the reader is already at the
+        // bottom. Yanking the list down every 10s while someone scrolls back
+        // is worse than missing a line.
+        var atBottom = (eleList.scrollHeight - eleList.scrollTop
+                        - eleList.clientHeight) < 24;
         eleList.innerHTML = msgs.map(function (m) {
           var mine = (m.from === me);
           // Secret messages are end-to-end encrypted and the key lives in the
           // messenger, not here. Showing the ciphertext would be worse than
           // saying plainly that this panel cannot read it.
           var body = m.secret
-            ? '<span class="lock">\u25cf encrypted \u2014 open to read</span>'
+            ? '<span class="lock">● encrypted — open to read</span>'
             : eleEsc(m.message || (m.image_id ? '[image]' : ''));
           return '<span class="em' + (mine ? ' mine' : '') + '">' +
                  '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
                  '<span class="who">' + eleEsc(mine ? 'you' : m.from) + '</span>: ' +
                  body + '</span>';
         }).join('');
-        eleList.scrollTop = eleList.scrollHeight;   // newest in view
+        if (atBottom) eleList.scrollTop = eleList.scrollHeight;
+      })
+      .catch(function () { eleBusy = false; });
+  }
+
+  function eleProbe() {
+    fetch('/ele-api/online', { cache: 'no-store' })
+      .then(function (r) {
+        // 404 means no messenger on this node and the card should not exist.
+        // A network failure means we do not know -- and hiding then would
+        // make a node that lost a service look like a node that never had
+        // one, which is the thing home.html is careful not to do.
+        if (r.status === 404) return 'absent';
+        return r.ok ? r.json() : 'unreachable';
+      })
+      .catch(function () { return 'unreachable'; })
+      .then(function (j) {
+        if (j === 'absent') {
+          elePresent = false;
+          if (elePanel) elePanel.hidden = true;
+          return;
+        }
+        if (j === 'unreachable') {
+          if (!elePresent) return;        // never seen it; stay quiet
+          if (eleHint) eleHint.textContent = '';
+          if (eleList && !eleList.hidden) {
+            eleList.innerHTML = '<span class="quiet">messenger unreachable</span>';
+          }
+          return;
+        }
+        elePresent = true;
+        if (elePanel) elePanel.hidden = false;
+        eleWho = (j.online || []);
+        eleRenderHistory();
       });
   }
 
-  }
   eleProbe();
   setInterval(function () { if (!document.hidden) eleProbe(); }, 10000);
+  // Signing in happens in ANOTHER TAB, so the poll is not what should notice
+  // it. `storage` fires in this tab the instant the messenger writes the
+  // token next door; the other two cover coming back to a backgrounded page,
+  // where the poll is paused and the card would otherwise sit stale.
+  window.addEventListener('storage', function (e) {
+    if (!e.key || e.key === 'ele-token') eleRenderHistory();
+  });
+  window.addEventListener('focus', function () { if (elePresent) eleRenderHistory(); });
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) eleProbe();
+  });
 
   // ── BROADCAST ──
   var currentMsg = '';
