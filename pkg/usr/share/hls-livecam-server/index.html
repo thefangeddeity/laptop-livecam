@@ -1376,6 +1376,15 @@
     .ele-list .when { color: #4d6b63; float: right; margin-left: 6px; }
     .ele-list .mine .who { color: #c9b071; }
     .ele-list .quiet { color: #4d6b63; }
+    /* The embedded chat. NOTE: no `display` property here on purpose. An id
+       rule carrying `display:flex` outranks the browser's [hidden]{display:none},
+       so the box would stay on screen however often the script hid it -- which
+       is exactly what happened the first time this shipped. Leave display to
+       the UA so the hidden attribute keeps working. */
+    .ele-embed { height: min(60vh, 460px); margin-top: 6px;
+                 border: 1px solid #1d3730; border-radius: 4px;
+                 overflow: hidden; background: #0b1512; }
+    .ele-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
   </style>
 </head>
 <body>
@@ -1775,7 +1784,17 @@
         <div class="panel-title eng">Messages <span id="eleHint" class="msg-hint"></span></div>
         <div class="ele-list" id="eleList">checking…</div>
         <div class="msg-actions">
-          <button class="pbtn" id="eleOpenBtn" onclick="window.open('/ele','_blank')">Open</button>
+          <button class="pbtn" id="eleExpandBtn" onclick="eleExpand()"
+                  title="Open the full chat inside this page">Expand</button>
+          <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
+                  title="Open the full chat in its own tab">New tab</button>
+        </div>
+        <!-- The full chat, embedded the way a map embed is: inside the card,
+             with the camera still running above it. It is NOT an overlay --
+             a fixed, full-viewport box covers the thing this page exists to
+             show. No src until it is opened; see eleExpand(). -->
+        <div class="ele-embed" id="eleEmbed" hidden>
+          <iframe id="eleFrame" title="ELE Messenger"></iframe>
         </div>
       </div>
 
@@ -4554,6 +4573,28 @@
   // Deliberately read-only for now: who is online, and a way through to the
   // messenger proper. Composing lives in the messenger until this card has
   // earned more.
+  // The embed opens on demand and is TORN DOWN on close: src cleared, so the
+  // messenger is not left holding a socket behind a collapsed card. Nothing is
+  // loaded until someone asks, because the nodes this runs on are slow.
+  function eleExpand(force) {
+    var box = document.getElementById('eleEmbed');
+    var fr  = document.getElementById('eleFrame');
+    var btn = document.getElementById('eleExpandBtn');
+    if (!box || !fr) return;
+    var open = (typeof force === 'boolean') ? force : box.hasAttribute('hidden');
+    if (open) {
+      if (!fr.getAttribute('src')) fr.setAttribute('src', '/ele');
+      box.removeAttribute('hidden');
+    } else {
+      box.setAttribute('hidden', '');
+      fr.removeAttribute('src');
+    }
+    if (btn) {
+      btn.textContent = open ? 'Collapse' : 'Expand';
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+  }
+
   var elePanel = document.getElementById('elePanel');
   var eleList  = document.getElementById('eleList');
   var eleBody  = document.getElementById('eleBody');
@@ -4568,6 +4609,7 @@
         if (j === null) {                 // absent, or not answering
           elePresent = false;
           if (elePanel) elePanel.hidden = true;
+          eleExpand(false);
           return;
         }
         elePresent = true;
