@@ -2642,6 +2642,34 @@
   // on a hidden feed" from "just switched off in front of me".
   var wasHidden   = null;
 
+  // CV MODE IS HIDDEN ON HARDWARE THAT CANNOT AFFORD IT.
+  //
+  // Rendering CV costs an order of magnitude more per frame than watching the
+  // room does -- the server measures both and reports cv_capable. On a machine
+  // that cannot keep up, offering the key invites an operator to melt their own
+  // CPU for a picture that will stutter, while DETECTION and alerting carry on
+  // perfectly well without it: they run off observe(), which is cheap.
+  //
+  // 'weak' hides the key. 'unknown' does NOT -- a probe that failed to run is
+  // not evidence a machine is slow, and a control that silently vanishes
+  // because a measurement errored is worse than one that stays and performs
+  // badly. 'weak' always carries a measured reason, which goes in the tooltip
+  // so the decision is inspectable, not mysterious.
+  function cvAllowed() {
+    return !pipeline || pipeline.cv_capable !== 'weak';
+  }
+  function applyCvCapability() {
+    if (!cvBtn) return;
+    var ok = cvAllowed();
+    cvBtn.hidden = !ok;
+    cvBtn.disabled = !ok;
+    var cap = (pipeline && pipeline.cv_capability) || null;
+    cvBtn.title = ok ? '' :
+      ('CV rendering is too slow on this machine' +
+       (cap && cap.reason ? ' -- ' + cap.reason : '') +
+       '. Detection and alerts are unaffected.');
+  }
+
   function updateFeedButtons() {
     // One row, one selection -- three keys now that Blur is an independent
     // modifier (paintBlur(), called separately) rather than a fourth key
@@ -2649,6 +2677,7 @@
     showBtn.className = 'pbtn' + (feedMode === 'show' ? ' pressed' : '');
     hideBtn.className = 'pbtn guarded' + (feedMode === 'hide' ? ' pressed' : '');
     cvBtn.className   = 'pbtn' + (feedMode === 'cv'   ? ' pressed' : '');
+    applyCvCapability();
     var nightBtn = document.getElementById('nightBtn');
     if (nightBtn) nightBtn.className = 'pbtn' + (feedMode === 'night' ? ' pressed' : '');
     var iCv = document.getElementById('indCv');
@@ -2697,7 +2726,7 @@
     fetch('/api/pipeline', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.json() : null; })
       .catch(function() { return null; })
-      .then(function(p) { pipeline = p; paintLamps(); });
+      .then(function(p) { pipeline = p; paintLamps(); applyCvCapability(); });
   }
   pollPipeline();
   setInterval(function() { if (!document.hidden) pollPipeline(); }, 4000);
@@ -2980,7 +3009,8 @@
         updateFeedButtons();
         setTimeout(reloadStream, 1000);
       }
-      showBtn.disabled = false; cvBtn.disabled = false; hideBtn.disabled = false;
+      showBtn.disabled = false; hideBtn.disabled = false;
+      cvBtn.disabled = !cvAllowed();   // never re-enable a key hardware cannot afford
       if (nightBtn) nightBtn.disabled = false;
     });
   }

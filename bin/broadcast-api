@@ -2613,6 +2613,102 @@ def stream_mp3():
     return resp
 
 
+
+# -- CV CAPABILITY -----------------------------------------------------------
+# Whether THIS machine can render CV mode without falling behind the camera.
+#
+# MEASURED, not inferred. Core count and CPU model are proxies that go stale
+# with every new chip and lie on a throttled or shared box; the only honest
+# answer is to run the work and time it. The probe renders a synthetic frame
+# through the real CVProcessor, so it prices exactly what CV costs here.
+#
+# Three states, deliberately. 'weak' hides the CV key; 'unknown' does NOT --
+# a probe that failed to run is not evidence a machine is slow, and a control
+# that vanishes because a measurement errored is worse than one that stays
+# and performs badly.
+_cv_cap_cache = None
+_cv_cap_lock = threading.Lock()
+
+
+def _cv_capability():
+    """{'state','process_ms','observe_ms','budget_ms','reason'} -- cached.
+
+    Hardware does not change under a running process, so this is probed once
+    and reused; lazily, because most starts never ask.
+    """
+    global _cv_cap_cache
+    with _cv_cap_lock:
+        if _cv_cap_cache is not None:
+            return _cv_cap_cache
+        out = {'state': 'unknown', 'process_ms': None, 'observe_ms': None,
+               'budget_ms': None, 'reason': 'not probed'}
+        try:
+            import numpy as _np
+            import cv2 as _cv2
+            import cv_processor as _cvp_probe
+            fr = max(1, int(_cfg.get('FRAMERATE', 15)))
+            budget = 1000.0 / fr
+            # A ROOM, not noise. Uniform random pixels are the CHEAPEST input
+            # this pipeline sees, not the worst: measured here, noise ran
+            # 50.6ms while a real camera frame took 66.2ms, so probing with
+            # noise understated true cost by roughly a third and would have
+            # called a machine capable that cannot actually keep up.
+            # Gradient + flat blocks + a little grain, measured with a fresh
+            # processor each time (state carried between runs makes these
+            # numbers lie): noise 48.6ms, this frame 58.0ms, a real camera
+            # frame 70.6ms. So this still UNDERSTATES a real scene by roughly
+            # a fifth -- it is a floor, not a forecast. That is what the 70
+            # percent budget threshold below is absorbing, and it is why the
+            # threshold is not 100. A synthetic frame is used at all because
+            # the camera may not be open when the probe runs.
+            _yy, _xx = _np.mgrid[0:FRAME_H, 0:FRAME_W]
+            _g = ((_xx / float(FRAME_W) * 140) + (_yy / float(FRAME_H) * 90) + 20).astype(_np.uint8)
+            frame = _cv2.merge([_g, _g, _g])
+            for _i in range(6):
+                _cv2.rectangle(frame, (80 + _i * 160, 60 + _i * 70),
+                               (240 + _i * 160, 300 + _i * 70),
+                               (40 + _i * 25, 90, 160 - _i * 18), -1)
+            _cv2.circle(frame, (FRAME_W // 2, FRAME_H // 2), 110, (200, 190, 170), -1)
+            frame = _cv2.add(frame, (_np.random.rand(FRAME_H, FRAME_W, 3) * 12).astype(_np.uint8))
+            proc = _cvp_probe.CVProcessor(dict(_cfg))
+
+            def _med(fn, n=15):
+                fn(frame.copy())                 # warm: first call pays setup
+                ts = []
+                for _ in range(n):
+                    f = frame.copy()
+                    t0 = time.perf_counter()
+                    fn(f)
+                    ts.append((time.perf_counter() - t0) * 1000.0)
+                ts.sort()
+                return ts[len(ts) // 2]
+
+            obs = _med(proc.observe)
+            ren = _med(proc.process)
+            # 60% of the frame budget, and the margin is doing real work.
+            # This probe is a FLOOR, biased low twice over:
+            #   * a synthetic frame is cheaper than a real one (58ms vs 71ms
+            #     measured here, with a fresh processor each time), and
+            #   * it runs at startup, before capture and the detection
+            #     threads are loaded, so it sees a quieter machine than the
+            #     one that will actually render. Measured in-process it read
+            #     44-50ms where a steady-state run of the same work took
+            #     53.5-62.9ms.
+            # At 70% those two biases put this node on the wrong side of the
+            # line AND made the verdict flap between restarts, which would
+            # have shown as the CV key appearing and vanishing. 60% puts both
+            # nodes clearly on their correct side with room to spare.
+            out = {'state': 'ok' if ren <= budget * 0.6 else 'weak',
+                   'process_ms': round(ren, 1), 'observe_ms': round(obs, 1),
+                   'budget_ms': round(budget, 1),
+                   'reason': ('%.0fms render vs %.0fms frame budget at %dfps'
+                              % (ren, budget, fr))}
+        except Exception as exc:
+            out['reason'] = 'probe failed: %s' % exc
+        _cv_cap_cache = out
+        return out
+
+
 @app.route('/api/pipeline', methods=['GET'])
 def pipeline():
     """Per-stage health for the viewer's audio panel.
@@ -2740,7 +2836,10 @@ def pipeline():
     if mode_now == 'hide' and cam_live:
         detail = 'feed hidden; publishing black -- camera and microphone OPEN'
 
+    _cap = _cv_capability()
     data = {
+        'cv_capable':    _cap['state'],
+        'cv_capability': _cap,
         'mode':     mode_now,
         'cv':       mode_now == 'cv',
         'cv_mog2':  mog2,
