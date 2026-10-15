@@ -1824,7 +1824,7 @@
            A node with no messenger therefore shows Node Note and nothing
            else, which is the intended degradation rather than an error. -->
       <div class="panel" id="elePanel" hidden>
-        <div class="panel-title eng">Messages <span id="eleHint" class="msg-hint"></span></div>
+        <div class="panel-title eng">Messages</div>
         <!-- The messenger's own logo is the ONLY thing borrowed from it. The
              app's chrome is its own blue world and it does not belong in a
              panel built out of lamps and mono type, so this is the viewer
@@ -4608,20 +4608,20 @@
 
 
   // ── ELE MESSENGER (optional neighbour on this origin) ──────────────────
-  // Presence is MEASURED, not configured. /ele-api/online answers 200 where
-  // the messenger is installed and 404 where it is not, so one probe decides
-  // whether this card exists at all. A node without the messenger shows Node
-  // Note alone -- that is the designed degradation, not a failure, so a 404
-  // is silent rather than an error state.
+  // /ele-api/online is used as a REACHABILITY check and nothing more: it
+  // answers 200 where the messenger is installed and 404 where it is not, so
+  // one request decides whether this card exists at all. A node without the
+  // messenger shows Node Note alone -- the designed degradation, not a
+  // failure, so a 404 is silent rather than an error state.
   //
-  // Deliberately read-only for now: who is online, and a way through to the
-  // messenger proper. Composing lives in the messenger until this card has
-  // earned more.
+  // It also returns who is connected, and that is deliberately IGNORED.
+  // Nobody is ever "online" here; a roster that is permanently empty reads
+  // as a broken card rather than an informative one, and the same goes for
+  // telling someone their recipient is offline. Messages are written to the
+  // database either way and read back from history whenever anyone looks.
   var elePanel = document.getElementById('elePanel');
   var eleList  = document.getElementById('eleList');
-  var eleHint  = document.getElementById('eleHint');
   var elePresent = false;
-  var eleWho  = [];         // last known online list, reused by a re-render
   var eleLastFrom = null;   // who spoke last, so a reply defaults to them
   var eleBusy = false;      // one history request at a time: on a slow node
                             // two can overlap and the older reply wins
@@ -4653,9 +4653,7 @@
     e.textContent = msg || '';
     e.hidden = !msg;
   }
-  // Signed out shows one door and nothing else -- including no roster. The
-  // online list needs no token, but printing "3 online" next to a Sign in
-  // button hands household presence to anyone who opens the camera.
+  // Signed out shows one door and nothing else.
   function eleShowSignedOut() {
     var p = eleParts();
     if (eleList) eleList.hidden = true;
@@ -4663,7 +4661,6 @@
     if (p.actions) p.actions.hidden = true;
     if (p.send) p.send.hidden = true;
     if (p.signin) p.signin.hidden = false;
-    if (eleHint) eleHint.textContent = '';
   }
 
   // ── SIGNING IN ──
@@ -4766,9 +4763,6 @@
         // Clear only on a confirmed write. Clearing optimistically loses
         // what someone typed on exactly the node where sending is hardest.
         box.value = '';
-        if (j.offline && j.offline.length) {
-          eleSay(j.offline.join(', ') + ' offline — they will see it later');
-        }
         eleRenderHistory();
       });
   }
@@ -4797,7 +4791,6 @@
     if (p.send) p.send.hidden = false;
     if (p.me) p.me.textContent = me || '';
     eleContacts(tok, me);
-    if (eleHint) eleHint.textContent = eleWho.length ? (eleWho.length + ' online') : '';
 
     if (eleBusy) return;
     eleBusy = true;
@@ -4877,7 +4870,6 @@
         }
         if (j === 'unreachable') {
           if (!elePresent) return;        // never seen it; stay quiet
-          if (eleHint) eleHint.textContent = '';
           if (eleList && !eleList.hidden) {
             eleList.innerHTML = '<span class="quiet">messenger unreachable</span>';
           }
@@ -4885,7 +4877,6 @@
         }
         elePresent = true;
         if (elePanel) elePanel.hidden = false;
-        eleWho = (j.online || []);
         eleRenderHistory();
       });
   }
