@@ -16,7 +16,7 @@ macOS differences from the Linux original:
 import json, os, subprocess, time, sys, threading, io, signal, socket, re, shutil, select, queue
 import numpy as np
 from PIL import Image
-from flask import Flask, request, abort, send_from_directory, Response
+from flask import Flask, request, abort, send_from_directory, Response, redirect
 
 # ── Paths (repo-relative, no FHS) ────────────────────────────────
 BIN_DIR   = os.path.dirname(os.path.abspath(__file__))
@@ -3146,9 +3146,33 @@ def roomaudio_proxy(rest):
     return _webrtc_proxy('roomaudio/' + rest)
 
 
+# ── SHORT PATHS ──────────────────────────────────────────────────
+# Mirrors the two names nginx publishes on the Linux nodes, so one URL
+# shape works across the whole fleet:
+#   /llc  -> this camera viewer
+#   /elem -> ELE Messenger
+# This node has no messenger, so /elem redirects into a 404. That is the
+# intended answer -- the name exists everywhere, the service does not.
+
 @app.route('/')
+def serve_home():
+    # `/` is a HOME, not an app. Neither the camera nor the messenger owns
+    # the index, so neither one has to be the thing you land on; each lives
+    # behind its own name and the index just points at both. Mirrors the
+    # nginx layout on the Linux nodes so one URL shape works fleet-wide.
+    return _nocache(send_from_directory(WEB_DIR, 'home.html'))
+
+
+@app.route('/llc')
 def serve_index():
     return _nocache(send_from_directory(WEB_DIR, 'index.html'))
+
+
+@app.route('/elem')
+def serve_short_elem():
+    # No messenger on this node, so this lands on a 404. That is the honest
+    # answer: the name exists fleet-wide, the service does not.
+    return redirect('/ele', code=302)
 
 
 @app.route('/cams')

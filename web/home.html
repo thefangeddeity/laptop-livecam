@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Home</title>
+<link rel="icon" href="/brand.png">
+<style>
+  /* A deliberately empty room. Neither app owns the index any more, so this
+     page carries no state, no polling loop and no camera -- it exists to put
+     two doors in front of you and then get out of the way. Anything that
+     belongs to an app belongs behind its door. */
+  :root { --bg:#0b1512; --fg:#cfe6de; --dim:#5f7d74; --line:#1d3730;
+          --tile:#10201c; --ok:#5fd3b2; --off:#4d6b63; }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg:#fdf6e3; --fg:#33504a; --dim:#7b958c; --line:#ddd3b8;
+      --tile:#f4ecd8; --ok:#2a8f72; --off:#9fb0a8;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+         display:flex; flex-direction:column; align-items:center;
+         justify-content:center; padding:24px 16px; gap:28px; }
+  h1 { margin:0; font-size:26px; font-weight:600; letter-spacing:.14em;
+       text-transform:uppercase; text-align:center; }
+  h1 .sub { display:block; margin-top:8px; font-size:11px; letter-spacing:.2em;
+            color:var(--dim); font-weight:400; }
+  .doors { display:flex; flex-wrap:wrap; gap:14px; justify-content:center;
+           width:100%; max-width:560px; }
+  a.door { flex:1 1 220px; min-height:132px; text-decoration:none; color:inherit;
+           background:var(--tile); border:1px solid var(--line); border-radius:8px;
+           padding:18px; display:flex; flex-direction:column; gap:6px;
+           transition:border-color .15s, transform .08s; }
+  a.door:hover, a.door:focus-visible { border-color:var(--ok); outline:none; }
+  a.door:active { transform:translateY(1px); }
+  .door .name { font-size:17px; letter-spacing:.08em; text-transform:uppercase; }
+  .door .what { color:var(--dim); font-size:12px; flex:1; }
+  .door .state { font-size:11px; letter-spacing:.1em; color:var(--off);
+                 text-transform:uppercase; }
+  .door .state.up { color:var(--ok); }
+  .door .path { color:var(--dim); font-size:11px; }
+  footer { color:var(--dim); font-size:11px; letter-spacing:.08em; text-align:center; }
+</style>
+</head>
+<body>
+  <h1>Home<span class="sub">this node</span></h1>
+
+  <div class="doors">
+    <a class="door" href="/llc">
+      <span class="name">Camera</span>
+      <span class="what">Live view, room audio, detection and the node note.</span>
+      <span class="state" id="llcState">checking…</span>
+      <span class="path">/llc</span>
+    </a>
+    <a class="door" href="/elem">
+      <span class="name">Messenger</span>
+      <span class="what">ELE Messenger: household chat that keeps working without the internet.</span>
+      <span class="state" id="elemState">checking…</span>
+      <span class="path">/elem</span>
+    </a>
+  </div>
+
+  <footer id="foot"></footer>
+
+<script>
+  // Both doors are always SHOWN, and their state is measured rather than
+  // assumed. A door that is merely greyed still tells you the name exists on
+  // this node; hiding it would make a node that lost a service look like a
+  // node that never had one.
+  function probe(url, el, upWord) {
+    fetch(url, { cache: 'no-store' })
+      .then(function (r) { return r.ok; })
+      .catch(function () { return false; })
+      .then(function (ok) {
+        el.textContent = ok ? upWord : 'not on this node';
+        el.classList.toggle('up', ok);
+      });
+  }
+  probe('/api/pipeline', document.getElementById('llcState'), 'ready');
+  probe('/ele-api/online', document.getElementById('elemState'), 'ready');
+
+  // Whatever name you reached this node by -- LAN address, tailnet name or
+  // mDNS. Read off the URL rather than fetched, because no endpoint reports
+  // the node's own name and a second request to learn it would be a request
+  // spent on nothing.
+  document.getElementById('foot').textContent = location.host;
+</script>
+</body>
+</html>
