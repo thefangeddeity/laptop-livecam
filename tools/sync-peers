@@ -26,7 +26,9 @@ import time
 import urllib.request
 
 TOKEN_FILE = '/etc/ele-messenger/fleet.token'
-DB_CANDIDATES = ['/var/lib/ele-messenger/ele.db']
+DB_CANDIDATES = ['/var/lib/ele-messenger/ele.db',
+                 os.path.join(os.path.expanduser('~'), 'Projects',
+                              'ele-messenger', 'ele.db')]
 TIMEOUT = 8
 
 
@@ -78,6 +80,54 @@ def find_db():
     return None
 
 
+def _discover_darwin():
+    """Peers from mDNS on macOS.
+
+    There is no avahi-browse here, and `dns-sd -B` never returns -- it is a
+    continuous browse, which is why an earlier attempt at this hung until it
+    was killed. So it is run with a deadline and killed on purpose, and the
+    instance names it printed are then resolved one at a time, each with its
+    own deadline.
+
+    Resolution stops at the .local hostname rather than an address: the OS
+    resolver already knows how to reach a .local name, and taking the address
+    from dns-sd would mean choosing between the several it reports -- the
+    exact tailnet-vs-LAN choice the Linux branch has to filter.
+    """
+
+    def run_briefly(cmd, seconds):
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL, text=True)
+        try:
+            out, _ = p.communicate(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, _ = p.communicate()
+        return out or ''
+
+    browse = run_briefly(['dns-sd', '-B', '_livecam-node._tcp', 'local'], 4)
+    names = []
+    for line in browse.splitlines():
+        # Add  3  local.  _livecam-node._tcp.  livecam on tanzania
+        if '_livecam-node._tcp' not in line or 'Add' not in line:
+            continue
+        parts = line.split('_livecam-node._tcp.')
+        if len(parts) > 1 and parts[1].strip():
+            names.append(parts[1].strip())
+    peers = {}
+    for inst in dict.fromkeys(names):
+        res = run_briefly(['dns-sd', '-L', inst, '_livecam-node._tcp', 'local'], 3)
+        m = re.search(r'can be reached at\s+(\S+?)\.?:\d+', res)
+        if not m:
+            continue
+        host = m.group(1)
+        if not host.endswith('.local'):
+            host += '.local'
+        node = re.search(r'node=(\S+)', res)
+        peers[host] = node.group(1) if node else host.split('.')[0]
+    return peers
+
+
 def discover_peers():
     """Peers from mDNS. No configuration, no addresses in any file.
 
@@ -86,6 +136,8 @@ def discover_peers():
     disappears in the outage this is built for. If a peer is only reachable
     over the tailnet, it is not a peer we can rely on.
     """
+    if sys.platform == 'darwin':
+        return _discover_darwin()
     out = subprocess.run(['avahi-browse', '-rtp', '_livecam-node._tcp'],
                          capture_output=True, text=True, timeout=25).stdout
     peers = {}

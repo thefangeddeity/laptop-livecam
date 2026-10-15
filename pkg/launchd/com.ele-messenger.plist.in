@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- ELE Messenger on a Mac node. The Linux nodes run this under systemd;
+     this is the same service, same port convention, under launchd.
+     Bound to 127.0.0.1: the viewer proxies /ele-api to it, so it never needs
+     to be reachable from off the machine on its own port.
+     @ELE_DIR@ is substituted at install -- a hardcoded home directory would
+     be wrong on any other machine and belongs in no tracked file. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.ele-messenger</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@ELE_DIR@/.venv/bin/python</string>
+    <string>-m</string><string>uvicorn</string>
+    <string>server:app</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>@ELE_PORT@</string>
+  </array>
+  <key>WorkingDirectory</key><string>@ELE_DIR@</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardErrorPath</key><string>@ELE_DIR@/messenger.err</string>
+  <key>ProcessType</key><string>Background</string>
+</dict>
+</plist>

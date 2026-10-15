@@ -3327,6 +3327,68 @@ def roomaudio_proxy(rest):
 # This node has no messenger, so /elem redirects into a 404. That is the
 # intended answer -- the name exists everywhere, the service does not.
 
+# ── ELE MESSENGER, LOCALLY ──────────────────────────────────────────────
+# This node runs its own messenger, like every other node, and serves it on
+# its own origin -- NOT proxied to a neighbour. A node that cannot say a word
+# without a second node being up is not local-first, and the whole point of
+# the thing is the case where the other machines are gone.
+#
+# The Linux nodes do this with nginx. There is no nginx here, so Flask
+# carries it: the same paths, so one viewer build works on every node.
+#
+# KNOWN GAP: /ele-ws/ is NOT proxied. Flask's server cannot carry a
+# websocket upgrade, so the full chat app loads and reads history here but
+# will not receive live pushes. The viewer's Messages card is unaffected --
+# it polls -- and that is the path that matters on this node. Fixing it
+# properly means a real reverse proxy in front, which is a separate change.
+ELE_PORT = int(_cfg.get('ELE_PORT', 8001))
+ELE_DIR = os.path.join(os.path.dirname(ROOT), 'ele-messenger')
+
+
+def _ele_proxy(path):
+    qs = request.query_string.decode()
+    url = 'http://127.0.0.1:%d/%s%s' % (ELE_PORT, path, ('?' + qs) if qs else '')
+    body = request.get_data() if request.method in ('POST', 'PUT', 'PATCH') else None
+    req = _urlreq.Request(url, data=body, method=request.method)
+    for h in ('Content-Type', 'Authorization'):
+        if h in request.headers:
+            req.add_header(h, request.headers[h])
+    try:
+        r = _urlreq.urlopen(req, timeout=20)
+        status, data, hdrs = r.status, r.read(), r.headers
+    except _urlerr.HTTPError as e:
+        # A 401 from the messenger is an ANSWER, not a proxy failure, and the
+        # card depends on telling those apart -- it signs out on 401 and
+        # keeps the session on anything else.
+        status, data, hdrs = e.code, e.read(), e.headers
+    except Exception:
+        abort(502)
+    return Response(data, status=status,
+                    content_type=hdrs.get('Content-Type', 'application/json'))
+
+
+@app.route('/ele-api/<path:rest>',
+           methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
+def ele_api(rest):
+    return _ele_proxy(rest)
+
+
+@app.route('/ele-api/online')
+def ele_online():
+    return _ele_proxy('online')
+
+
+@app.route('/ele')
+@app.route('/ele/')
+def serve_ele():
+    return _nocache(send_from_directory(ELE_DIR, 'index.html'))
+
+
+@app.route('/ele/icons/<path:fname>')
+def serve_ele_icons(fname):
+    return send_from_directory(os.path.join(ELE_DIR, 'icons'), fname)
+
+
 @app.route('/')
 def serve_home():
     # `/` is a HOME, not an app. Neither the camera nor the messenger owns
