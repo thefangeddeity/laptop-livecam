@@ -106,10 +106,18 @@
     color: var(--text-muted); font-size: 10px; letter-spacing: .14em;
     text-align: center;
   }
+  .tools { display: flex; gap: 8px; justify-content: center; }
+  .tbtn {
+    font: 10px/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+    color: var(--text-dim); background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 8px 14px; cursor: pointer; transition: border-color .15s, color .15s;
+  }
+  .tbtn:hover, .tbtn:focus-visible { color: var(--text); border-color: var(--border-strong); outline: none; }
 </style>
 </head>
 <body>
-  <h1>Home<span class="sub">this node</span></h1>
+  <h1>Home<span class="sub" id="nodeName">…</span></h1>
 
   <div class="doors">
     <a class="door cam" href="/llc">
@@ -126,6 +134,9 @@
     </a>
   </div>
 
+  <div class="tools">
+    <button class="tbtn" id="themeBtn" onclick="toggleTheme()" aria-pressed="false">Light</button>
+  </div>
   <footer id="foot"></footer>
 
 <script>
@@ -156,10 +167,46 @@
   probe('/api/pipeline', document.getElementById('llcState'), 'ready');
   probe('/ele-api/online', document.getElementById('elemState'), 'ready');
 
-  // Whatever name you reached this node by. Read off the URL rather than
-  // fetched: no endpoint reports the node's own name, and a request spent
-  // learning it would be a request spent on nothing.
+  // The node's OWN name, which is not the same as the name you reached it
+  // by -- an address, a tailnet name and a .local name are all routes to one
+  // machine. capabilities.json is the node stating its own identity, so it
+  // is the authority; the URL is only the door you came through, and it
+  // stays in the footer saying exactly that.
   document.getElementById('foot').textContent = location.host;
+  (function () {
+    var el = document.getElementById('nodeName');
+    fetch('/capabilities.json', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (d) {
+        var n = d && d.identity && d.identity.node && d.identity.node.value;
+        // Falls back to the hostname part of the URL, which is right when
+        // reached by name and merely unhelpful when reached by address --
+        // better than an empty heading either way.
+        el.textContent = n || location.hostname.split('.')[0];
+      });
+  })();
+
+  // Same key the viewer writes, so flipping it here flips it there and the
+  // two pages can no longer disagree about which theme you chose.
+  function toggleTheme() {
+    var root = document.documentElement;
+    var light = root.getAttribute('data-theme') !== 'light';
+    if (light) root.setAttribute('data-theme', 'light');
+    else root.removeAttribute('data-theme');
+    try { localStorage.setItem('lightTheme', light ? 'true' : 'false'); } catch (e) {}
+    paintThemeBtn();
+  }
+  function paintThemeBtn() {
+    var b = document.getElementById('themeBtn');
+    if (!b) return;
+    var light = document.documentElement.getAttribute('data-theme') === 'light';
+    // Names the state you are IN, not the one you would move to: a button
+    // labelled with its own opposite is a coin toss every time you read it.
+    b.textContent = light ? 'Light' : 'Dark';
+    b.setAttribute('aria-pressed', light ? 'true' : 'false');
+  }
+  paintThemeBtn();
 </script>
 </body>
 </html>
