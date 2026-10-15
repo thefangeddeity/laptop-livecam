@@ -1495,11 +1495,29 @@
        own [hidden] case -- see the note by .msg-actions. */
     .ele-row { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
     .ele-row[hidden] { display: none; }
-    .ele-in { flex: 1 1 auto; min-width: 0; background: #0b1512; color: #cfe6de;
-              border: 1px solid #1d3730; border-radius: 4px; padding: 5px 6px;
-              font: 11px ui-monospace, Menlo, monospace; }
-    .ele-in:focus { outline: none; border-color: #5fd3b2; }
-    .ele-pin { flex: 0 0 52px; text-align: center; letter-spacing: .18em; }
+    /* The field is glass too -- same tokens as the log above it and as the
+       Node Note field, so all three surfaces in this rail turn over together.
+       It was hardcoded #0b1512 on #cfe6de and stayed black in light mode,
+       which is what was left once the list started following the theme. */
+    .ele-in { flex: 1 1 auto; min-width: 0; border-radius: 4px; padding: 5px 6px;
+              font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
+              color: var(--phos); caret-color: var(--phos);
+              border: 1px solid #040809;
+              background:
+                repeating-linear-gradient(180deg,rgba(0,0,0,.15) 0 1px,transparent 1px 3px),
+                linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+              box-shadow: inset 0 1px 0 rgba(255,255,255,.05),
+                          inset 0 0 14px rgba(0,0,0,.70); }
+    .ele-in::placeholder { color: var(--phos-label); }
+    .ele-in:focus { outline: none; border-color: var(--phos); }
+    html[data-theme="light"] .ele-in {
+              border-color: #c9c0a6; font-weight: 600;
+              background:
+                repeating-linear-gradient(180deg,rgba(101,123,131,.08) 0 1px,transparent 1px 3px),
+                linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+              box-shadow: inset 0 1px 0 rgba(255,255,255,.55),
+                          inset 0 0 14px rgba(101,123,131,.10); }
+    html[data-theme="light"] .ele-in:focus { border-color: #8c9a7a; }
     .ele-row .pbtn { flex: 0 0 auto; padding: 5px 9px; font-size: 11px; }
     /* Send is a MOBILE affordance. On a keyboard, Enter sends and the button
        is a second deliberate act between having something to say and saying
