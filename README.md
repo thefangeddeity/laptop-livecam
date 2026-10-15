@@ -6,6 +6,34 @@ Turns an old laptop or a USB webcam into a live camera appliance — HLS video, 
 
 ---
 
+## Part of the `laptop-comms` suite
+
+laptop-livecam is one of two packages that are built to run together on the
+same machine:
+
+| package | what it is |
+|---|---|
+| **laptop-livecam** | this one — the camera appliance |
+| **[ele-messenger](https://github.com/thefangeddeity/ele-messenger)** | a household messenger that keeps working when the internet does not |
+
+Either one installs and runs perfectly well alone. Installed together on the
+same node they share one origin and one set of names, so there is nothing to
+configure to make them cooperate:
+
+| path | what answers |
+|---|---|
+| `/` | a home page naming the node, with a door to each app |
+| `/llc` | the camera viewer |
+| `/elem` | the messenger |
+
+Because they share an origin, the viewer's **Messages card** reads and sends
+through the messenger directly, and the two pages share a theme and a single
+light/dark switch. Where no messenger is installed the card does not appear
+and `/elem` answers 404 — the name exists across the fleet whether or not the
+service does, which is the honest degradation rather than a broken link.
+
+---
+
 ## What it does
 
 - **Streams** a USB webcam via HLS (H.264, MediaMTX + ffmpeg) to any browser — Chrome, Firefox, Safari, mobile
@@ -189,7 +217,7 @@ surface can miss the memo and show something else. It is derived from nothing:
 no camera frame touches that path.
 
 **Static is not expensive, and the widely-repeated claim that it is comes from
-an unconstrained encoder.** Measured on tanzania, at the publisher's real
+an unconstrained encoder.** Measured on a reference node, at the publisher's real
 settings:
 
 | | render | published |
