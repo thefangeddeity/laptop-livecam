@@ -2630,6 +2630,59 @@ _cv_cap_cache = None
 _cv_cap_lock = threading.Lock()
 
 
+def _cpu_brand():
+    """The CPU's own name, or '' if the platform will not say."""
+    try:
+        if sys.platform == 'darwin':
+            return subprocess.run(['sysctl', '-n', 'machdep.cpu.brand_string'],
+                                  capture_output=True, text=True, timeout=3).stdout.strip()
+        with open('/proc/cpuinfo') as fh:
+            for line in fh:
+                if line.lower().startswith('model name'):
+                    return line.split(':', 1)[1].strip()
+    except Exception:
+        pass
+    return ''
+
+
+def _cpu_tier(brand):
+    """'ok' | 'unfit' | 'unknown' from a CPU brand string.
+
+    The line is a hardware class, not a stopwatch: anything below an i5
+    loses the CV key. A timing probe alone put a working machine on the
+    wrong side -- it measures a quiet node at startup and a synthetic frame
+    that is cheaper than a real one, so it reads low exactly where it
+    matters and flaps between restarts.
+
+    A whitelist of classes at least i5-equivalent, a blacklist of classes
+    below it, and 'unknown' for everything else -- which KEEPS the key.
+    Hiding a working control on a guess is the worse failure: the cost of
+    showing it on a slow machine is some CPU, the cost of hiding it on a
+    capable one is a feature that silently does not exist.
+    """
+    b = (brand or '').lower()
+    if not b:
+        return 'unknown'
+    if re.search(r'\bapple m\d', b):          # every shipped M-series clears it
+        return 'ok'
+    # NOTE the trademark mark: the real string is "Core(TM)2 Duo", so the 2
+    # binds to "(tm)" and a plain \bcore\s*2 never matches it.
+    _tm = r'core(?:\(tm\))?'
+    if (re.search(_tm + r'\s*2\b', b)
+            or re.search(_tm + r'\s*(duo|solo)\b', b)
+            or re.search(r'\b(celeron|pentium|atom|sempron|turion)\b', b)):
+        return 'unfit'
+    m = re.search(_tm + r'[\s._-]*i([3579])\b', b) or re.search(r'\bi([3579])-\d', b)
+    if m:
+        return 'ok' if int(m.group(1)) >= 5 else 'unfit'
+    m = re.search(r'\bryzen\s+(\d)\b', b)     # Ryzen 3 sits with i3
+    if m:
+        return 'ok' if int(m.group(1)) >= 5 else 'unfit'
+    if re.search(r'\b(xeon|epyc|threadripper|ultra\s*\d)\b', b):
+        return 'ok'
+    return 'unknown'
+
+
 def _cv_capability():
     """{'state','process_ms','observe_ms','budget_ms','reason'} -- cached.
 
@@ -2698,11 +2751,40 @@ def _cv_capability():
             # line AND made the verdict flap between restarts, which would
             # have shown as the CV key appearing and vanishing. 60% puts both
             # nodes clearly on their correct side with room to spare.
-            out = {'state': 'ok' if ren <= budget * 0.6 else 'weak',
+            # TWO states, because only one distinction changes anything:
+            # can this machine draw a frame inside the frame interval, or
+            # not. A node that renders in 50ms against a 67ms budget does
+            # the work -- calling it `weak` labelled half the fleet for a
+            # margin nobody acts on. The old 60%-of-budget line existed to
+            # stop a verdict flapping between restarts; a number in the
+            # payload serves that better than an adjective in the UI, so
+            # `headroom` carries it and nothing branches on it.
+            #   ok     <= 100% of budget  -- renders in time
+            #   unfit   > 100% of budget  -- cannot; CV would eat the stream
+            # The reference node measures 32ms against 67ms, the mac 50ms:
+            # both render, both keep the key. Only a machine that misses the
+            # interval outright loses it, and that line is arithmetic rather
+            # than taste.
+            # Hardware class decides; the stopwatch only corroborates. A
+            # machine below the line is unfit however fast it probed, and a
+            # machine above it keeps the key however tight the margin -- the
+            # render number stays in the payload as the reason text, which
+            # is what it is actually good for.
+            _brand = _cpu_brand()
+            _tier = _cpu_tier(_brand)
+            if _tier == 'unfit':
+                _state, _why = 'unfit', 'CPU below the i5 line: %s' % (_brand or 'unknown')
+            else:
+                _state = 'ok'
+                _why = ('%.0fms render vs %.0fms frame budget at %dfps'
+                        % (ren, budget, fr))
+            out = {'state': _state,
+                   'cpu': _brand,
+                   'cpu_tier': _tier,
+                   'headroom': round(1.0 - (ren / budget), 2),
                    'process_ms': round(ren, 1), 'observe_ms': round(obs, 1),
                    'budget_ms': round(budget, 1),
-                   'reason': ('%.0fms render vs %.0fms frame budget at %dfps'
-                              % (ren, budget, fr))}
+                   'reason': _why}
         except Exception as exc:
             out['reason'] = 'probe failed: %s' % exc
         _cv_cap_cache = out
