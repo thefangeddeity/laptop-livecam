@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Probe this node and publish the result where peers can read it.
+# Probe this node, publish the result, and announce a summary to the LAN.
 #
-# Deliberately a FILE in the web root, not a new API route: the fleet runs
-# three different broadcast-api codebases and an endpoint would have to be
-# written, reviewed and shipped three times. Every node already serves its
-# web root, so a file is served everywhere the moment it is written.
+# Deliberately a FILE in the web root rather than a new API route: the fleet
+# runs three different broadcast-api codebases, so an endpoint would have to
+# be written and shipped three times. Every node already serves its web root.
 set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROBE="$HERE/node-capabilities"
+JSON=""
+
 for ROOT in /var/www/hls-livecam "$(dirname "$HERE")/web"; do
   [ -d "$ROOT" ] || continue
   TMP="$ROOT/.capabilities.json.$$"
-  if python3 "$PROBE" > "$TMP" 2>/dev/null && [ -s "$TMP" ]; then
+  if python3 "$HERE/node-capabilities" > "$TMP" 2>/dev/null && [ -s "$TMP" ]; then
     # Written aside and moved, so a reader never sees a half-written file.
     mv "$TMP" "$ROOT/capabilities.json"
     chmod 644 "$ROOT/capabilities.json"
+    JSON="$ROOT/capabilities.json"
     echo "  published -> $ROOT/capabilities.json"
   else
     rm -f "$TMP"
@@ -22,3 +23,6 @@ for ROOT in /var/www/hls-livecam "$(dirname "$HERE")/web"; do
     exit 1
   fi
 done
+
+[ -n "$JSON" ] || { echo "  no web root found; nothing published" >&2; exit 1; }
+python3 "$HERE/announce-capabilities" "$JSON"

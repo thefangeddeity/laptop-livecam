@@ -1,0 +1,12 @@
+[Unit]
+Description=Probe and publish this node's capabilities
+# Wants the web root and avahi present, but does not require them: a probe
+# that cannot publish is still worth running for the local cache.
+After=network-online.target avahi-daemon.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/livecam-tools/publish-capabilities
+# Measurements go stale -- a mic gets unplugged, a disk fills, a CV verdict
+# is earned after the service has rendered enough frames. Re-probing on a
+# timer is what keeps the announcement from becoming a historical document.
