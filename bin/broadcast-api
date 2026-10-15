@@ -13,7 +13,7 @@ macOS differences from the Linux original:
     files (broadcast.txt, buzz.txt, dark.png, cams.json) — replacing
     nginx. Everything is on WEB_PORT; no root, no port-80 conflict.
 """
-import json, os, subprocess, time, sys, threading, io, signal, socket, re, shutil, select, queue
+import json, os, subprocess, time, sys, threading, io, signal, socket, re, shutil, select, queue, collections
 import numpy as np
 from PIL import Image
 from flask import Flask, request, abort, send_from_directory, Response, redirect
@@ -879,7 +879,9 @@ def _cv_pump(src, dst, proc, first_raw=None):
             proc.set_blur(_cv_blur_mode)  # re-read every frame, same as feed mode
             proc.set_foveal(_cv_foveal_mode)  # ditto -- the real gate, not a stub
             proc.set_night(_mode == 'night')  # ditto
+            _t_cv = time.perf_counter()
             out, _meta = proc.process(frame)
+            _cv_obs_record((time.perf_counter() - _t_cv) * 1000.0)
             dst.write(np.ascontiguousarray(out).tobytes())
         except BrokenPipeError:
             break                      # B exited; the loop above will notice
@@ -2630,6 +2632,74 @@ _cv_cap_cache = None
 _cv_cap_lock = threading.Lock()
 
 
+# ── OBSERVED CV COST ────────────────────────────────────────────────
+# The verdict comes from frames this node ACTUALLY rendered, not from a
+# nameplate and not from a synthetic probe.
+#
+# Both of those were tried and both were wrong in the same direction. The
+# synthetic probe measures a cheaper-than-real frame on a quiet machine at
+# startup, reads low, and flaps between restarts. A CPU-model whitelist
+# cannot see a throttled laptop, a busy node or a GPU, has to be rewritten
+# for every new part, and silently mislabels anything it has not heard of.
+#
+# What is left is the only honest question -- did THIS machine keep up? --
+# and it has an exact answer once CV has run. Until then the verdict is
+# `unknown`, which KEEPS the control: hiding a working feature on a guess is
+# worse than showing one that may be slow.
+_CV_OBS_MAX     = 240    # rolling window of per-frame render times (ms)
+_CV_OBS_MIN     = 90     # before this many, we have not seen enough to judge
+_cv_obs         = collections.deque(maxlen=_CV_OBS_MAX)
+_cv_obs_lock    = threading.Lock()
+_CV_VERDICT_F   = os.path.join(STATE_DIR, 'cv_verdict.json')
+
+
+def _cv_obs_record(ms):
+    """One rendered frame's cost. Called from the CV loop; must stay cheap."""
+    with _cv_obs_lock:
+        _cv_obs.append(ms)
+        n = len(_cv_obs)
+    if n == _CV_OBS_MIN or (n == _CV_OBS_MAX and n % _CV_OBS_MAX == 0):
+        _cv_verdict_save()
+
+
+def _cv_obs_median():
+    with _cv_obs_lock:
+        if not _cv_obs:
+            return None, 0
+        xs = sorted(_cv_obs)
+        return xs[len(xs) // 2], len(xs)
+
+
+def _cv_budget_ms():
+    return 1000.0 / max(1, int(_cfg.get('FRAMERATE', 15)))
+
+
+def _cv_verdict_save():
+    """Remember the verdict so a restart does not start guessing again."""
+    med, n = _cv_obs_median()
+    if med is None or n < _CV_OBS_MIN:
+        return
+    try:
+        with open(_CV_VERDICT_F, 'w') as fh:
+            json.dump({'cpu': _cpu_brand(), 'median_ms': round(med, 1),
+                       'samples': n, 'budget_ms': round(_cv_budget_ms(), 1),
+                       'at': time.time()}, fh)
+    except Exception:
+        pass                       # a lost verdict costs a re-measure, nothing
+
+
+def _cv_verdict_load():
+    """The remembered verdict, only if it was measured on THIS hardware."""
+    try:
+        with open(_CV_VERDICT_F) as fh:
+            v = json.load(fh)
+        if v.get('cpu') and v['cpu'] != _cpu_brand():
+            return None            # the disk moved to another machine
+        return v
+    except Exception:
+        return None
+
+
 def _cpu_brand():
     """The CPU's own name, or '' if the platform will not say."""
     try:
@@ -2691,7 +2761,14 @@ def _cv_capability():
     """
     global _cv_cap_cache
     with _cv_cap_lock:
-        if _cv_cap_cache is not None:
+        # The synthetic part is hardware and never changes, but the VERDICT
+        # does: a node boots `unknown` and earns a real answer once CV has
+        # run. Caching that first answer forever would mean the measurement
+        # never takes effect, so a cached `unknown` is re-derived.
+        if _cv_cap_cache is not None and _cv_cap_cache.get('state') != 'unknown':
+            return _cv_cap_cache
+        _med_now, _n_now = _cv_obs_median()
+        if _cv_cap_cache is not None and _n_now < _CV_OBS_MIN and not _cv_verdict_load():
             return _cv_cap_cache
         out = {'state': 'unknown', 'process_ms': None, 'observe_ms': None,
                'budget_ms': None, 'reason': 'not probed'}
@@ -2765,22 +2842,36 @@ def _cv_capability():
             # both render, both keep the key. Only a machine that misses the
             # interval outright loses it, and that line is arithmetic rather
             # than taste.
-            # Hardware class decides; the stopwatch only corroborates. A
-            # machine below the line is unfit however fast it probed, and a
-            # machine above it keeps the key however tight the margin -- the
-            # render number stays in the payload as the reason text, which
-            # is what it is actually good for.
+            # The synthetic numbers stay, as numbers. They do NOT decide:
+            # this frame is cheaper than a real one and the machine is
+            # quieter at startup than it will ever be again, so letting it
+            # rule would put a working node on the wrong side of the line --
+            # which is exactly what it did.
             _brand = _cpu_brand()
-            _tier = _cpu_tier(_brand)
-            if _tier == 'unfit':
-                _state, _why = 'unfit', 'CPU below the i5 line: %s' % (_brand or 'unknown')
+            _med, _n = _cv_obs_median()
+            _rem = _cv_verdict_load()
+            if _med is not None and _n >= _CV_OBS_MIN:
+                _state = 'unfit' if _med > budget else 'ok'
+                _why = ('%.0fms median over %d rendered frames vs %.0fms budget'
+                        % (_med, _n, budget))
+                _src = 'measured'
+            elif _rem and _rem.get('median_ms') is not None:
+                _state = 'unfit' if _rem['median_ms'] > budget else 'ok'
+                _why = ('%.0fms median measured earlier on this machine vs '
+                        '%.0fms budget' % (_rem['median_ms'], budget))
+                _src = 'remembered'
             else:
-                _state = 'ok'
-                _why = ('%.0fms render vs %.0fms frame budget at %dfps'
-                        % (ren, budget, fr))
+                # Never yet rendered here. Say so, and KEEP the control.
+                _state = 'unknown'
+                _why = ('not yet measured on real frames (probe: %.0fms vs '
+                        '%.0fms budget)' % (ren, budget))
+                _src = 'unmeasured'
             out = {'state': _state,
+                   'source': _src,
                    'cpu': _brand,
-                   'cpu_tier': _tier,
+                   'probe_ms': round(ren, 1),
+                   'observed_ms': round(_med, 1) if _med is not None else None,
+                   'observed_n': _n,
                    'headroom': round(1.0 - (ren / budget), 2),
                    'process_ms': round(ren, 1), 'observe_ms': round(obs, 1),
                    'budget_ms': round(budget, 1),

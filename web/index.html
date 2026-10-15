@@ -1393,6 +1393,20 @@
        card with a ragged empty third. These say how many there actually are. */
     .msg-actions.one { grid-template-columns: 1fr; }
     .ele-list .lock { color: #5f7d74; font-style: italic; }
+    /* Sign-in and compose rows. Both set `display`, so both state their
+       own [hidden] case -- see the note by .msg-actions. */
+    .ele-row { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
+    .ele-row[hidden] { display: none; }
+    .ele-in { flex: 1 1 auto; min-width: 0; background: #0b1512; color: #cfe6de;
+              border: 1px solid #1d3730; border-radius: 4px; padding: 5px 6px;
+              font: 11px ui-monospace, Menlo, monospace; }
+    .ele-in:focus { outline: none; border-color: #5fd3b2; }
+    .ele-pin { flex: 0 0 52px; text-align: center; letter-spacing: .18em; }
+    .ele-to  { flex: 0 0 80px; }
+    .ele-row .pbtn { flex: 0 0 auto; padding: 5px 9px; font-size: 11px; }
+    .ele-err { color: #e8a9a0; font: 10px/1.4 ui-monospace, Menlo, monospace;
+               margin-top: 4px; }
+    .ele-err[hidden] { display: none; }
   </style>
 <script>
   // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
@@ -1411,7 +1425,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-104-gb401396-dirty · dev · b401396"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-105-g07386f5-dirty · dev · 07386f5"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1821,12 +1835,27 @@
           <span class="me" id="eleMe"></span>
         </div>
         <div class="ele-list" id="eleList">checking…</div>
-        <!-- Signed out, this card has exactly one thing to offer, so it
-             offers exactly one button. The read controls below would be
-             controls over nothing. -->
-        <div class="msg-actions one" id="eleSignin" hidden>
-          <button class="pbtn" onclick="window.open('/elem','_blank')">Sign in</button>
+        <!-- Signing in happens HERE. Same origin, same four-digit PIN the
+             messenger itself asks for, so sending someone to another tab to
+             type it was a detour rather than a safeguard -- and it left the
+             card showing a stale signed-out state until they came back. -->
+        <div class="ele-row" id="eleAuth" hidden>
+          <input class="ele-in" id="eleUser" type="text" placeholder="name"
+                 autocomplete="username" maxlength="32" aria-label="Name">
+          <input class="ele-in ele-pin" id="elePin" type="password" placeholder="PIN"
+                 inputmode="numeric" pattern="[0-9]*" maxlength="4"
+                 autocomplete="current-password" aria-label="Four-digit PIN">
+          <button class="pbtn" id="eleAuthBtn" onclick="eleSignIn()">Sign in</button>
         </div>
+        <!-- And replying happens here. A card you can only read from is a
+             link wearing a panel. -->
+        <div class="ele-row" id="eleSend" hidden>
+          <select class="ele-in ele-to" id="eleTo" aria-label="Send to"></select>
+          <input class="ele-in" id="eleMsg" type="text" placeholder="message…"
+                 maxlength="500" autocomplete="off" aria-label="Message">
+          <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
+        </div>
+        <div class="ele-err" id="eleErr" hidden></div>
         <div class="msg-actions one" id="eleActions" hidden>
           <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
                   title="Open the full chat in its own tab">New tab</button>
@@ -4593,6 +4622,7 @@
   var eleHint  = document.getElementById('eleHint');
   var elePresent = false;
   var eleWho  = [];         // last known online list, reused by a re-render
+  var eleLastFrom = null;   // who spoke last, so a reply defaults to them
   var eleBusy = false;      // one history request at a time: on a slow node
                             // two can overlap and the older reply wins
 
@@ -4611,10 +4641,17 @@
       : (d.getMonth() + 1) + '/' + d.getDate();
   }
   function eleParts() {
-    return { signin:  document.getElementById('eleSignin'),
+    return { signin:  document.getElementById('eleAuth'),
+             send:    document.getElementById('eleSend'),
              actions: document.getElementById('eleActions'),
              head:    document.getElementById('eleHead'),
              me:      document.getElementById('eleMe') };
+  }
+  function eleSay(msg) {
+    var e = document.getElementById('eleErr');
+    if (!e) return;
+    e.textContent = msg || '';
+    e.hidden = !msg;
   }
   // Signed out shows one door and nothing else -- including no roster. The
   // online list needs no token, but printing "3 online" next to a Sign in
@@ -4624,8 +4661,116 @@
     if (eleList) eleList.hidden = true;
     if (p.head) p.head.hidden = true;
     if (p.actions) p.actions.hidden = true;
+    if (p.send) p.send.hidden = true;
     if (p.signin) p.signin.hidden = false;
     if (eleHint) eleHint.textContent = '';
+  }
+
+  // ── SIGNING IN ──
+  function eleSignIn() {
+    var u = document.getElementById('eleUser');
+    var k = document.getElementById('elePin');
+    var b = document.getElementById('eleAuthBtn');
+    if (!u || !k) return;
+    var name = (u.value || '').trim();
+    var pin  = (k.value || '').trim();
+    if (!name || !/^\d{4}$/.test(pin)) {
+      eleSay('name and a four-digit PIN'); return;
+    }
+    if (b) { b.disabled = true; b.textContent = '…'; }
+    eleSay('');
+    fetch('/ele-api/api/login', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: name, pin: pin })
+    })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (b) { b.disabled = false; b.textContent = 'Sign in'; }
+        if (!j || !j.token) { eleSay('that name and PIN did not match'); return; }
+        try {
+          localStorage.setItem('ele-token', j.token);
+          localStorage.setItem('ele-username', j.username || name);
+        } catch (e) {
+          // Storage blocked: the session cannot be shared with the messenger
+          // tab, so say so rather than appear signed in and lose it.
+          eleSay('this browser is blocking storage'); return;
+        }
+        k.value = '';
+        eleRenderHistory();
+      });
+  }
+
+  // ── SENDING ──
+  // The messenger keeps ONE websocket per person: connecting a second one as
+  // the same user replaces the first and closing it deletes the entry, so a
+  // socket from here would quietly stop the chat app from receiving anything.
+  // POST /api/send writes the same row and pushes the same payload without
+  // touching the socket registry; it was added to the messenger for this.
+  function eleContacts(tok, me) {
+    var sel = document.getElementById('eleTo');
+    if (!sel) return;
+    fetch('/ele-api/api/accounts?token=' + encodeURIComponent(tok), { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (!j || !j.accounts) return;
+        var keep = sel.value;
+        var others = j.accounts.filter(function (a) { return a !== me; });
+        sel.innerHTML = others.map(function (a) {
+          return '<option value="' + eleEsc(a) + '">' + eleEsc(a) + '</option>';
+        }).join('');
+        // Default to whoever spoke last -- the reply you are most likely
+        // to be writing -- and otherwise leave the first contact selected.
+        if (keep && others.indexOf(keep) > -1) sel.value = keep;
+        else if (eleLastFrom && others.indexOf(eleLastFrom) > -1) sel.value = eleLastFrom;
+      });
+  }
+  function eleSendMsg() {
+    var sel = document.getElementById('eleTo');
+    var box = document.getElementById('eleMsg');
+    var btn = document.getElementById('eleSendBtn');
+    if (!sel || !box) return;
+    var text = (box.value || '').trim();
+    var to = sel.value;
+    if (!text) return;
+    if (!to) { eleSay('no one to send to yet'); return; }
+    var tok;
+    try { tok = localStorage.getItem('ele-token'); } catch (e) { tok = null; }
+    if (!tok) { eleShowSignedOut(); return; }
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    eleSay('');
+    fetch('/ele-api/api/send', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: tok, to: to, message: text })
+    })
+      .then(function (r) {
+        if (r.status === 401 || r.status === 403) return 'bad-token';
+        return r.ok ? r.json() : null;
+      })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+        if (j === 'bad-token') {
+          try {
+            localStorage.removeItem('ele-token');
+            localStorage.removeItem('ele-username');
+          } catch (e) {}
+          eleShowSignedOut();
+          eleSay('signed out — sign in again');
+          return;
+        }
+        if (!j || !j.ok) { eleSay('not sent — messenger unreachable'); return; }
+        // Clear only on a confirmed write. Clearing optimistically loses
+        // what someone typed on exactly the node where sending is hardest.
+        box.value = '';
+        if (j.offline && j.offline.length) {
+          eleSay(j.offline.join(', ') + ' offline — they will see it later');
+        }
+        eleRenderHistory();
+      });
   }
 
   // The viewer reuses the session the MESSENGER already established, rather
@@ -4649,7 +4794,9 @@
     if (p.head) p.head.hidden = false;
     if (p.signin) p.signin.hidden = true;
     if (p.actions) p.actions.hidden = false;
+    if (p.send) p.send.hidden = false;
     if (p.me) p.me.textContent = me || '';
+    eleContacts(tok, me);
     if (eleHint) eleHint.textContent = eleWho.length ? (eleWho.length + ' online') : '';
 
     if (eleBusy) return;
@@ -4681,6 +4828,9 @@
           return;
         }
         var msgs = (h.history || []).slice(-12);
+        for (var _i = msgs.length - 1; _i >= 0; _i--) {
+          if (msgs[_i].from && msgs[_i].from !== me) { eleLastFrom = msgs[_i].from; break; }
+        }
         if (!msgs.length) {
           eleList.innerHTML = '<span class="quiet">no messages yet</span>';
           return;
