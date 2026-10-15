@@ -1,0 +1,362 @@
+#!/usr/bin/env python3
+"""What this node can actually do -- measured, with provenance on every claim.
+
+Written because the fleet kept lying by omission. One node reported `mic: ok`
+while its audible band sat at -81.9 dB (an empty jack reading DC offset); three
+nodes exposed three different /api/pipeline shapes, so a key being absent was
+indistinguishable from a capability being absent; and the CV control was gated
+on a synthetic benchmark that moved 13ms between restarts of the same machine.
+
+So every field here is a {value, source} pair and `source` is the point:
+
+    measured    probed just now, on this hardware
+    remembered  measured earlier on this hardware, read from disk
+    reported    the OS says so (a driver list, a device node) -- not proof
+                that the thing WORKS, only that it exists
+    unknown     could not be determined; callers must not read this as "no"
+
+A capability that cannot be established is `unknown`, never `false`. The two
+are different and the difference is the whole reason this file exists: `false`
+means "this node cannot", `unknown` means "nobody has checked".
+
+Standard library only, and it must run on macOS and Linux alike, because the
+fleet is both and a prober that needs installing is a prober that does not run.
+"""
+import json
+import os
+import platform
+import re
+import shutil
+import socket
+import subprocess
+import sys
+import time
+
+TIMEOUT = 6
+
+
+def _run(cmd, timeout=TIMEOUT):
+    """Run a command, return stdout or None. Never raises."""
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return r.stdout if r.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def cap(value, source, **extra):
+    out = {'value': value, 'source': source}
+    out.update(extra)
+    return out
+
+
+def unknown(why):
+    return cap(None, 'unknown', why=why)
+
+
+# ── identity ────────────────────────────────────────────────────────────
+def probe_identity():
+    return {
+        'node': cap(socket.gethostname().split('.')[0], 'measured'),
+        'os': cap('%s %s' % (platform.system(), platform.release()), 'measured'),
+        'arch': cap(platform.machine(), 'measured'),
+        'cpu': probe_cpu(),
+    }
+
+
+def probe_cpu():
+    if sys.platform == 'darwin':
+        out = _run(['sysctl', '-n', 'machdep.cpu.brand_string'])
+        return cap(out.strip(), 'measured') if out else unknown('sysctl failed')
+    try:
+        with open('/proc/cpuinfo') as fh:
+            for line in fh:
+                if line.lower().startswith('model name'):
+                    return cap(line.split(':', 1)[1].strip(), 'measured')
+    except Exception:
+        pass
+    return unknown('no model name in /proc/cpuinfo')
+
+
+# ── radio: what link can this node form without a router? ───────────────
+def probe_radio():
+    """The question that decides outage topology: can this node HOST a link,
+    or only join one? A client-only node cannot be the last one standing."""
+    if sys.platform == 'darwin':
+        # macOS exposes no interface-mode list, and the legacy airport tool
+        # that once created IBSS networks is gutted on 14.x -- its --help no
+        # longer lists the option. 802.11s was never supported at all. So a
+        # Mac joins networks and does not host them. That is a property of
+        # the platform, not of this machine, hence `reported`.
+        return {
+            'modes': cap(['managed'], 'reported', note='macOS: no AP/IBSS/mesh from CLI'),
+            'could_host_link': cap(False, 'reported'),
+            'link_hosting_proven': cap(False, 'reported', note='platform cannot host'),
+            'interface': probe_darwin_wifi_iface(),
+        }
+    modes = []
+    if shutil.which('iw'):
+        for phy in sorted(os.listdir('/sys/class/ieee80211')) if os.path.isdir('/sys/class/ieee80211') else []:
+            out = _run(['iw', phy, 'info'])
+            if not out:
+                continue
+            block = re.search(r'Supported interface modes:(.*?)(?:\n\s*Band |\n\s*valid interface|\Z)',
+                              out, re.S)
+            if block:
+                modes += [m.strip() for m in re.findall(r'\*\s*(\S[^\n]*)', block.group(1))]
+    if not modes:
+        return {'modes': unknown('iw absent or no phy'),
+                'can_host_link': unknown('cannot enumerate modes'),
+                'interface': probe_linux_wifi_iface()}
+    modes = sorted(set(modes))
+    hosts = [m for m in ('AP', 'IBSS', 'mesh point') if m in modes]
+    return {
+        'modes': cap(modes, 'measured'),
+        # `reported`, NOT `measured`: this is the driver's own list of modes
+        # it claims to support. Realtek parts in particular advertise AP and
+        # then fail to carry one. Until a link has actually been raised and
+        # joined, this is a candidate, not a capability -- so the key says
+        # `could_` and the proof lives in link_hosting_proven below.
+        'could_host_link': cap(bool(hosts), 'reported', via=hosts),
+        'link_hosting_proven': unknown('no hosted link has been raised and joined yet'),
+        'interface': probe_linux_wifi_iface(),
+    }
+
+
+def probe_linux_wifi_iface():
+    out = _run(['ip', '-o', 'link'])
+    if not out:
+        return unknown('ip not available')
+    for line in out.splitlines():
+        m = re.match(r'\d+:\s+(w\w+):', line)
+        if m:
+            return cap(m.group(1), 'measured')
+    return unknown('no wireless interface found')
+
+
+def probe_darwin_wifi_iface():
+    out = _run(['networksetup', '-listallhardwareports'])
+    if out:
+        m = re.search(r'Hardware Port: Wi-Fi\s*\nDevice: (\w+)', out)
+        if m:
+            return cap(m.group(1), 'measured')
+    return unknown('networksetup gave no Wi-Fi port')
+
+
+# ── camera ──────────────────────────────────────────────────────────────
+def probe_camera():
+    """Device presence only. A present camera is not a WORKING camera -- the
+    stream health lives in /api/pipeline, which is a different question."""
+    if sys.platform == 'darwin':
+        out = _run(['system_profiler', 'SPCameraDataType'], timeout=20)
+        if out is None:
+            return {'present': unknown('system_profiler failed')}
+        names = re.findall(r'^\s{4}(\S[^:\n]*):\s*$', out, re.M)
+        return {'present': cap(bool(names), 'reported', devices=names[:4])}
+    devs = sorted(d for d in os.listdir('/dev') if d.startswith('video')) \
+        if os.path.isdir('/dev') else []
+    return {'present': cap(bool(devs), 'reported', devices=devs[:4])}
+
+
+# ── microphone: SIGNAL, never device-presence ───────────────────────────
+def probe_mic(cache_dir):
+    """A mic claim must mean sound was heard, not that a device opened.
+
+    Measuring needs exclusive access to the capture device, which the running
+    broadcast service holds, so this does not fight it: it reads a cached
+    measurement if one exists and returns `unknown` otherwise. `unknown` is
+    the honest answer and callers must not render it as a green lamp -- that
+    is the exact bug this field exists to stop.
+    """
+    path = os.path.join(cache_dir, 'mic_measurement.json')
+    try:
+        with open(path) as fh:
+            m = json.load(fh)
+        return {
+            'has_signal': cap(bool(m.get('has_signal')), 'remembered',
+                              audible_db=m.get('audible_db'),
+                              measured_at=m.get('at')),
+        }
+    except Exception:
+        return {'has_signal': unknown('no cached measurement; run the audio check')}
+
+
+# ── computer vision ─────────────────────────────────────────────────────
+def probe_cv(cache_dir):
+    """Reads the verdict the broadcast service earns from real rendered
+    frames. Not re-derived here: a second opinion from a different code path
+    is how a node ends up disagreeing with itself."""
+    for path in (os.path.join(cache_dir, 'cv_verdict.json'),
+                 '/var/lib/hls-livecam/cv_verdict.json'):
+        try:
+            with open(path) as fh:
+                v = json.load(fh)
+            med, budget = v.get('median_ms'), v.get('budget_ms')
+            if med is None or not budget:
+                continue
+            return {'can_render': cap(med <= budget, 'remembered',
+                                      median_ms=med, budget_ms=budget,
+                                      samples=v.get('samples'))}
+        except Exception:
+            continue
+    return {'can_render': unknown('no measured render times yet')}
+
+
+# ── secure context: the gate on two-way audio ───────────────────────────
+def probe_secure_context():
+    """Can a browser on this node get a SECURE CONTEXT, and does it survive
+    the internet going away?
+
+    getUserMedia exists only in a secure context, so this decides whether a
+    phone can talk back, not merely whether TLS exists somewhere. Those are
+    different questions and conflating them is how this field first shipped
+    saying `serves_https: false` about a node that serves HTTPS perfectly
+    well over tailscale serve -- it just has no local listener on 443.
+
+    So both paths are probed and reported separately, because they fail
+    differently: a local listener keeps working with the internet cut, while
+    tailscale serve resolves through a tailnet name that stops resolving.
+    """
+    via = []
+    local_port = None
+    for port in (443, 8443):
+        try:
+            with socket.create_connection(('127.0.0.1', port), timeout=3):
+                via.append('local-listener:%d' % port)
+                local_port = port
+                break
+        except Exception:
+            continue
+
+    ts = None
+    for exe in ('/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+                shutil.which('tailscale')):
+        if exe and os.path.exists(exe):
+            ts = _run([exe, 'serve', 'status'])
+            if ts:
+                break
+    serves_tailnet = bool(ts and 'https://' in ts)
+    if serves_tailnet:
+        via.append('tailscale-serve')
+
+    return {
+        # The honest headline: is there any secure context at all.
+        'available': cap(bool(via), 'measured', via=via),
+        # The one that matters in an outage. A tailnet name needs the tailnet.
+        'survives_offline': cap(local_port is not None, 'measured',
+                                port=local_port,
+                                note=None if local_port else
+                                'TLS only via tailscale serve; no local listener'),
+    }
+
+
+# ── services on this node ───────────────────────────────────────────────
+def probe_services():
+    """ANSWERS, not open sockets.
+
+    A listening port proves a process bound it, which is not the same as the
+    service working -- a wedged server holds its socket open the whole time
+    it is failing. So the HTTP services are asked a real question and must
+    answer it; only RTSP, which has no cheap health request, falls back to a
+    socket check and says so in its source.
+    """
+    def answers(port, path, scheme='http'):
+        import urllib.request
+        import ssl
+        url = '%s://127.0.0.1:%d%s' % (scheme, port, path)
+        ctx = ssl._create_unverified_context() if scheme == 'https' else None
+        try:
+            with urllib.request.urlopen(url, timeout=4, context=ctx) as r:
+                return 200 <= r.status < 400
+        except Exception as exc:
+            code = getattr(exc, 'code', None)
+            # A 4xx is still the service answering; only a refused
+            # connection or a timeout means it is not there.
+            return bool(code and 400 <= code < 500)
+
+    def listening(port):
+        try:
+            with socket.create_connection(('127.0.0.1', port), timeout=2):
+                return True
+        except Exception:
+            return False
+
+    return {
+        'viewer': cap(answers(8080, '/llc') or answers(443, '/llc', 'https'),
+                      'measured', how='HTTP request answered'),
+        'messenger': cap(answers(8000, '/online'), 'measured',
+                         how='HTTP request answered'),
+        'hls': cap(answers(8888, '/cam/index.m3u8'), 'measured',
+                   how='playlist fetched'),
+        'rtsp': cap(listening(8554), 'reported',
+                    how='socket accepts; no health request made'),
+    }
+
+
+# ── endurance: who should host the link when the power goes ─────────────
+def probe_power():
+    if sys.platform == 'darwin':
+        out = _run(['pmset', '-g', 'batt'])
+        if out:
+            on_ac = 'AC Power' in out
+            pct = re.search(r'(\d+)%', out)
+            return {'on_mains': cap(on_ac, 'measured'),
+                    'battery_pct': cap(int(pct.group(1)), 'measured') if pct
+                    else unknown('no percentage reported')}
+        return {'on_mains': unknown('pmset failed')}
+    base = '/sys/class/power_supply'
+    if not os.path.isdir(base):
+        return {'on_mains': unknown('no power_supply in sysfs')}
+    on_ac, pct = None, None
+    for d in sorted(os.listdir(base)):
+        p = os.path.join(base, d)
+        try:
+            kind = open(os.path.join(p, 'type')).read().strip()
+            if kind == 'Mains':
+                on_ac = open(os.path.join(p, 'online')).read().strip() == '1'
+            elif kind == 'Battery' and pct is None:
+                pct = int(open(os.path.join(p, 'capacity')).read().strip())
+        except Exception:
+            continue
+    return {
+        'on_mains': cap(on_ac, 'measured') if on_ac is not None
+        else cap(True, 'reported', note='no mains supply listed; likely a desktop'),
+        'battery_pct': (cap(pct, 'measured') if pct is not None and pct <= 100
+                        else cap(pct, 'measured', note='sysfs reports >100%; '
+                                 'calibration drift, treat as full')
+                        if pct is not None
+                        else cap(None, 'reported', note='no battery')),
+    }
+
+
+def probe_storage(cache_dir):
+    try:
+        st = os.statvfs(cache_dir if os.path.isdir(cache_dir) else '/')
+        return {'free_mb': cap(int(st.f_bavail * st.f_frsize / 1048576), 'measured')}
+    except Exception:
+        return {'free_mb': unknown('statvfs failed')}
+
+
+def main():
+    cache_dir = os.environ.get('LIVECAM_STATE') or (
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'state')
+        if sys.platform == 'darwin' else '/var/lib/hls-livecam')
+    doc = {
+        'schema': 1,
+        'probed_at': time.time(),
+        'identity': probe_identity(),
+        'radio': probe_radio(),
+        'camera': probe_camera(),
+        'mic': probe_mic(cache_dir),
+        'cv': probe_cv(cache_dir),
+        'secure_context': probe_secure_context(),
+        'services': probe_services(),
+        'power': probe_power(),
+        'storage': probe_storage(cache_dir),
+    }
+    json.dump(doc, sys.stdout, indent=2, sort_keys=True)
+    sys.stdout.write('\n')
+
+
+if __name__ == '__main__':
+    main()
