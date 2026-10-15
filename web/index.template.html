@@ -1040,6 +1040,15 @@
   .msg-actions { display: grid; gap: 6px; grid-template-columns: 1fr 1fr 1fr;
     max-width: 100%; margin-top: 10px; }
   .msg-actions[hidden] { display: none; }
+
+  /* [hidden] is a UA rule of the lowest possible weight, so ANY rule here
+     that sets `display` silently outranks it and the element cannot be
+     hidden by script at all. .pbtn and .modem both do, and both are hidden
+     by script: #cvBtn disappears on machines too slow for detection and
+     #fovealBtn when the pipeline has no foveal stage -- neither of which
+     actually happened, because these two lines were missing. Any new rule
+     that sets display on something script hides needs the same guard. */
+  .pbtn[hidden], .modem[hidden] { display: none; }
   .msg-actions .pbtn { padding: 6px 4px; font-size: 11px; }
 
   .msg-hint {
@@ -1355,7 +1364,7 @@
        becoming a second application inside the panel -- it scrolls rather
        than growing, so the card never pushes the controls below it off
        screen on a phone. */
-    .ele-list { max-height: 9.5em; overflow-y: auto; font: 11px/1.45 ui-monospace,
+    .ele-list { max-height: 5.5em; overflow-y: auto; font: 11px/1.45 ui-monospace,
                 SFMono-Regular, Menlo, monospace; color: #9fb4ad;
                 background: #10201c; border: 1px solid #1d3730; border-radius: 6px;
                 padding: 6px 8px; }
@@ -1365,15 +1374,36 @@
     .ele-list .when { color: #4d6b63; float: right; margin-left: 6px; }
     .ele-list .mine .who { color: #c9b071; }
     .ele-list .quiet { color: #4d6b63; }
-    /* The embedded chat. NOTE: no `display` property here on purpose. An id
-       rule carrying `display:flex` outranks the browser's [hidden]{display:none},
-       so the box would stay on screen however often the script hid it -- which
-       is exactly what happened the first time this shipped. Leave display to
-       the UA so the hidden attribute keeps working. */
-    .ele-embed { height: min(60vh, 460px); margin-top: 6px;
-                 border: 1px solid #1d3730; border-radius: 4px;
-                 overflow: hidden; background: #0b1512; }
-    .ele-embed iframe { width: 100%; height: 100%; border: 0; display: block; }
+    /* The mini messenger. NOTE the explicit [hidden] rules: a class or id
+       rule carrying `display` outranks the browser's [hidden]{display:none},
+       which is how the first version of this shipped permanently on screen.
+       Any rule here that sets display states its own hidden case. */
+    .ele-head { display: flex; align-items: center; gap: 6px;
+                padding: 0 0 4px; margin-bottom: 4px;
+                border-bottom: 1px solid #1d3730; }
+    .ele-head[hidden] { display: none; }
+    .ele-head img { width: 14px; height: 14px; border-radius: 3px;
+                    flex: none; opacity: .9; }
+    .ele-head .lab { font: 10px/1 ui-monospace, Menlo, monospace;
+                     letter-spacing: .12em; text-transform: uppercase;
+                     color: #5f7d74; }
+    .ele-head .me { margin-left: auto; font: 10px/1 ui-monospace, Menlo, monospace;
+                    color: #c9b071; }
+    .ele-list.big { max-height: min(30vh, 190px); }
+    /* The actions row is a 3-up grid by default, which leaves a two-button
+       card with a ragged empty third. These say how many there actually are. */
+    .msg-actions.two { grid-template-columns: 1fr 1fr; }
+    .msg-actions.one { grid-template-columns: 1fr; }
+    .ele-list .sep { display: block; margin: 6px 0 3px; padding-top: 4px;
+                     border-top: 1px dashed #1d3730; color: #5f7d74;
+                     font-size: 10px; letter-spacing: .1em;
+                     text-transform: uppercase; }
+    .ele-list .em:first-child + .sep, .ele-list .sep:first-child { border-top: 0;
+                     margin-top: 0; padding-top: 0; }
+    .ele-list .lock { color: #5f7d74; font-style: italic; }
+    .ele-foot { font: 10px/1.4 ui-monospace, Menlo, monospace; color: #4d6b63;
+                margin-top: 4px; }
+    .ele-foot[hidden] { display: none; }
   </style>
 <script>
   // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
@@ -1758,32 +1788,6 @@
         </div>
       </div>
 
-      <!-- ══ ELE MESSENGER ══
-           Hidden unless the messenger is actually installed on this node.
-           No build flag and no server change decides that: the viewer asks
-           /ele-api/online, which answers 200 when the messenger is present
-           and 404 when it is not, because the nginx include that routes
-           /ele* is a wildcard that matches nothing on a node without it.
-           A node with no messenger therefore shows Node Note and nothing
-           else, which is the intended degradation rather than an error. -->
-      <div class="panel" id="elePanel" hidden>
-        <div class="panel-title eng">Messages <span id="eleHint" class="msg-hint"></span></div>
-        <div class="ele-list" id="eleList">checking…</div>
-        <div class="msg-actions">
-          <button class="pbtn" id="eleExpandBtn" onclick="eleExpand()"
-                  title="Open the full chat inside this page">Expand</button>
-          <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
-                  title="Open the full chat in its own tab">New tab</button>
-        </div>
-        <!-- The full chat, embedded the way a map embed is: inside the card,
-             with the camera still running above it. It is NOT an overlay --
-             a fixed, full-viewport box covers the thing this page exists to
-             show. No src until it is opened; see eleExpand(). -->
-        <div class="ele-embed" id="eleEmbed" hidden>
-          <iframe id="eleFrame" title="ELE Messenger"></iframe>
-        </div>
-      </div>
-
       <!-- ══ NODE NOTE ══
            One note that lives ON this node: anyone looking at this camera
            sees it, it survives with the node, and it needs no second party.
@@ -1806,6 +1810,41 @@
           </button>
           <span class="eng rstlab">Lock note</span>
         </div>
+      </div>
+
+      <!-- ══ ELE MESSENGER ══
+           Hidden unless the messenger is actually installed on this node.
+           No build flag and no server change decides that: the viewer asks
+           /ele-api/online, which answers 200 when the messenger is present
+           and 404 when it is not, because the nginx include that routes
+           /ele* is a wildcard that matches nothing on a node without it.
+           A node with no messenger therefore shows Node Note and nothing
+           else, which is the intended degradation rather than an error. -->
+      <div class="panel" id="elePanel" hidden>
+        <div class="panel-title eng">Messages <span id="eleHint" class="msg-hint"></span></div>
+        <!-- The messenger's own logo is the ONLY thing borrowed from it. The
+             app's chrome is its own blue world and it does not belong in a
+             panel built out of lamps and mono type, so this is the viewer
+             rendering the messenger's data, not the messenger embedded. -->
+        <div class="ele-head" id="eleHead" hidden>
+          <img src="/ele/icons/ELE-messenger-favicon-32px.png" alt="" width="14" height="14">
+          <span class="lab">ELE Messenger</span>
+          <span class="me" id="eleMe"></span>
+        </div>
+        <div class="ele-list" id="eleList">checking…</div>
+        <!-- Signed out, this card has exactly one thing to offer, so it
+             offers exactly one button. The read controls below would be
+             controls over nothing. -->
+        <div class="msg-actions one" id="eleSignin" hidden>
+          <button class="pbtn" onclick="window.open('/elem','_blank')">Sign in</button>
+        </div>
+        <div class="msg-actions two" id="eleActions" hidden>
+          <button class="pbtn" id="eleExpandBtn" onclick="eleExpand()"
+                  title="Show more of the thread">Expand</button>
+          <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
+                  title="Open the full chat in its own tab">New tab</button>
+        </div>
+        <div class="ele-foot" id="eleFoot" hidden></div>
       </div>
 
       <!-- Reset (left) + Settings (right) share this row. Settings opens the
@@ -4560,26 +4599,24 @@
   // Deliberately read-only for now: who is online, and a way through to the
   // messenger proper. Composing lives in the messenger until this card has
   // earned more.
-  // The embed opens on demand and is TORN DOWN on close: src cleared, so the
-  // messenger is not left holding a socket behind a collapsed card. Nothing is
-  // loaded until someone asks, because the nodes this runs on are slow.
+  // Expand does not load anything: it is the same native list, taller, with
+  // the messenger's name on it. Nothing is fetched that was not already being
+  // fetched, which is the point of rendering this ourselves.
+  var eleBig = false;
   function eleExpand(force) {
-    var box = document.getElementById('eleEmbed');
-    var fr  = document.getElementById('eleFrame');
-    var btn = document.getElementById('eleExpandBtn');
-    if (!box || !fr) return;
-    var open = (typeof force === 'boolean') ? force : box.hasAttribute('hidden');
-    if (open) {
-      if (!fr.getAttribute('src')) fr.setAttribute('src', '/ele');
-      box.removeAttribute('hidden');
-    } else {
-      box.setAttribute('hidden', '');
-      fr.removeAttribute('src');
-    }
+    var list = document.getElementById('eleList');
+    var head = document.getElementById('eleHead');
+    var foot = document.getElementById('eleFoot');
+    var btn  = document.getElementById('eleExpandBtn');
+    eleBig = (typeof force === 'boolean') ? force : !eleBig;
+    if (list) list.classList.toggle('big', eleBig);
+    if (head) head.hidden = !eleBig;
+    if (foot) foot.hidden = !eleBig;
     if (btn) {
-      btn.textContent = open ? 'Collapse' : 'Expand';
-      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.textContent = eleBig ? 'Collapse' : 'Expand';
+      btn.setAttribute('aria-expanded', eleBig ? 'true' : 'false');
     }
+    eleRenderHistory(eleWho);
   }
 
   var elePanel = document.getElementById('elePanel');
@@ -4587,6 +4624,7 @@
   var eleBody  = document.getElementById('eleBody');
   var eleHint  = document.getElementById('eleHint');
   var elePresent = false;
+  var eleWho = [];          // last known online list, so a re-render can reuse it
 
   function eleProbe() {
     fetch('/ele-api/online', { cache: 'no-store' })
@@ -4602,6 +4640,7 @@
         elePresent = true;
         if (elePanel) elePanel.hidden = false;
         var who = (j.online || []);
+        eleWho = who;
         if (eleHint) eleHint.textContent = who.length ? (who.length + ' online') : '';
         eleRenderHistory(who);
       });
@@ -4633,32 +4672,71 @@
       tok = localStorage.getItem('ele-token');
       me  = localStorage.getItem('ele-username');
     } catch (e) { tok = null; }          // private window / blocked storage
+    var signin  = document.getElementById('eleSignin');
+    var actions = document.getElementById('eleActions');
+    var head    = document.getElementById('eleHead');
+    var foot    = document.getElementById('eleFoot');
     if (!tok) {
-      eleList.innerHTML = '<span class="quiet">' +
-        (who.length ? eleEsc(who.join(', ')) + ' online. ' : '') +
-        'Sign in via Open to see messages.</span>';
+      eleList.hidden = true;
+      if (head) head.hidden = true;
+      if (foot) foot.hidden = true;
+      if (actions) actions.hidden = true;
+      if (signin) signin.hidden = false;
       return;
     }
+    eleList.hidden = false;
+    if (signin) signin.hidden = true;
+    if (actions) actions.hidden = false;
     fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })
       .then(function (h) {
         if (!h) {                         // token expired, or the node restarted
-          eleList.innerHTML = '<span class="quiet">session expired &mdash; open to sign in again</span>';
+          // An expired token is the signed-out state wearing a stale badge;
+          // show the same single door rather than a sentence about it.
+          eleList.hidden = true;
+          if (head) head.hidden = true;
+          if (foot) foot.hidden = true;
+          if (actions) actions.hidden = true;
+          if (signin) signin.hidden = false;
+          try { localStorage.removeItem('ele-token'); } catch (e) {}
           return;
         }
-        var msgs = (h.history || []).slice(-12);
+        var msgs = (h.history || []).slice(eleBig ? -60 : -12);
+        var foot = document.getElementById('eleFoot');
+        var meEl = document.getElementById('eleMe');
+        if (meEl) meEl.textContent = me || '';
+        if (foot) {
+          foot.textContent = (h.history || []).length
+            ? ((h.history || []).length + ' messages \u00b7 last 7 days')
+            : 'no messages in the last 7 days';
+        }
         if (!msgs.length) {
           eleList.innerHTML = '<span class="quiet">no messages yet</span>';
           return;
         }
+        // Expanded, the thread each message belongs to is worth showing; at
+        // card size it is noise, so the separators only appear when there is
+        // room for them.
+        var lastConvo = null;
         eleList.innerHTML = msgs.map(function (m) {
           var mine = (m.from === me);
-          var body = m.message || (m.image_id ? '[image]' : '');
-          return '<span class="em' + (mine ? ' mine' : '') + '">' +
+          var out = '';
+          if (eleBig && m.conversation_id !== lastConvo) {
+            lastConvo = m.conversation_id;
+            var other = mine ? (m.to || '') : m.from;
+            out += '<span class="sep">' + eleEsc(other || 'thread') + '</span>';
+          }
+          // Secret messages are end-to-end encrypted and the key lives in the
+          // messenger, not here. Showing the ciphertext would be worse than
+          // saying plainly that this panel cannot read it.
+          var body = m.secret
+            ? '<span class="lock">\u25cf encrypted \u2014 open to read</span>'
+            : eleEsc(m.message || (m.image_id ? '[image]' : ''));
+          return out + '<span class="em' + (mine ? ' mine' : '') + '">' +
                  '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
                  '<span class="who">' + eleEsc(mine ? 'you' : m.from) + '</span>: ' +
-                 eleEsc(body) + '</span>';
+                 body + '</span>';
         }).join('');
         eleList.scrollTop = eleList.scrollHeight;   // newest in view
       });
