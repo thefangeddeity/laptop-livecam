@@ -1863,7 +1863,10 @@
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
-        <div class="msg-actions two" id="eleActions" hidden>
+        <!-- One per row, full card width. Two columns squeezed "Log in as
+             you" onto two lines, and a wrapped label in a 11px mono face
+             reads as a mistake rather than a button. -->
+        <div class="msg-actions one" id="eleActions" hidden>
           <button class="pbtn" id="eleWhoBtn" onclick="eleToggleAuth()"
                   title="Messages are sent as this node unless you log in">Log in as you</button>
           <button class="pbtn" id="eleOpenBtn" onclick="window.open('/elem','_blank')"
@@ -4790,6 +4793,19 @@
   // The node's own session. Held in memory, never in localStorage, so it
   // cannot be mistaken for -- or outlive -- a person's login.
   var eleNodeTok = null, eleNodeName = null, eleNodeTried = false;
+  // This machine's name, needed even when a PERSON is signed in, so the card
+  // can say ron@ariana rather than just ron -- which machine someone is
+  // speaking from is the half of the identity the words cannot supply.
+  // capabilities.json is the node stating its own name, and it is already
+  // served from this origin, so it costs one cached fetch.
+  var eleHostName = null;
+  fetch('/capabilities.json', { cache: 'no-store' })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .catch(function () { return null; })
+    .then(function (d) {
+      var n = d && d.identity && d.identity.node && d.identity.node.value;
+      if (n) { eleHostName = n; eleRenderHistory(); }
+    });
 
   function eleNodeLogin(then) {
     if (eleNodeTried) { then(); return; }
@@ -4838,11 +4854,17 @@
     if (p.send) p.send.hidden = false;
     if (p.me) {
       var asNode = (me === eleNodeName && !!eleNodeTok);
-      p.me.textContent = me || '';
+      var host = eleHostName || eleNodeName;
+      // Nobody signed in -> the machine's name alone. Somebody signed in ->
+      // person@machine, because both halves matter: who is writing, and
+      // which machine is still up to write from.
+      p.me.textContent = asNode
+        ? (host || me || '')
+        : (host ? (me + '@' + host) : (me || ''));
       p.me.className = asNode ? 'me node' : 'me';
       p.me.title = asNode
-        ? 'Sending as this node. Log in to send as yourself.'
-        : 'Logged in as ' + (me || '');
+        ? 'Sending as this machine. Log in to send as yourself.'
+        : 'Signed in as ' + (me || '') + (host ? ' on ' + host : '');
     }
     eleContacts(tok, me);
 
