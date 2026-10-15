@@ -1368,7 +1368,13 @@
                 SFMono-Regular, Menlo, monospace; color: #9fb4ad;
                 background: #10201c; border: 1px solid #1d3730; border-radius: 6px;
                 padding: 6px 8px; }
-    .ele-list .em { display: block; margin-bottom: 4px; word-break: break-word; }
+    /* Three columns so a run of messages from one machine lines up under
+       its name instead of repeating it on every line. */
+    .ele-list .em { display: grid; grid-template-columns: 5.2em 1fr auto;
+                    gap: 0 6px; margin-bottom: 3px; word-break: break-word; }
+    .ele-list .em .who { grid-column: 1; }
+    .ele-list .em .txt { grid-column: 2; }
+    .ele-list .em .when { grid-column: 3; float: none; margin-left: 0; }
     .ele-list .em:last-child { margin-bottom: 0; }
     .ele-list .who { color: #5fd3b2; }
     .ele-list .when { color: #4d6b63; float: right; margin-left: 6px; }
@@ -1382,6 +1388,23 @@
        rule carrying `display` outranks the browser's [hidden]{display:none},
        which is how the first version of this shipped permanently on screen.
        Any rule here that sets display states its own hidden case. */
+    .ele-top { display: flex; align-items: center; justify-content: space-between;
+               gap: 8px; }
+    .ele-top[hidden] { display: none; }
+    .ele-what { font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+                color: var(--emboss); }
+    .ele-brand { display: flex; align-items: center; gap: 5px;
+                 font: 10px/1 ui-monospace, Menlo, monospace; letter-spacing: .12em;
+                 color: #5f7d74; }
+    .ele-brand img { border-radius: 3px; opacity: .9; flex: none; }
+    /* The rule sits under the second row, so the two header lines read as
+       one block rather than two unrelated strips. */
+    .ele-sub { padding-bottom: 5px; margin-bottom: 5px;
+               border-bottom: 1px solid #1d3730; }
+    .ele-transport { font: 10px/1 ui-monospace, Menlo, monospace;
+                     letter-spacing: .16em; text-transform: uppercase;
+                     color: #7fd8c0; }
+    html[data-theme="light"] .ele-transport { color: #1f7a63; }
     .ele-head { display: flex; align-items: center; gap: 6px;
                 padding: 0 0 4px; margin-bottom: 4px;
                 border-bottom: 1px solid #1d3730; }
@@ -1847,14 +1870,16 @@
            A node with no messenger therefore shows Node Note and nothing
            else, which is the intended degradation rather than an error. -->
       <div class="panel" id="elePanel" hidden>
-        <div class="panel-title eng">Messages</div>
-        <!-- The messenger's own logo is the ONLY thing borrowed from it. The
-             app's chrome is its own blue world and it does not belong in a
-             panel built out of lamps and mono type, so this is the viewer
-             rendering the messenger's data, not the messenger embedded. -->
-        <div class="ele-head" id="eleHead" hidden>
-          <img src="/ele/icons/ELE-messenger-favicon-32px.png" alt="" width="14" height="14">
-          <span class="lab">ELE Messenger</span>
+        <!-- Two rows and a rule. Left is what this card IS and how it is
+             reaching the fleet; right is whose software and which machine.
+             The messenger's logo is the only thing borrowed from it. -->
+        <div class="ele-top">
+          <span class="ele-what eng">Messages</span>
+          <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-32px.png"
+                alt="" width="13" height="13"> ELEM</span>
+        </div>
+        <div class="ele-top ele-sub">
+          <span class="ele-transport" id="eleTransport">—</span>
           <span class="me" id="eleMe"></span>
         </div>
         <div class="ele-list" id="eleList">checking…</div>
@@ -4707,6 +4732,19 @@
   // alone, or person@machine when a person wrote it. No "you" -- in a shared
   // channel every line should name who said it, including your own, so the
   // log reads the same to everyone looking at it.
+  // Which network this page came in over. Read off the address bar rather
+  // than asserted: it is the one thing we know for certain about the path,
+  // and a label that cannot be wrong beats one that is merely optimistic.
+  // When mesh or BLE carry this, they can report instead of being inferred.
+  function eleNetwork() {
+    var h = (location.hostname || '').toLowerCase();
+    if (/\.ts\.net$/.test(h)) return 'tailnet';
+    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return 'local';
+    if (/\.local$/.test(h)) return 'lan';
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return 'lan';
+    return 'network';
+  }
+
   function eleIdent(from, origin) {
     if (!origin) return from || '';
     if (!from || from === origin) return origin;
@@ -4738,6 +4776,8 @@
         p.me.textContent = eleIdent(eleWho, eleHost) || eleWho || '';
         p.me.className = asNode ? 'me node' : 'me';
       }
+      var netEl = document.getElementById('eleTransport');
+      if (netEl) netEl.textContent = eleNetwork();
       eleBusy = true;
       fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
         .then(function (r) {
@@ -4765,14 +4805,23 @@
           }
           var atBottom = (eleList.scrollHeight - eleList.scrollTop
                           - eleList.clientHeight) < 24;
+          // A run of messages from one machine names it once and the rest
+          // line up underneath -- the shape a chat log has had since AOL,
+          // and the reason is unchanged: the name repeated on every line is
+          // noise that pushes the words themselves out of the column.
+          var lastWho = null;
           eleList.innerHTML = msgs.map(function (m) {
             var body = m.secret
               ? '<span class="lock">● encrypted — open to read</span>'
               : eleEsc(m.message || (m.image_id ? '[image]' : ''));
-            return '<span class="em">' +
-                   '<span class="when">' + eleEsc(eleWhen(m.timestamp)) + '</span>' +
-                   '<span class="who">' + eleEsc(eleIdent(m.from, m.origin_node)) + '</span>: ' +
-                   body + '</span>';
+            var who = eleIdent(m.from, m.origin_node);
+            var runs = (who === lastWho);
+            lastWho = who;
+            return '<span class="em' + (runs ? ' cont' : '') + '">' +
+                   '<span class="who">' + (runs ? '' : eleEsc(who) + ':') + '</span>' +
+                   '<span class="txt">' + body + '</span>' +
+                   '<span class="when">' + (runs ? '' : eleEsc(eleWhen(m.timestamp))) + '</span>' +
+                   '</span>';
           }).join('');
           if (atBottom) eleList.scrollTop = eleList.scrollHeight;
         })
