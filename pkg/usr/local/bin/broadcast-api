@@ -1553,10 +1553,32 @@ def _cv_capability():
             parts = (str(denv.get('VIDEO_SIZE', '1280x720')).split('x') + ['720'])[:2]
             w, h = int(parts[0]), int(parts[1])
             import numpy as _np
-            frame = (_np.random.rand(h, w, 3) * 255).astype(_np.uint8)
+            import cv2 as _cv2
+            # A ROOM, not noise. Uniform random pixels are the CHEAPEST input
+            # this pipeline sees, not the worst: measured here, noise ran
+            # 50.6ms while a real camera frame took 66.2ms, so probing with
+            # noise understated true cost by roughly a third and would have
+            # called a machine capable that cannot actually keep up.
+            # Gradient + flat blocks + a little grain, measured with a fresh
+            # processor each time (state carried between runs makes these
+            # numbers lie): noise 48.6ms, this frame 58.0ms, a real camera
+            # frame 70.6ms. So this still UNDERSTATES a real scene by roughly
+            # a fifth -- it is a floor, not a forecast. That is what the 70
+            # percent budget threshold below is absorbing, and it is why the
+            # threshold is not 100. A synthetic frame is used at all because
+            # the camera may not be open when the probe runs.
+            _yy, _xx = _np.mgrid[0:h, 0:w]
+            _g = ((_xx / float(w) * 140) + (_yy / float(h) * 90) + 20).astype(_np.uint8)
+            frame = _cv2.merge([_g, _g, _g])
+            for _i in range(6):
+                _cv2.rectangle(frame, (80 + _i * 160, 60 + _i * 70),
+                               (240 + _i * 160, 300 + _i * 70),
+                               (40 + _i * 25, 90, 160 - _i * 18), -1)
+            _cv2.circle(frame, (w // 2, h // 2), 110, (200, 190, 170), -1)
+            frame = _cv2.add(frame, (_np.random.rand(h, w, 3) * 12).astype(_np.uint8))
             proc = _cvp.CVProcessor(denv)
 
-            def _med(fn, n=7):
+            def _med(fn, n=15):
                 fn(frame.copy())                 # warm: first call pays setup
                 ts = []
                 for _ in range(n):
@@ -1569,10 +1591,20 @@ def _cv_capability():
 
             obs = _med(proc.observe)
             ren = _med(proc.process)
-            # 70% of the frame budget, not 100%: a node that only just keeps
-            # up on a synthetic frame has nothing left for a real scene, and
-            # the camera does not wait.
-            out = {'state': 'ok' if ren <= budget * 0.7 else 'weak',
+            # 60% of the frame budget, and the margin is doing real work.
+            # This probe is a FLOOR, biased low twice over:
+            #   * a synthetic frame is cheaper than a real one (58ms vs 71ms
+            #     measured here, with a fresh processor each time), and
+            #   * it runs at startup, before capture and the detection
+            #     threads are loaded, so it sees a quieter machine than the
+            #     one that will actually render. Measured in-process it read
+            #     44-50ms where a steady-state run of the same work took
+            #     53.5-62.9ms.
+            # At 70% those two biases put this node on the wrong side of the
+            # line AND made the verdict flap between restarts, which would
+            # have shown as the CV key appearing and vanishing. 60% puts both
+            # nodes clearly on their correct side with room to spare.
+            out = {'state': 'ok' if ren <= budget * 0.6 else 'weak',
                    'process_ms': round(ren, 1), 'observe_ms': round(obs, 1),
                    'budget_ms': round(budget, 1),
                    'reason': ('%.0fms render vs %.0fms frame budget at %dfps'
