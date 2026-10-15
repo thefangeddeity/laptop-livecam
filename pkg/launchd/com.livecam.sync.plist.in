@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Pull messages from peers. Same 120s cadence as the Linux nodes'
-     livecam-sync.timer: often enough that a message feels delivered, rare
-     enough that three laptops are not constantly waking their radios. -->
+<!-- Pull messages from peers. Same 10s cadence as the Linux nodes' livecam-sync.timer, measured down
+     from 120s: two minutes of silence is indistinguishable from a broken
+     system. elemesh does the same hop in 32ms by pushing over a held link. -->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.livecam.sync</string>
   <key>ProgramArguments</key>
   <array><string>@REPO@/tools/sync-peers</string></array>
-  <key>StartInterval</key><integer>120</integer>
+  <key>StartInterval</key><integer>10</integer>
   <key>RunAtLoad</key><true/>
   <key>StandardErrorPath</key><string>@REPO@/state/logs/sync.err</string>
   <key>ProcessType</key><string>Background</string>
