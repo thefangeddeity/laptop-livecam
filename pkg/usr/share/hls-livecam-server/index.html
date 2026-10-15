@@ -1364,10 +1364,27 @@
        becoming a second application inside the panel -- it scrolls rather
        than growing, so the card never pushes the controls below it off
        screen on a phone. */
-    .ele-list { max-height: 16em; overflow-y: auto; font: 11px/1.45 ui-monospace,
-                SFMono-Regular, Menlo, monospace; color: #9fb4ad;
-                background: #10201c; border: 1px solid #1d3730; border-radius: 6px;
-                padding: 6px 8px; }
+    /* Glass, on the same tokens the Node Note field uses, so it follows the
+       theme instead of staying dark on a cream panel. It was hardcoded
+       #10201c / #1d3730 / #9fb4ad and therefore never changed: in light mode
+       a black-green box sat directly under a parchment one, in the same rail,
+       doing the same job. Same scanline, same gradient, same phosphor. */
+    .ele-list { max-height: 16em; overflow-y: auto;
+                font: 11px/1.45 var(--mono); letter-spacing: .04em;
+                color: var(--phos); border-radius: 6px; padding: 6px 8px;
+                border: 1px solid #040809;
+                background:
+                  repeating-linear-gradient(180deg,rgba(0,0,0,.15) 0 1px,transparent 1px 3px),
+                  linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.05),
+                            inset 0 0 20px rgba(0,0,0,.75); }
+    html[data-theme="light"] .ele-list {
+                border-color: #c9c0a6; font-weight: 600;
+                background:
+                  repeating-linear-gradient(180deg,rgba(101,123,131,.08) 0 1px,transparent 1px 3px),
+                  linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.55),
+                            inset 0 0 18px rgba(101,123,131,.10); }
     /* Three columns so a run of messages from one machine lines up under
        its name instead of repeating it on every line. */
     .ele-list .em { display: grid; grid-template-columns: 5.2em 1fr auto;
@@ -1377,6 +1394,13 @@
     .ele-list .em .when { grid-column: 3; float: none; margin-left: 0; }
     .ele-list .em:last-child { margin-bottom: 0; }
     .ele-list .who { color: #5fd3b2; }
+    /* Inside the glass, light theme: Solarized-dark inks on base3, matching
+       what .msg2 does with var(--phos) rather than inventing a second set. */
+    html[data-theme="light"] .ele-list .who { color: #176551; }
+    html[data-theme="light"] .ele-list .mine .who { color: #7a5a0c; }
+    html[data-theme="light"] .ele-list .when,
+    html[data-theme="light"] .ele-list .quiet,
+    html[data-theme="light"] .ele-list .lock { color: #5d7278; }
     .ele-list .when { color: #4d6b63; float: right; margin-left: 6px; }
     .ele-list .mine .who { color: #c9b071; }
     .ele-list .quiet { color: #4d6b63; }
@@ -1388,37 +1412,74 @@
        rule carrying `display` outranks the browser's [hidden]{display:none},
        which is how the first version of this shipped permanently on screen.
        Any rule here that sets display states its own hidden case. */
+    /* Four rungs, one ladder. Mono throughout, and tracking WIDENS as size
+       drops -- the same ladder .panel-title / .sub-title / .cap2 already
+       climb. The previous version ran 11px/.14em above 10px/.16em, so the
+       subordinate row out-contrasted its own title. */
+    /* AV is the tallest panel on the rail and almost everything in it is a
+       placeholder: CALL is disabled until the video call is wired, and all
+       three in-call circles with it. Forty-pixel targets and a 20px readout
+       are the right size for controls you can press; they are an expensive
+       way to show four things that do not do anything yet. Scoped by id so
+       AUDIO and VIDEO keep the sizing they earned. */
+    #avPanel { padding: 11px 14px 10px; }
+    #avPanel .vrow { height: 17px; }
+    #avPanel .vlab, #avPanel .vval { line-height: 17px; }
+    #avPanel .vval { height: 17px; }
+    #avPanel .vind { margin-top: 4px; padding-top: 4px; }
+    #avPanel .modemrow { padding: 2px 4px !important; }
+    #avPanel .callctl-row { gap: 10px; padding: 6px 0 0; }
+    #avPanel .callctl { width: 30px; height: 30px; }
+    #avPanel .callctl svg { width: 15px; height: 15px; }
+
     .ele-top { display: flex; align-items: center; justify-content: space-between;
-               gap: 8px; }
+               gap: 10px; }
     .ele-top[hidden] { display: none; }
-    .ele-what { font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
-                color: var(--emboss); }
+
+    /* Rung 1: the title, in the same metal as the Node Note heading above. */
+    .ele-what { font-family: var(--mono); font-size: 10px; font-weight: 700;
+                letter-spacing: .11em; text-transform: uppercase;
+                color: var(--emboss-strong); margin-right: -.11em; }
+
+    /* Rung 4: a vendor mark on a bezel. Smallest, flat, never tinted. */
     .ele-brand { display: flex; align-items: center; gap: 5px;
-                 font: 10px/1 ui-monospace, Menlo, monospace; letter-spacing: .12em;
-                 color: #5f7d74; }
-    .ele-brand img { border-radius: 3px; opacity: .9; flex: none; }
-    /* The rule sits under the second row, so the two header lines read as
-       one block rather than two unrelated strips. */
-    .ele-sub { padding-bottom: 5px; margin-bottom: 5px;
-               border-bottom: 1px solid #1d3730; }
-    .ele-transport { font: 10px/1 ui-monospace, Menlo, monospace;
-                     letter-spacing: .16em; text-transform: uppercase;
-                     color: #7fd8c0; }
-    html[data-theme="light"] .ele-transport { color: #1f7a63; }
-    .ele-head { display: flex; align-items: center; gap: 6px;
-                padding: 0 0 4px; margin-bottom: 4px;
-                border-bottom: 1px solid #1d3730; }
-    .ele-head[hidden] { display: none; }
-    .ele-head img { width: 14px; height: 14px; border-radius: 3px;
-                    flex: none; opacity: .9; }
-    .ele-head .lab { font: 10px/1 ui-monospace, Menlo, monospace;
-                     letter-spacing: .12em; text-transform: uppercase;
-                     color: #5f7d74; }
-    .ele-head .me { margin-left: auto; font: 10px/1 ui-monospace, Menlo, monospace;
-                    color: #c9b071; }
-    /* Speaking as the machine rather than as a person: same slot, different
-       colour, so you can tell at a glance without reading it. */
-    .ele-head .me.node { color: #7fd8c0; }
+                 font: 600 8.5px/1 var(--mono); letter-spacing: .13em;
+                 text-transform: uppercase; color: var(--emboss);
+                 text-shadow: none; margin-right: -.13em; }
+    .ele-brand img { width: 12px; height: 12px; border-radius: 3px;
+                     opacity: .85; flex: none; transform: translateY(-.5px); }
+
+    /* Rung 3: which path this page came in over. Measured, so it is a LABEL
+       and not a lamp -- the panel's colour grammar reserves tint for state,
+       and a fourth hue would make a fact look like an alarm. */
+    .ele-transport { font: 600 8.5px/1 var(--mono); letter-spacing: .13em;
+                     text-transform: uppercase; color: var(--emboss);
+                     text-shadow: none; margin-right: -.13em; }
+
+    /* Rung 2: the SUBJECT of the header -- which machine you are speaking as.
+       It had no rule at all: `.me` was only ever styled as `.ele-head .me`,
+       and when the header was refactored to .ele-top that selector stopped
+       matching, so the hostname inherited 16px sans from <body>. One element
+       60% larger than its neighbours and the only non-mono thing in the row. */
+    .me { font: 600 11px/1 var(--mono); letter-spacing: .01em;
+          color: #d8bd7e; text-shadow: none; }
+    .me.node { color: #7fd8c0; }
+
+    /* Engraved into the housing, full-bleed, in housing colours -- the panel
+       padding is 14px, so -14px reaches the edges. The old rule was a teal
+       glass hairline drawn on metal. */
+    .ele-sub { padding: 0 14px 7px; margin: 0 -14px 8px;
+               border-bottom: 1px solid #242428;
+               box-shadow: 0 1px 0 rgba(255,255,255,.03); }
+
+    html[data-theme="light"] .ele-what { color: #4f666d; }
+    html[data-theme="light"] .ele-brand,
+    html[data-theme="light"] .ele-transport { color: #5d7278; }
+    html[data-theme="light"] .me { color: #7a5a0c; }
+    html[data-theme="light"] .me.node { color: #176551; }
+    html[data-theme="light"] .ele-sub { border-bottom-color: #e4e2d8;
+               box-shadow: 0 1px 0 rgba(255,255,255,.9); }
+
     /* The actions row is a 3-up grid by default, which leaves a two-button
        card with a ragged empty third. These say how many there actually are. */
     .msg-actions.one { grid-template-columns: 1fr; }
@@ -1471,7 +1532,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-123-ga82705b-dirty · dev · a82705b"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-124-g95814d4-dirty · dev · 95814d4"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1772,7 +1833,7 @@
            (they never belonged in the AUDIO bank, which is a mutually-exclusive
            listen/talk selector), and the eventual home of the video call
            (camera + self-view PiP) so it stops hijacking the audio Two-way. -->
-      <div class="panel">
+      <div class="panel" id="avPanel">
         <div class="panel-title eng">AV</div>
         <!-- Same instrument grammar as AUDIO/VIDEO: a phosphor VFD reading the
              call state, an indicator strip, and the leg lamps -- the sockets
@@ -1875,8 +1936,8 @@
              The messenger's logo is the only thing borrowed from it. -->
         <div class="ele-top">
           <span class="ele-what eng">Messages</span>
-          <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-32px.png"
-                alt="" width="13" height="13"> ELEM</span>
+          <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-16px.png"
+                alt="" width="12" height="12"> ELEM</span>
         </div>
         <div class="ele-top ele-sub">
           <span class="ele-transport" id="eleTransport">—</span>
@@ -4721,9 +4782,11 @@
   }
 
   function eleParts() {
+    // No `head`: the .ele-head element went away in the header refactor and
+    // every read of it was null, so the hiding it was supposed to do never
+    // happened and nobody noticed.
     return { send: document.getElementById('eleSend'),
              actions: document.getElementById('eleActions'),
-             head: document.getElementById('eleHead'),
              me: document.getElementById('eleMe') };
   }
 
@@ -4758,7 +4821,6 @@
       eleList.innerHTML = '<span class="quiet">' + eleEsc(note) + '</span>';
     }
     if (p.send) p.send.hidden = true;
-    if (p.head) p.head.hidden = true;
     if (p.actions) p.actions.hidden = false;
   }
 
@@ -4768,7 +4830,6 @@
       if (!tok) { eleShowUnavailable('messenger unavailable'); return; }
       var p = eleParts();
       eleList.hidden = false;
-      if (p.head) p.head.hidden = false;
       if (p.send) p.send.hidden = false;
       if (p.actions) p.actions.hidden = false;
       if (p.me) {
