@@ -1735,9 +1735,30 @@
         </div>
       </div>
 
-      <!-- ══ MESSAGE ══ -->
+      <!-- ══ ELE MESSENGER ══
+           Hidden unless the messenger is actually installed on this node.
+           No build flag and no server change decides that: the viewer asks
+           /ele-api/online, which answers 200 when the messenger is present
+           and 404 when it is not, because the nginx include that routes
+           /ele* is a wildcard that matches nothing on a node without it.
+           A node with no messenger therefore shows Node Note and nothing
+           else, which is the intended degradation rather than an error. -->
+      <div class="panel" id="elePanel" hidden>
+        <div class="panel-title eng">Messages <span id="eleHint" class="msg-hint"></span></div>
+        <div class="msg2" id="eleBody" style="min-height:3.2em">checking…</div>
+        <div class="msg-actions">
+          <button class="pbtn" id="eleOpenBtn" onclick="window.open('/ele','_blank')">Open</button>
+        </div>
+      </div>
+
+      <!-- ══ NODE NOTE ══
+           One note that lives ON this node: anyone looking at this camera
+           sees it, it survives with the node, and it needs no second party.
+           Renamed from "Message" so the word is free for ELE Messenger,
+           which is person-to-person and a different thing entirely. Same
+           /broadcast.txt behind it; only the label changed. -->
       <div class="panel">
-        <div class="panel-title eng">Message <span id="msgHint" class="msg-hint"></span></div>
+        <div class="panel-title eng">Node Note <span id="msgHint" class="msg-hint"></span></div>
         <textarea class="msg2 empty" id="msgBox" readonly>(no message)</textarea>
         <div class="char-count" id="charCount" style="display:none">0/120</div>
         <div class="msg-actions" id="msgActions" hidden>
@@ -4494,6 +4515,47 @@
   paintAudioModes();
   paintMute();
 
+
+
+  // ── ELE MESSENGER (optional neighbour on this origin) ──────────────────
+  // Presence is MEASURED, not configured. /ele-api/online answers 200 where
+  // the messenger is installed and 404 where it is not, so one probe decides
+  // whether this card exists at all. A node without the messenger shows Node
+  // Note alone -- that is the designed degradation, not a failure, so a 404
+  // is silent rather than an error state.
+  //
+  // Deliberately read-only for now: who is online, and a way through to the
+  // messenger proper. Composing lives in the messenger until this card has
+  // earned more.
+  var elePanel = document.getElementById('elePanel');
+  var eleBody  = document.getElementById('eleBody');
+  var eleHint  = document.getElementById('eleHint');
+  var elePresent = false;
+
+  function eleProbe() {
+    fetch('/ele-api/online', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (j === null) {                 // absent, or not answering
+          elePresent = false;
+          if (elePanel) elePanel.hidden = true;
+          return;
+        }
+        elePresent = true;
+        if (elePanel) elePanel.hidden = false;
+        var who = (j.online || []);
+        if (eleBody) {
+          eleBody.textContent = who.length
+            ? who.join(', ') + (who.length === 1 ? ' is online' : ' are online')
+            : 'nobody online';
+          eleBody.classList.toggle('empty', !who.length);
+        }
+        if (eleHint) eleHint.textContent = who.length ? String(who.length) : '';
+      });
+  }
+  eleProbe();
+  setInterval(function () { if (!document.hidden) eleProbe(); }, 10000);
 
   // ── BROADCAST ──
   var currentMsg = '';
