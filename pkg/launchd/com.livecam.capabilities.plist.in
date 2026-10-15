@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Re-probe and republish this node's capabilities.
+     The Linux nodes do this with a systemd timer; this Mac had NO scheduler
+     at all, so capabilities.json was written once by hand and then served
+     forever with source:"measured" on every field. "Measured" means measured
+     at probed_at, not now, and a document that never refreshes is the
+     lamp-that-cannot-fail rebuilt one layer up.
+     @REPO@ is substituted at install time -- a hardcoded home directory
+     would be wrong on any other machine and belongs in no tracked file. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.livecam.capabilities</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>@REPO@/tools/publish-capabilities</string>
+  </array>
+  <!-- Matches the Linux cadence: OnUnitActiveSec=15min. -->
+  <key>StartInterval</key><integer>900</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>@REPO@/state/logs/capabilities.err</string>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+</dict>
+</plist>
