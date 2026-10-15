@@ -1550,7 +1550,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-125-gc6484b6-dirty · dev · c6484b6"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-126-g0209a7b-dirty · dev · 0209a7b"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1996,11 +1996,26 @@
         <!-- Alphabetized (requirement: "alphabetize these settings") -- Disable
              buzz, Light theme, Mute server speaker/headset in RTC. -->
         <div class="pdiv"></div>
-        <!-- Structure, not a flat list: "All living beings" is a SUPERSET of
+        <!-- Structure, not a flat list: "All animate beings" is a SUPERSET of
              the four indented under it, while "All movements" is a different
              mechanism entirely (no model, so it sees what the detector has no
              word for and will call a curtain a visitor). A rule separates the
-             orthogonal one; indentation carries the containment. -->
+             orthogonal one; indentation carries the containment.
+
+             Plants sits with the model classes because that is what it IS:
+             COCO 58, a label the detector really returns. It had been
+             rendered beside "All movements" -- the one mechanism it has
+             nothing in common with, since that one runs with no model at all.
+
+             It is still deliberately absent from _LIVING_CLASSES, so the
+             superset can neither switch it on nor off: _expand_classes only
+             ever appends, and plant is not in the list it appends. The guard
+             is in the data, not in this layout.
+
+             And the superset is ANIMATE, not living, because a plant is a
+             living being -- excluding it from a set by that name was a
+             contradiction printed on the panel. The stored value is still
+             'living', so no existing selection is disturbed. -->
         <!-- The master sits with the choices it governs, not in the Video
              panel: everything below is inert without it. The Video panel
              carries a DET readout instead, because whether the camera is
@@ -2017,11 +2032,11 @@
           <div class="sub-title">Alert me about</div>
           <div class="pinrow">
             <button class="pinled" id="clsLivingBtn" onclick="toggleLiving()"
-                    aria-pressed="false" aria-label="Alert on all living beings"
+                    aria-pressed="false" aria-label="Alert on all animate beings"
                     title="Every animate class at once -- stays correct if a species is added later">
               <span class="bulb" id="clsLivingLamp"></span>
             </button>
-            <span class="eng rstlab">All living beings</span>
+            <span class="eng rstlab">All animate beings</span>
           </div>
           <div class="pinrow sub">
             <button class="pinled" id="clsHumanBtn" onclick="toggleCls('human')"
@@ -2059,6 +2074,14 @@
             </button>
             <span class="eng rstlab">Other</span>
           </div>
+            <div class="pinrow">
+              <button class="pinled" id="clsPlantBtn" onclick="toggleCls('plant')"
+                      aria-pressed="false" aria-label="Alert on plants"
+                      title="A houseplant moving in a draught was being reported as a cat, because the model had no 'plant' label available and returned the nearest class it was allowed to name. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings, so that option cannot switch it back on.">
+                <span class="bulb" id="clsPlantLamp"></span>
+              </button>
+              <span class="eng rstlab">Plants</span>
+            </div>
           <div class="pdiv"></div>
           <div class="pinrow">
             <button class="pinled" id="clsMotionBtn" onclick="toggleCls('motion')"
@@ -2067,14 +2090,6 @@
               <span class="bulb" id="clsMotionLamp"></span>
             </button>
             <span class="eng rstlab">All movements</span>
-          </div>
-          <div class="pinrow">
-            <button class="pinled" id="clsPlantBtn" onclick="toggleCls('plant')"
-                    aria-pressed="false" aria-label="Alert on plants"
-                    title="A houseplant moving in a draught was being reported as a cat, because the model had no 'plant' label available and returned the nearest class it was allowed to name. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings, so that option cannot switch it back on.">
-              <span class="bulb" id="clsPlantLamp"></span>
-            </button>
-            <span class="eng rstlab">Plants</span>
           </div>
           <!-- Content of an alert, not a trigger for one -- hence its own
                rule rather than another row in the list above. -->
