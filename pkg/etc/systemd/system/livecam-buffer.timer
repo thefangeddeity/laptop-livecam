@@ -1,0 +1,23 @@
+[Unit]
+Description=Bridge the mesh and the message store
+
+[Timer]
+OnBootSec=60s
+# Five seconds. This moves messages between two databases on loopback, so the
+# cost is not radio time -- it is one HTTP GET to the local mesh daemon plus
+# one table scan, and at household volume both are noise.
+#
+# It exists because the suite had two stores and no path between them. elemesh
+# was delivering over Bluetooth with the wifi off the whole time; the viewer
+# reads the messenger's SQLite, so the house saw silence while the mesh was
+# working perfectly. The bridge was written, installed on all three nodes --
+# and never scheduled on any of them. That is the entire bug.
+#
+# The scan is the honest cost: every tick reads the whole room. Each mesh
+# message carries a `cursor`, which is the incremental read this should use
+# before the store gets large. Until then, measured: 90 messages, no load.
+OnUnitActiveSec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target

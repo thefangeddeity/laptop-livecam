@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""Render pkg/launchd/*.plist.in into ~/Library/LaunchAgents and load them.
+
+These templates existed for a while with nothing to substitute @REPO@, which
+meant the file on disk and the file in the repo could disagree forever and
+nobody would know. Worse, a template nobody renders is a plan rather than a
+deployment: the message buffer shipped to all three nodes and was scheduled on
+none of them, and the house sat in silence while the mesh worked.
+
+So: one script owns what launchd runs. It is idempotent, it reports what it
+changed, and --check tells you whether the loaded agents match the repo
+without touching anything.
+"""
+import argparse
+import os
+import plistlib
+import re
+import subprocess
+import sys
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(REPO, 'pkg', 'launchd')
+DST = os.path.expanduser('~/Library/LaunchAgents')
+
+PLACEHOLDER = re.compile(r'@[A-Z_]+@')
+
+
+def _config():
+    """The same config.env the API reads, so a port lives in one place. Read
+    here rather than defaulted, because an agent pointed at the wrong port
+    does not fail -- it serves nothing, quietly."""
+    cfg = {}
+    try:
+        with open(os.path.join(REPO, 'config.env')) as fh:
+            for line in fh:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    if '#' in v:
+                        v = v.split('#', 1)[0]
+                    cfg[k.strip()] = v.strip()
+    except IOError:
+        pass
+    return cfg
+
+
+def _subs():
+    cfg = _config()
+    return {
+        '@REPO@': REPO,
+        '@HOME@': os.path.expanduser('~'),
+        '@ELE_DIR@': os.path.join(os.path.dirname(REPO), 'ele-messenger'),
+        '@ELE_PORT@': cfg.get('ELE_PORT', '8001'),
+        '@WEB_PORT@': cfg.get('WEB_PORT', '8080'),
+    }
+
+
+def render(name):
+    """Substitute, then refuse to hand back anything still holding a
+    placeholder. Writing one is not a cosmetic slip: launchd takes the plist,
+    fails to exec a path containing a literal @ELE_DIR@, and reports status 78
+    -- which looks like a broken service rather than a broken install. It is
+    how this script replaced a working agent with one that could not start.
+    A missing substitution is a bug in this file; it should say so and stop."""
+    with open(os.path.join(SRC, name)) as fh:
+        text = fh.read()
+    for key, val in _subs().items():
+        text = text.replace(key, val)
+    # Comments are prose and may legitimately name a placeholder.
+    stripped = re.sub(r'(?s)<!--.*?-->', '', text)
+    left = sorted(set(PLACEHOLDER.findall(stripped)))
+    if left:
+        raise KeyError('%s: no substitution for %s' % (name, ', '.join(left)))
+    return text
+
+
+def label(text):
+    """The Label launchd knows it by, read from the rendered plist rather than
+    guessed from the filename -- they are allowed to differ and have."""
+    try:
+        return plistlib.loads(text.encode())['Label']
+    except Exception:
+        return None
+
+
+def loaded(lab):
+    return subprocess.run(['launchctl', 'print', 'gui/%d/%s' % (os.getuid(), lab)],
+                          capture_output=True).returncode == 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--check', action='store_true',
+                    help='report drift, change nothing')
+    ap.add_argument('only', nargs='*', help='agent labels to act on')
+    args = ap.parse_args()
+
+    if not os.path.isdir(SRC):
+        print('no templates at %s' % SRC, file=sys.stderr)
+        return 1
+    os.makedirs(DST, exist_ok=True)
+    os.makedirs(os.path.join(REPO, 'state', 'logs'), exist_ok=True)
+
+    drift = 0
+    bad = 0
+    for name in sorted(os.listdir(SRC)):
+        if not name.endswith('.plist.in'):
+            continue
+        try:
+            text = render(name)
+        except KeyError as exc:
+            # One unrenderable template must not stop the others from being
+            # installed, and must not pass silently either.
+            print('  x %s' % exc, file=sys.stderr)
+            bad += 1
+            continue
+        lab = label(text) or name[:-len('.plist.in')]
+        if args.only and lab not in args.only:
+            continue
+        path = os.path.join(DST, name[:-3])
+        try:
+            with open(path) as fh:
+                current = fh.read()
+        except IOError:
+            current = None
+
+        # Matching on disk is not the same as running. An agent can be
+        # byte-identical to the repo and not loaded at all -- which is how a
+        # sync agent stayed stopped through a restart that reported success.
+        # So the question is never "does the file match" but "does what is
+        # running match", and loaded-ness is half of that.
+        if current == text and loaded(lab):
+            print('  = %s' % lab)
+            continue
+        drift += 1
+        if args.check:
+            print('  ! %s %s' % (lab, 'is not loaded' if current == text
+                                 else 'differs from the repo'))
+            continue
+
+        with open(path, 'w') as fh:
+            fh.write(text)
+        # bootout before bootstrap: launchd keeps the OLD definition loaded
+        # until told otherwise, so writing the file alone changes nothing that
+        # is running -- the exact way a fixed agent can look deployed and not be.
+        subprocess.run(['launchctl', 'bootout', 'gui/%d/%s' % (os.getuid(), lab)],
+                       capture_output=True)
+        r = subprocess.run(['launchctl', 'bootstrap', 'gui/%d' % os.getuid(), path],
+                           capture_output=True, text=True)
+        print('  %s %s%s' % ('+' if r.returncode == 0 else 'x', lab,
+                             '' if r.returncode == 0 else ': ' + r.stderr.strip()))
+    if args.check:
+        print('%d agent(s) differ from the repo' % drift)
+    return 1 if bad or (args.check and drift) else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

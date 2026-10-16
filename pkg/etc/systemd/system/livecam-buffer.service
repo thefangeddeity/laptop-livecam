@@ -1,0 +1,9 @@
+[Unit]
+Description=Move messages between the mesh and the store every UI reads
+After=network.target ele-messenger.service
+# No Requires= on elemesh: the mesh daemon is a user unit and may legitimately
+# be down. The buffer is written to find nothing and say so, not to fail.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/livecam-tools/message-buffer

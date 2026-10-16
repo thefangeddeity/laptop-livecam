@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Move messages between the mesh and the store every UI reads. The Linux
+     counterpart is livecam-buffer.timer, same 5s cadence and same reason.
+
+     Loopback only: one GET to the local mesh daemon and one table scan. This
+     is the piece that was missing when the house saw silence while elemesh
+     was delivering over Bluetooth with the wifi off -- the bridge existed on
+     every node and was scheduled on none of them. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.livecam.buffer</string>
+  <key>ProgramArguments</key>
+  <array><string>@REPO@/tools/message-buffer</string></array>
+  <key>StartInterval</key><integer>5</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>@REPO@/state/logs/buffer.err</string>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+</dict>
+</plist>
