@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+"""A transport-agnostic message buffer, and the adapters that fill and drain it.
+
+The suite grew two ways of moving a message and each knew only itself: an
+HTTP replication loop that needs a LAN, and elemesh, which links over LAN
+*and Bluetooth*. With the wifi off on one node that split fails quietly --
+Bluetooth keeps delivering into elemesh, the viewer loads perfectly well on
+loopback, and shows nothing new, because it reads the other store.
+
+The fix is not to pick one. It is to stop writing transport-shaped code.
+
+    SOURCE  -- anything that can hand over messages it has seen
+    SINK    -- anything that can be told about a message it lacks
+    RECORD  -- what crosses between them, in one shape
+
+A transport is a Source and a Sink. A store is a Source and a Sink. Adding
+BLE-direct, a serial line, a USB stick or SSH-over-mesh later means writing
+one adapter against these three things -- not editing a bridge that knows
+what Bluetooth is. Nothing in this file imports anything platform-specific,
+and the two adapters below are the first two implementations, not the shape.
+
+IDENTITY IS CONTENT. A record's id is a hash of what it says, who said it and
+when, so two nodes that independently hold the same message agree on that with
+no coordinator, no id allocator and no schema migration. That is what makes a
+sync idempotent and what stops a message echoing between two adapters.
+"""
+import hashlib
+import json
+import os
+import socket
+import sqlite3
+import subprocess
+import sys
+import urllib.request
+from datetime import datetime, timezone
+
+SEP = '\x1f'   # unit separator: a message cannot forge a field boundary
+
+
+def _epoch_ms(ts):
+    """ISO-8601 to epoch milliseconds. A stamp with no offset is read as UTC,
+    because that is what the fleet writes and a naive stamp read as local time
+    is how messages sent in the same breath once landed five hours apart."""
+    try:
+        t = ts.replace('Z', '+00:00')
+        d = datetime.fromisoformat(t)
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return int(d.timestamp() * 1000)
+    except Exception:
+        return None
+
+
+def this_node():
+    return socket.gethostname().split('.')[0]
+
+
+# ── THE RECORD ─────────────────────────────────────────────────────────────
+class Record(object):
+    """One message, in the only shape the buffer knows."""
+
+    __slots__ = ('room', 'author', 'text', 'ts')
+
+    def __init__(self, room, author, text, ts):
+        self.room = room or 'house'
+        self.author = author or '?'     # a NAME: which machine or person spoke
+        self.text = text or ''
+        self.ts = ts                    # ISO-8601, always UTC, always offset
+
+    @property
+    def id(self):
+        return hashlib.sha256(SEP.join(
+            (self.room, self.author, self.ts, self.text)).encode('utf-8')
+        ).hexdigest()[:32]
+
+    def __repr__(self):
+        return '<%s %s %r>' % (self.author, self.ts[11:19], self.text[:24])
+
+
+class Source(object):
+    def read(self):
+        """Yield Records this source has. Must be cheap to call repeatedly."""
+        raise NotImplementedError
+
+
+class Sink(object):
+    def have(self):
+        """Set of record ids already held, so the buffer can skip them."""
+        raise NotImplementedError
+
+    def write(self, rec):
+        raise NotImplementedError
+
+
+# ── ADAPTER: elemesh (LAN, Bluetooth, and whatever it learns next) ────────
+class Mesh(Source, Sink):
+    def __init__(self, api=None, room='house'):
+        self.api = api or os.environ.get('ELEMESH_API', 'http://127.0.0.1:8740')
+        self.room = room
+        self._cache = None
+
+    def _get(self, path):
+        with urllib.request.urlopen(self.api + path, timeout=8) as r:
+            return json.load(r)
+
+    def _messages(self):
+        if self._cache is None:
+            try:
+                self._cache = self._get(
+                    '/v1/rooms/%s/messages' % self.room).get('messages', [])
+            except Exception:
+                self._cache = []
+        return self._cache
+
+    def read(self):
+        for m in self._messages():
+            # ts_ms is epoch milliseconds -- no zone to get wrong, which is
+            # why it is the format the buffer normalises everything else to.
+            ts = datetime.fromtimestamp(m.get('ts_ms', 0) / 1000.0,
+                                        tz=timezone.utc).isoformat()
+            who = (m.get('nick') or '').strip() or m.get('author', '')[:8]
+            yield Record(self.room, who, m.get('text', ''), ts)
+
+    def have(self):
+        return {r.id for r in self.read()}
+
+    def write(self, rec):
+        # A node never exports authorship that is not its own -- the mirror of
+        # the guard on the store below, and for the same reason.
+        #
+        # elemesh is a mesh: it replicates between nodes by itself. A record
+        # this node merely HEARD about does not need relaying, and relaying it
+        # destroys it, because elemesh stamps whatever it is given with its own
+        # clock. Measured: POSTing ts_ms=1700000000000 read back as the
+        # daemon's own time, so a relayed record returns with a new timestamp,
+        # a new content hash, and is imported on the next pass as a stranger
+        # -- twelve of them, in one run, all duplicates of what had just gone
+        # out. Each message is therefore written to the mesh exactly once, by
+        # the node that said it, which is what keeps its id stable everywhere.
+        if rec.author != this_node():
+            return False
+        # Hand over WHEN IT WAS SAID, not when we got round to relaying it.
+        # The mesh used to stamp with its own clock, which changed the content
+        # hash and so turned one message into two whenever it also arrived by
+        # another path. elemesh takes ts_ms now; a daemon too old to know the
+        # field ignores it, and the worst case is the behaviour we already had.
+        body = json.dumps({'nick': rec.author, 'text': rec.text,
+                           'ts_ms': _epoch_ms(rec.ts)}).encode()
+        req = urllib.request.Request(
+            '%s/v1/rooms/%s/messages' % (self.api, self.room), data=body,
+            headers={'Content-Type': 'application/json'}, method='POST')
+        urllib.request.urlopen(req, timeout=8).read()
+        self._cache = None
+        return True
+
+
+# ── ADAPTER: the messenger's store, which every UI reads ──────────────────
+class Store(Source, Sink):
+    def __init__(self, path=None, room='house'):
+        self.path = path or self._find()
+        self.room = room
+        self.conn = sqlite3.connect(self.path, timeout=15) if self.path else None
+        if self.conn:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO conversations (id, secret) VALUES (?,0)",
+                (self.room,))
+            self.conn.commit()
+
+    @staticmethod
+    def _find():
+        """NOT expanduser('~'): this runs under a timer as root, where that is
+        root's home and silently misses a store living in a user's home."""
+        p = '/var/lib/ele-messenger/ele.db'
+        if os.path.exists(p):
+            return p
+        try:
+            wd = subprocess.run(['systemctl', 'show', 'ele-messenger',
+                                 '-p', 'WorkingDirectory', '--value'],
+                                capture_output=True, text=True, timeout=6).stdout.strip()
+            if wd and os.path.exists(os.path.join(wd, 'ele.db')):
+                return os.path.join(wd, 'ele.db')
+        except Exception:
+            pass
+        user = os.environ.get('SUDO_USER')
+        if user:
+            try:
+                import pwd
+                p = os.path.join(pwd.getpwnam(user).pw_dir, 'Projects',
+                                 'ele-messenger', 'ele.db')
+                if os.path.exists(p):
+                    return p
+            except Exception:
+                pass
+        p = os.path.join(os.path.expanduser('~'), 'Projects', 'ele-messenger', 'ele.db')
+        return p if os.path.exists(p) else None
+
+    def _rows(self):
+        return self.conn.execute(
+            "SELECT from_user, message, timestamp, origin_node FROM messages "
+            "WHERE conversation_id=? AND message IS NOT NULL AND message<>''",
+            (self.room,)).fetchall()
+
+    def read(self):
+        me = this_node()
+        for from_user, text, ts, origin in self._rows():
+            # NULL origin means authored here before the column existed.
+            yield Record(self.room, origin or from_user or me, text, ts)
+
+    def have(self):
+        return {r.id for r in self.read()}
+
+    def write(self, rec):
+        # A node never imports its own authorship from a transport. It wrote
+        # the message; it already has it. Without this the buffer echoes:
+        # elemesh re-stamps anything it is given with its OWN clock, so a
+        # record pushed onto the mesh returns with a new timestamp, a new
+        # content hash, and is written back in as a stranger. Measured as a
+        # second run importing thirteen messages it had just exported.
+        if rec.author == this_node():
+            return False
+        self.conn.execute(
+            "INSERT INTO messages (conversation_id, from_user, message, image_id, "
+            "timestamp, secret, origin_node) VALUES (?,?,?,?,?,0,?)",
+            (self.room, rec.author, rec.text, None, rec.ts, rec.author))
+        self.conn.execute(
+            "INSERT OR IGNORE INTO conversation_members (conversation_id, username) "
+            "VALUES (?,?)", (self.room, rec.author))
+        self.conn.commit()
+        return True
+
+
+# Delivery state, because content identity is not enough on its own.
+#
+# A record's id is a hash of its content INCLUDING its timestamp, which is
+# what makes two stores agree without a coordinator. But a sink is allowed to
+# be lossy: elemesh stamps a message with its OWN clock on write, so a record
+# pushed onto the mesh comes back with a different timestamp, a different
+# hash, and would be pushed again on every run -- forever. Measured: the
+# second pass moved thirteen messages that were already there.
+#
+# So the buffer remembers what it has handed to each sink. That is a buffer's
+# job rather than a workaround: "at least once" delivery is only safe when
+# something keeps the ledger, and the sink cannot be trusted to.
+def _state_file():
+    for d in ('/var/lib/ele-messenger', os.path.expanduser('~/.local/state')):
+        if os.path.isdir(d):
+            return os.path.join(d, 'message-buffer.json')
+    return os.path.join(os.path.expanduser('~'), '.message-buffer.json')
+
+
+def _load():
+    try:
+        with open(_state_file()) as fh:
+            return {k: set(v) for k, v in json.load(fh).items()}
+    except Exception:
+        return {}
+
+
+def _save(st):
+    try:
+        p = _state_file()
+        tmp = p + '.tmp'
+        with open(tmp, 'w') as fh:
+            json.dump({k: sorted(v) for k, v in st.items()}, fh)
+        os.replace(tmp, p)
+    except Exception as exc:
+        print('  could not save delivery state: %s' % exc, file=sys.stderr)
+
+
+def reconcile(a, b):
+    """Make two peers hold the same set. Symmetric and idempotent, and it does
+    not care what either one is."""
+    st = _load()
+    moved = [0, 0]
+    for src, dst, i in ((a, b, 0), (b, a, 1)):
+        key = type(dst).__name__
+        delivered = st.setdefault(key, set())
+        held = dst.have() | delivered
+        for rec in src.read():
+            if rec.id in held:
+                continue
+            try:
+                wrote = dst.write(rec)
+                held.add(rec.id)
+                delivered.add(rec.id)
+                if wrote is not False:
+                    moved[i] += 1
+            except Exception as exc:
+                print('  write failed (%s): %s' % (key, exc), file=sys.stderr)
+                break
+    _save(st)
+    return moved
+
+
+def main():
+    store = Store()
+    if not store.conn:
+        print('  no message store on this node'); return 1
+    mesh = Mesh()
+    to_store, to_mesh = reconcile(mesh, store)
+    print('  buffer: +%d into the store, +%d onto the mesh' % (to_store, to_mesh))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

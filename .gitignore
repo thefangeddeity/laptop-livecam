@@ -3,19 +3,19 @@
 __pycache__/
 *.pyc
 
-# Runtime state (generated)
-state/*.pid
-state/logs/
-state/enabled
-state/mediamtx.yml
-state/dark.png
-state/dark_orig.png
-state/broadcast.txt
-state/buzz.txt
-state/msg_lock
-state/camdash-feed.state
-state/cell_aspect
-state/audio-settings.json
+# Runtime state (generated).
+#
+# Named one file at a time this list was always one feature behind: every new
+# toggle or cache landed as an untracked file nobody had decided about, and a
+# real change arrived mixed in with eight of them. Ignore the directory and
+# name the exceptions instead -- there is exactly one, and a new tracked file
+# under state/ should have to say so out loud.
+state/
+!state/notches.json
+
+# Atomic-write leftovers: the probe writes .capabilities.json.<pid> and
+# renames it. A crash between the two leaves the temp file behind.
+web/.capabilities.json.*
 
 # Rendered from web/index.template.html by livecam-setup.
 #
