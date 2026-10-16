@@ -79,19 +79,72 @@ def probe_cpu():
 
 
 # ── radio: what link can this node form without a router? ───────────────
+def _darwin_hosting_modes():
+    """Ask this Mac what it can do, instead of asserting what Macs cannot.
+
+    This function replaces a hardcoded claim that macOS is client-only, which
+    was wrong and -- worse -- was wrong in a way that spread. Every peer reads
+    this document, so one node writing `could_host_link: false` about itself
+    told the whole fleet that node could never be the one still standing.
+    And it wasn't even the same standard: the Linux path says `unknown` until
+    a link is actually raised, while this path asserted `false` outright. One
+    peer was held to a harsher rule than the others and published as weaker
+    than it is.
+
+    What is actually true, asked of the Objective-C runtime rather than the
+    documentation: CoreWLAN's IBSS creation was deprecated in 10.10 and never
+    removed, and the selector still answers on 14.x. IBSS also happens to be
+    the one mode every node in this fleet has, so it is the common
+    denominator rather than the exotic option.
+
+    `/usr/libexec/InternetSharing` is a real AP with DHCP and NAT, driven by
+    a plist and startable from launchd. Present is not proven -- it needs a
+    source interface and has never been raised here -- so it lands in modes
+    as a candidate, and link_hosting_proven stays unknown.
+    """
+    modes = ['managed']
+    notes = []
+    try:
+        import ctypes
+        import ctypes.util
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library('objc'))
+        ctypes.cdll.LoadLibrary(
+            '/System/Library/Frameworks/CoreWLAN.framework/CoreWLAN')
+        objc.objc_getClass.restype = ctypes.c_void_p
+        objc.objc_getClass.argtypes = [ctypes.c_char_p]
+        objc.sel_registerName.restype = ctypes.c_void_p
+        objc.sel_registerName.argtypes = [ctypes.c_char_p]
+        objc.class_getInstanceMethod.restype = ctypes.c_void_p
+        objc.class_getInstanceMethod.argtypes = [ctypes.c_void_p,
+                                                 ctypes.c_void_p]
+        cls = objc.objc_getClass(b'CWInterface')
+        sel = objc.sel_registerName(
+            b'startIBSSModeWithSSID:security:channel:password:error:')
+        if cls and objc.class_getInstanceMethod(cls, sel):
+            modes.append('IBSS')
+            notes.append('IBSS: CoreWLAN selector present in the runtime')
+        else:
+            notes.append('IBSS: selector absent on this macOS')
+    except Exception as exc:
+        notes.append('could not ask the runtime: %s' % exc)
+    if os.path.exists('/usr/libexec/InternetSharing'):
+        modes.append('AP')
+        notes.append('AP: InternetSharing present, needs a source interface')
+    return sorted(set(modes)), notes
+
+
 def probe_radio():
     """The question that decides outage topology: can this node HOST a link,
     or only join one? A client-only node cannot be the last one standing."""
     if sys.platform == 'darwin':
-        # macOS exposes no interface-mode list, and the legacy airport tool
-        # that once created IBSS networks is gutted on 14.x -- its --help no
-        # longer lists the option. 802.11s was never supported at all. So a
-        # Mac joins networks and does not host them. That is a property of
-        # the platform, not of this machine, hence `reported`.
+        modes, notes = _darwin_hosting_modes()
+        hosts = [m for m in ('AP', 'IBSS') if m in modes]
         return {
-            'modes': cap(['managed'], 'reported', note='macOS: no AP/IBSS/mesh from CLI'),
-            'could_host_link': cap(False, 'reported'),
-            'link_hosting_proven': cap(False, 'reported', note='platform cannot host'),
+            'modes': cap(modes, 'measured', note='; '.join(notes) or None),
+            # Same standard as the Linux path below: the platform offering a
+            # way to host is a candidate, and only raising a link is proof.
+            'could_host_link': cap(bool(hosts), 'reported', via=hosts),
+            'link_hosting_proven': unknown('no hosted link has been raised and joined yet'),
             'interface': probe_darwin_wifi_iface(),
         }
     modes = []
