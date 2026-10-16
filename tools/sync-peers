@@ -180,6 +180,32 @@ def fetch_export(base, token, days=30):
         return json.load(r)
 
 
+def canonical_ms(ts):
+    """A timestamp as epoch milliseconds, for hashing. Must stay identical to
+    server.py's canonical_ms and to the message buffer's -- the three compute
+    the id of the same message and have to agree on it.
+
+    Identity must not depend on how precisely a timestamp was written. This
+    store keeps microseconds, the mesh keeps milliseconds, and hashing the
+    string as written meant a message that arrived by both paths was two
+    messages. The buffer placed the mesh copy, this ran, did not recognise it,
+    and fetched the original again.
+    """
+    if not ts:
+        return None
+    try:
+        from datetime import datetime, timezone
+        d = datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        # Integer arithmetic, not timestamp() * 1000 -- sixteen significant
+        # digits is the edge of a float64, and an id that is sometimes one
+        # millisecond off is an id that sometimes duplicates a message.
+        return int(d.timestamp()) * 1000 + d.microsecond // 1000
+    except Exception:
+        return None
+
+
 def local_ids(conn, days=30):
     """Ids of what we already hold, computed the same way the exporter does."""
     import hashlib
@@ -190,7 +216,9 @@ def local_ids(conn, days=30):
         'FROM messages WHERE timestamp > ?', (cutoff,)).fetchall()
     out = set()
     for r in rows:
-        parts = [r[0] or '', r[1] or '', r[4] or '', r[2] or '', r[3] or '']
+        ms = canonical_ms(r[4])
+        when = str(ms) if ms is not None else (r[4] or '')
+        parts = [r[0] or '', r[1] or '', when, r[2] or '', r[3] or '']
         out.add(hashlib.sha256('\x1f'.join(parts).encode('utf-8')).hexdigest()[:32])
     return out
 
