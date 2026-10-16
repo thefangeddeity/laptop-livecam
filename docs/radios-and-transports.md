@@ -139,3 +139,59 @@ Two fixes, and the second is the real one:
 That second fix is what makes store-and-hold honest. A message written while
 the radios were off now reaches the mesh carrying *the time it was said*,
 not the time the radios came back.
+
+It was still not enough, and the reason is worth keeping. With the mesh
+honouring the timestamp to the **millisecond**, the store kept
+**microseconds** — so `.630540` came home as `.630000`, a different string,
+a different hash, one more duplicate. Behind that sat the real problem: three
+separate pieces of code computed a message's id, and they agreed only by
+accident of formatting.
+
+So identity is now defined once and the same way in all three:
+
+```
+id = sha256( room | author | EPOCH_MILLISECONDS | text )
+```
+
+Milliseconds because that is the coarsest precision any transport here
+promises, and an identity is only as fine as its least precise carrier. The
+same change makes `+00:00`, `Z` and a bare naive stamp hash alike, which
+matters because this fleet has emitted all three for the same instant.
+
+`canonical_ms` therefore exists three times — in `server.py`, in `sync-peers`
+and in `message-buffer` — and the three must stay identical. That is a seam,
+and it is written down in all three places rather than left to be found.
+
+### Measured after
+
+| | sent | ariana | tanzania | tina | each mesh |
+|---|---|---|---|---|---|
+| before any fix | 3 | 6 | 6 | 8 | 3 |
+| after the export guard | 3 | 7 | 7 | 7 | 3 |
+| after honouring ts_ms | 3 | 8 | 8 | 8 | 6 |
+| after unifying identity | 3 | **3** | **3** | **3** | **3** |
+
+Held at three across twelve buffer ticks and six sync ticks, in the right
+order, attributed to the right node.
+
+---
+
+## Still open
+
+- **ariana's AP drill.** `link_hosting_proven` is `unknown` on all three. The
+  drill needs someone at the keyboard because the node running it leaves the
+  network to do it.
+- **tina's Bluetooth.** A USB dongle is the entire fix. Until then, two nodes
+  off-LAN, not three.
+- **`/usr/lib/ele-messenger/server.py` is package-owned** (ele-messenger
+  1.3.6-1) on tanzania. The live copy carries the fix now; the next package
+  upgrade reverts it. Needs a version bump and a rebuild.
+- **Three divergent checkouts of the messenger.** The same commit message
+  appears in three repos under three different SHAs, and only tanzania's has
+  the mesh daemon and the recent work. ariana's has no remote at all and
+  tracks `ele.db` and `__pycache__`. The fix is one source of truth with the
+  other two tracking it; it touches a running deployment, so it is its own
+  job.
+- **The buffer rescans the whole room every tick.** Fine at household volume,
+  measured at no load. Each mesh message carries a `cursor`, which is the
+  incremental read this should use before the store gets large.
