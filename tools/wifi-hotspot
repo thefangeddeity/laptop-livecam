@@ -1,0 +1,89 @@
+#!/bin/bash
+# Raise a wifi hotspot phones can join, for a fixed number of seconds, then
+# put the radio back the way it was -- unconditionally, even on crash or kill.
+#
+# WHY A TIMER AND NOT A TOGGLE
+#
+# This radio does one thing at a time: `iw phy` reports "interface
+# combinations are not supported", so the moment it starts beaconing it stops
+# being a client and the LAN, the tailnet and every ssh session over them are
+# gone. A plain on/off switch is therefore unusable remotely -- you can turn
+# it on and then you cannot reach the machine to turn it off. The revert has
+# to be owned by the machine, not by whoever ran the command.
+#
+# That limit is NOT a reason this cannot host. AP is in the driver's supported
+# modes. The limit only means it cannot host and stay a client at once, and in
+# the event this suite exists for there is no uplink to keep. I read the
+# "combinations" line as "cannot be an AP" and was wrong; this exists partly
+# to stop that being repeated.
+#
+# NetworkManager does the whole thing -- AP via wpa_supplicant, addresses and
+# DHCP via its internal dnsmasq. hostapd is not needed and is not installed.
+#
+# WHAT PHONES SEE: an ordinary WPA2 network. No internet behind it, so both
+# iOS and Android may warn, and may quietly prefer cellular -- on the phone,
+# disable "auto-switch to mobile data" for the duration, or the viewer will
+# look broken when it is the phone that walked away.
+#
+# Usage:  wifi-hotspot [seconds] [ssid] [password]
+# Safe:   sudo systemd-run --unit=hotspot-drill --collect \
+#           /usr/local/lib/livecam-tools/wifi-hotspot 300 elemesh hunter2hunter2
+#         ...then read the log once the radio is back.
+
+set -u
+
+SECONDS_UP="${1:-300}"
+SSID="${2:-elemesh}"
+PASSWORD="${3:-}"
+IFACE="$(nmcli -t -f DEVICE,TYPE device | awk -F: '$2=="wifi"{print $1; exit}')"
+LOG="/var/log/wifi-hotspot-drill.log"
+
+log() { printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" | tee -a "$LOG"; }
+
+if [ -z "$IFACE" ]; then log "no wifi device found"; exit 1; fi
+if [ ${#PASSWORD} -lt 8 ]; then
+    log "password must be at least 8 characters (WPA2 minimum); refusing"
+    exit 2
+fi
+
+# What to go back to. Captured BEFORE anything changes, because after the
+# hotspot is up this information is gone and the machine would have no idea
+# which of eleven saved networks it had been on.
+PREV="$(nmcli -t -f NAME,DEVICE,TYPE connection show --active \
+        | awk -F: -v d="$IFACE" '$3=="802-11-wireless" && $2==d {print $1; exit}')"
+log "--- drill start --- iface=$IFACE previous=${PREV:-none} up=${SECONDS_UP}s"
+
+restore() {
+    log "restoring..."
+    nmcli connection down "hotspot-$SSID" >/dev/null 2>&1
+    nmcli connection delete "hotspot-$SSID" >/dev/null 2>&1
+    if [ -n "$PREV" ]; then
+        nmcli connection up "$PREV" >/dev/null 2>&1 \
+            && log "rejoined: $PREV" \
+            || log "FAILED to rejoin $PREV -- radio may need a hand"
+    else
+        # No previous profile means it was not associated to begin with.
+        # Hand the radio back to NetworkManager and let it choose.
+        nmcli device connect "$IFACE" >/dev/null 2>&1
+        log "no previous profile; asked NetworkManager to reconnect $IFACE"
+    fi
+    log "--- drill end --- state: $(nmcli -t -f DEVICE,STATE device | grep "^$IFACE:")"
+}
+# Covers a kill, a crash and a normal exit alike. The one thing this must
+# never do is leave the machine beaconing with nobody able to reach it.
+trap restore EXIT INT TERM
+
+log "raising hotspot ssid=$SSID on $IFACE (this drops the current network NOW)"
+if nmcli device wifi hotspot ifname "$IFACE" con-name "hotspot-$SSID" \
+        ssid "$SSID" password "$PASSWORD" >>"$LOG" 2>&1; then
+    log "UP. phones: join \"$SSID\""
+    log "address: $(ip -4 -o addr show "$IFACE" | awk '{print $4}')"
+    log "viewer:  http://$(ip -4 -o addr show "$IFACE" | awk -F'[ /]+' '{print $4}'):8080/llc"
+else
+    log "REFUSED by the driver or NetworkManager -- see above."
+    log "AP is in the supported-modes list, so this is the rtw88 driver"
+    log "declining in practice. That is a measurement; record it."
+    exit 3
+fi
+
+sleep "$SECONDS_UP"
