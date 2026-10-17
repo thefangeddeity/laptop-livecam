@@ -151,6 +151,56 @@ if [ -n "$2" ]; then     # $2 is the old version -- set only on upgrade
     done
 fi
 
+# --- Recover from a rename teardown -----------------------------
+# The block above cannot help a node coming from the hls-livecam-server
+# name, for two reasons: $2 is empty on a rename, and the superseded
+# package's prerm ran `systemctl disable` as well as `stop`, so the
+# is-enabled test above would skip every unit even if it did run.
+#
+# Fixed at the root in this release's prerm, which now honours dpkg's
+# `remove in-favour` argument instead of treating a supersession as a
+# removal. But that fix lives in the NEW package -- the script that runs on
+# a rename is the OLD one, already installed. So any node still on 7.0.4 or
+# earlier takes the teardown on its way here, exactly once, and this is
+# what puts it back. The path is vestigial after that, by design.
+#
+# It enables and starts mediamtx and broadcast-api, which this package does
+# not function without, and deliberately leaves ffmpeg-cam alone: it is the
+# legacy capture path, off on a studio-pipeline node, and switching it back
+# on would be guessing. What was enabled before is not recoverable -- see
+# preinst -- so a node that had deliberately disabled broadcast-api will
+# need to disable it again, and this says so out loud rather than silently.
+RENAME_FLAG=/var/lib/hls-livecam/renamed-from-hls-livecam-server
+if [ -f "$RENAME_FLAG" ]; then
+    echo ""
+    echo -e "${YELLOW}Took over from hls-livecam-server.${NC} Its removal step"
+    echo "stopped and disabled the services; re-enabling the two this"
+    echo "package requires. ffmpeg-cam is left as it is."
+    for unit in mediamtx broadcast-api; do
+        systemctl enable "$unit" >/dev/null 2>&1 || true
+        if systemctl start "$unit" 2>/dev/null; then
+            echo "  $unit: enabled and started"
+        else
+            echo -e "  ${YELLOW}$unit: could not start -- check: systemctl status $unit${NC}"
+        fi
+    done
+    # The same prerm deleted the sudoers drop-ins that hls-livecam-setup
+    # writes, and this package has never shipped them, so they cannot be
+    # restored from the payload. Say which are missing instead of leaving
+    # camdash to fail for a reason nobody can see.
+    LOST=""
+    for f in /etc/sudoers.d/hls-livecam-dark \
+             /etc/sudoers.d/hls-livecam-services \
+             /etc/sudoers.d/camdash-smart; do
+        [ -f "$f" ] || LOST="$LOST $(basename "$f")"
+    done
+    if [ -n "$LOST" ]; then
+        echo -e "  ${YELLOW}sudoers drop-ins removed by the old package:${NC}$LOST"
+        echo "  Recreate them with: sudo hls-livecam-setup"
+    fi
+    rm -f "$RENAME_FLAG"
+fi
+
 echo ""
 echo -e "${GREEN}hls-livecam-server installed.${NC}"
 echo ""
