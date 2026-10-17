@@ -111,10 +111,26 @@ say "Installing on $HOST (the camera goes dark from here until step 4)"
 ssh "$HOST" "sudo dpkg -i /tmp/$DEB" || die "dpkg -i failed -- node is mid-install, roll back"
 
 # --- 4. Re-assert what the rename destroyed ---------------------------
+# The order here matters more than it looks. Validating AFTER writing, and
+# dying on failure, would leave an invalid config on disk while nginx keeps
+# serving the one it already has loaded -- so every check below would pass
+# and the node would look healthy. The breakage would surface at the next
+# reload, logrotate, package action or reboot, detached from this script by
+# hours, on the one node whose viewer is https-only. So: stash what dpkg
+# installed, write ours, and put dpkg's back if ours does not validate.
+# Being left on the package config is visibly broken and fixable in a
+# minute; being left on an invalid file is invisible until it is not.
 say "Restoring the nginx TLS config"
 ssh "$HOST" "set -e
+    sudo cp -p /etc/nginx/conf.d/hls-livecam.conf /tmp/hls-livecam.conf.frompkg
     sudo cp -p '$BACKUP/hls-livecam.conf' /etc/nginx/conf.d/hls-livecam.conf
-    sudo nginx -t" || die "restored nginx config does not pass nginx -t"
+    if ! sudo nginx -t; then
+        echo 'restored config failed nginx -t; putting the package copy back' >&2
+        sudo cp -p /tmp/hls-livecam.conf.frompkg /etc/nginx/conf.d/hls-livecam.conf
+        exit 1
+    fi
+    sudo rm -f /tmp/hls-livecam.conf.frompkg" \
+    || die "restored nginx config does not pass nginx -t (package copy left in place, TLS is DOWN)"
 ssh "$HOST" 'sudo systemctl reload nginx' || die "nginx reload failed"
 
 say "Restoring the sudoers drop-ins"
