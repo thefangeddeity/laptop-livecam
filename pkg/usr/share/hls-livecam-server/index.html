@@ -1469,16 +1469,28 @@
        and when the header was refactored to .ele-top that selector stopped
        matching, so the hostname inherited 16px sans from <body>. One element
        60% larger than its neighbours and the only non-mono thing in the row. */
-    .me { font: 600 11px/1 var(--mono); letter-spacing: .01em;
-          color: #d8bd7e; text-shadow: none; }
+    .ele-col { display: flex; flex-direction: column; gap: 4px;
+               min-width: 0; }
+    .ele-col.right { align-items: flex-end; text-align: right; }
+
+    .me { font: 700 15px/1 var(--mono); letter-spacing: .005em;
+          color: #d8bd7e; text-shadow: none;
+          /* A long hostname shortens rather than wrapping under its own
+             qualifier, which would put two different facts on one line. */
+          max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; }
     .me.node { color: #7fd8c0; }
 
     /* Engraved into the housing, full-bleed, in housing colours -- the panel
        padding is 14px, so -14px reaches the edges. The old rule was a teal
        glass hairline drawn on metal. */
-    .ele-sub { padding: 0 14px 7px; margin: 0 -14px 8px;
+    .ele-sub { padding: 0 14px 9px; margin: 0 -14px 9px;
                border-bottom: 1px solid #242428;
-               box-shadow: 0 1px 0 rgba(255,255,255,.03); }
+               box-shadow: 0 1px 0 rgba(255,255,255,.03);
+               /* Tops aligned, not centres: the two columns have different
+                  heights, and centring would float the shorter one and break
+                  the line the two titles sit on. */
+               align-items: flex-start; }
 
     html[data-theme="light"] .ele-what { color: #4f666d; }
     html[data-theme="light"] .ele-brand,
@@ -1960,14 +1972,16 @@
         <!-- Two rows and a rule. Left is what this card IS and how it is
              reaching the fleet; right is whose software and which machine.
              The messenger's logo is the only thing borrowed from it. -->
-        <div class="ele-top">
-          <span class="ele-what eng">Messages</span>
-          <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-16px.png"
-                alt="" width="12" height="12"> ELEM</span>
-        </div>
         <div class="ele-top ele-sub">
-          <span class="ele-transport" id="eleTransport">—</span>
-          <span class="me" id="eleMe"></span>
+          <span class="ele-col">
+            <span class="ele-what eng">Messages</span>
+            <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-16px.png"
+                  alt="" width="12" height="12"> ELEM</span>
+          </span>
+          <span class="ele-col right">
+            <span class="me" id="eleMe"></span>
+            <span class="ele-transport" id="eleTransport">—</span>
+          </span>
         </div>
         <div class="ele-list" id="eleList">checking…</div>
         <!-- And replying happens here. A card you can only read from is a
