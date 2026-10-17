@@ -1457,28 +1457,53 @@
     .ele-brand img { width: 12px; height: 12px; border-radius: 3px;
                      opacity: .85; flex: none; transform: translateY(-.5px); }
 
-    /* Rung 3: which path this page came in over. Measured, so it is a LABEL
-       and not a lamp -- the panel's colour grammar reserves tint for state,
-       and a fourth hue would make a fact look like an alarm. */
+    /* Rung 3: which path this page came in over -- now the QUALIFIER beneath
+       the machine name rather than a peer of the title. Measured, so it is a
+       LABEL and not a lamp: the panel's colour grammar reserves tint for
+       state, and a fourth hue would make a fact look like an alarm. */
     .ele-transport { font: 600 8.5px/1 var(--mono); letter-spacing: .13em;
                      text-transform: uppercase; color: var(--emboss);
-                     text-shadow: none; margin-right: -.13em; }
+                     text-shadow: none;
+                     /* Tracking adds a trailing space after the last letter.
+                        On a right-aligned column that space is visible as a
+                        ragged edge against the title above it. */
+                     margin-right: -.13em; }
 
-    /* Rung 2: the SUBJECT of the header -- which machine you are speaking as.
-       It had no rule at all: `.me` was only ever styled as `.ele-head .me`,
-       and when the header was refactored to .ele-top that selector stopped
-       matching, so the hostname inherited 16px sans from <body>. One element
-       60% larger than its neighbours and the only non-mono thing in the row. */
-    .me { font: 600 11px/1 var(--mono); letter-spacing: .01em;
-          color: #d8bd7e; text-shadow: none; }
+    /* A column is a thing over its qualifier. The gap is small on purpose:
+       these two lines are one statement read downwards, and spacing them
+       like siblings would make them look like separate facts. */
+    .ele-col { display: flex; flex-direction: column; gap: 4px;
+               min-width: 0; }
+    .ele-col.right { align-items: flex-end; text-align: right; }
+
+    /* Rung 2: the SUBJECT of the header -- which machine you are speaking as,
+       and now the largest thing in it.
+
+       It had no rule at all for a while: `.me` was only ever styled as
+       `.ele-head .me`, and when the header was refactored that selector
+       stopped matching, so the hostname inherited 16px sans from <body>.
+       Fixing that made it 11px and quiet, which was the opposite overcorrection
+       -- the one fact on this card that CHANGES was the one you had to hunt
+       for. It leads its column now, at a size that reads across a room, and
+       it carries the header's only tint. Everything else here is housing. */
+    .me { font: 700 15px/1 var(--mono); letter-spacing: .005em;
+          color: #d8bd7e; text-shadow: none;
+          /* A long hostname shortens rather than wrapping under its own
+             qualifier, which would put two different facts on one line. */
+          max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+          white-space: nowrap; }
     .me.node { color: #7fd8c0; }
 
     /* Engraved into the housing, full-bleed, in housing colours -- the panel
        padding is 14px, so -14px reaches the edges. The old rule was a teal
        glass hairline drawn on metal. */
-    .ele-sub { padding: 0 14px 7px; margin: 0 -14px 8px;
+    .ele-sub { padding: 0 14px 9px; margin: 0 -14px 9px;
                border-bottom: 1px solid #242428;
-               box-shadow: 0 1px 0 rgba(255,255,255,.03); }
+               box-shadow: 0 1px 0 rgba(255,255,255,.03);
+               /* Tops aligned, not centres: the two columns have different
+                  heights, and centring them would float the shorter one and
+                  break the line the two titles sit on. */
+               align-items: flex-start; }
 
     html[data-theme="light"] .ele-what { color: #4f666d; }
     html[data-theme="light"] .ele-brand,
@@ -1558,7 +1583,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-129-ga573e72-dirty · dev · a573e72"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-137-g179ae5e-dirty · dev · 179ae5e"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1957,17 +1982,25 @@
            A node with no messenger therefore shows Node Note and nothing
            else, which is the intended degradation rather than an error. -->
       <div class="panel" id="elePanel" hidden>
-        <!-- Two rows and a rule. Left is what this card IS and how it is
-             reaching the fleet; right is whose software and which machine.
-             The messenger's logo is the only thing borrowed from it. -->
-        <div class="ele-top">
-          <span class="ele-what eng">Messages</span>
-          <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-16px.png"
-                alt="" width="12" height="12"> ELEM</span>
-        </div>
+        <!-- Two COLUMNS and a rule, not two rows. Each side is a thing and
+             its qualifier, stacked: what this card is, and who you are
+             speaking as. Read down rather than across.
+
+             The machine name leads its column because in the event this is
+             for, WHICH MACHINE IS STILL TALKING is the fact on the card that
+             changes. "Messages" and "ELEM" never change; the network it is
+             reaching over might; the name is the one that matters at a
+             glance, so it gets the size and the only tint in the header. -->
         <div class="ele-top ele-sub">
-          <span class="ele-transport" id="eleTransport">—</span>
-          <span class="me" id="eleMe"></span>
+          <span class="ele-col">
+            <span class="ele-what eng">Messages</span>
+            <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-16px.png"
+                  alt="" width="12" height="12"> ELEM</span>
+          </span>
+          <span class="ele-col right">
+            <span class="me" id="eleMe"></span>
+            <span class="ele-transport" id="eleTransport">—</span>
+          </span>
         </div>
         <div class="ele-list" id="eleList">checking…</div>
         <!-- And replying happens here. A card you can only read from is a
