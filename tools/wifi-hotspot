@@ -45,6 +45,21 @@ if [ ${#PASSWORD} -lt 8 ]; then
     log "password must be at least 8 characters (WPA2 minimum); refusing"
     exit 2
 fi
+# Everything checkable is checked BEFORE the radio is touched, because the
+# cost of finding out late is the whole machine leaving the network.
+#
+# NetworkManager's shared mode hands out addresses with dnsmasq and does not
+# look for it until stage 3 of 5 -- by which point the AP is already up and
+# the client connection is already gone. The first run of this drill died
+# exactly there: the hotspot started, dnsmasq was missing, and the only
+# evidence was a line in the journal.
+if ! command -v dnsmasq >/dev/null 2>&1; then
+    log "dnsmasq is not installed, and NetworkManager's shared mode needs it"
+    log "to hand out addresses. Refusing before touching the radio."
+    log "  Arch:   sudo pacman -S dnsmasq"
+    log "  Debian: sudo apt install dnsmasq-base"
+    exit 4
+fi
 
 # What to go back to. Captured BEFORE anything changes, because after the
 # hotspot is up this information is gone and the machine would have no idea
@@ -80,9 +95,18 @@ if nmcli device wifi hotspot ifname "$IFACE" con-name "hotspot-$SSID" \
     log "address: $(ip -4 -o addr show "$IFACE" | awk '{print $4}')"
     log "viewer:  http://$(ip -4 -o addr show "$IFACE" | awk -F'[ /]+' '{print $4}'):8080/llc"
 else
-    log "REFUSED by the driver or NetworkManager -- see above."
-    log "AP is in the supported-modes list, so this is the rtw88 driver"
-    log "declining in practice. That is a measurement; record it."
+    # Report what happened; do not decide why. The first version of this
+    # script announced "the rtw88 driver declining in practice" on every
+    # failure. That was a guess written into an error path, and it was wrong:
+    # the driver had raised the AP perfectly well -- "Stage 2 of 5 (Device
+    # Configure) successful. Started Wi-Fi Hotspot" -- and the failure was a
+    # missing dnsmasq one stage later. A hardcoded cause does not become a
+    # measurement by being printed next to one.
+    log "FAILED to bring the hotspot up. NetworkManager's own account:"
+    journalctl -u NetworkManager --since "-2min" --no-pager 2>/dev/null \
+        | grep -iE "wlo1|wifi|hotspot|shared|dnsmasq|ip-config" \
+        | tail -12 | sed 's/^/    /' | tee -a "$LOG"
+    log "Read the stage it failed at before concluding anything about the radio."
     exit 3
 fi
 
