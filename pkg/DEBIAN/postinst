@@ -170,6 +170,15 @@ fi
 # on would be guessing. What was enabled before is not recoverable -- see
 # preinst -- so a node that had deliberately disabled broadcast-api will
 # need to disable it again, and this says so out loud rather than silently.
+# Nothing here ever told systemd that unit files had changed. It did not
+# bite on the way to 7.0.5 -- the only systemd change in that range was an
+# added timer, and the units being started were byte-identical -- but a
+# release that edits broadcast-api.service would get `systemctl start` on a
+# stale definition, warning only on stderr where an unattended install will
+# not surface it. Correct for every future release instead of correct by
+# accident in this one.
+systemctl daemon-reload >/dev/null 2>&1 || true
+
 RENAME_FLAG=/var/lib/hls-livecam/renamed-from-hls-livecam-server
 if [ -f "$RENAME_FLAG" ]; then
     echo ""

@@ -33,9 +33,18 @@ set -e
 # The teardown therefore runs BEFORE the new package's scripts exist to see it,
 # and both of them get an empty $2, so neither can tell an upgrade from a first
 # install. Nothing after this point knows the services were just disabled.
+# The catch-all deliberately does NOT tear down. The two failure directions
+# are not symmetrical: a teardown we skip leaves services running after a
+# removal, which is untidy, while a teardown we perform by mistake takes a
+# node dark, which is the defect this block exists to fix. An unrecognised
+# form of `remove` is therefore treated as not-a-removal.
 case "$1" in
   remove)
-    if [ -n "$2" ]; then REMOVING=no; else REMOVING=yes; fi
+    case "$2" in
+      in-favour) REMOVING=no  ;;   # superseded: an upgrade wearing a new name
+      "")        REMOVING=yes ;;   # genuine removal
+      *)         REMOVING=no  ;;   # unknown form: do not tear down blind
+    esac
     ;;
   *)      REMOVING=no ;;
 esac
