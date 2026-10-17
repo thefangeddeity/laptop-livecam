@@ -19,8 +19,24 @@ set -e
 # else.
 # Only `remove` is a real teardown. `deconfigure` is temporary and
 # `upgrade` is not a removal at all, whatever the old script assumed.
+# dpkg calls `prerm remove in-favour <pkg> <ver>` when this package is being
+# SUPERSEDED by a renamed one (the Replaces/Conflicts/Provides idiom), which is
+# an upgrade wearing a different name -- not a removal. The old script ignored
+# $2 and tore the node down.
+#
+# That it cannot be undone downstream is measured, not assumed. On tina the
+# order is:
+#
+#   old prerm remove in-favour  ->  new preinst install (no $2)
+#                               ->  new postinst configure (no $2)
+#
+# The teardown therefore runs BEFORE the new package's scripts exist to see it,
+# and both of them get an empty $2, so neither can tell an upgrade from a first
+# install. Nothing after this point knows the services were just disabled.
 case "$1" in
-  remove) REMOVING=yes ;;
+  remove)
+    if [ -n "$2" ]; then REMOVING=no; else REMOVING=yes; fi
+    ;;
   *)      REMOVING=no ;;
 esac
 

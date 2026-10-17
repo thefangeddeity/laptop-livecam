@@ -12,4 +12,30 @@ if [ -f /var/www/hls-livecam/cams/cams.json ]; then
     cp -p /var/www/hls-livecam/cams/cams.json /var/lib/hls-livecam/cams.json.upgrade-save
 fi
 
+# 7.0.5: leave postinst a note when this install is SUPERSEDING the old
+# package name. dpkg hands both of our scripts an empty $2 on a rename, so
+# postinst cannot otherwise tell "first install on a fresh machine" -- where
+# starting services would be wrong, the setup wizard has not run -- from
+# "took over from hls-livecam-server" -- where the old prerm has just
+# stopped and DISABLED services that were running a second ago.
+#
+# This runs after the old prerm and before the old package is removed from
+# the database, so the query still sees it -- but NOT as "install ok
+# installed". Measured on tina: by the time this script runs, dpkg has
+# already marked the outgoing package `install ok half-installed`, because
+# its prerm has been run. Matching only the fully-installed status was the
+# first version of this check and it silently never fired. The states below
+# are "dpkg knows this package and has not purged it"; a fresh machine
+# gives an empty string and a purged one says not-installed, so neither
+# matches and services are left alone for the setup wizard.
+#
+# It cannot record WHICH units were enabled: they were disabled before this
+# script existed. See postinst.
+if dpkg-query -W -f='${Status}' hls-livecam-server 2>/dev/null \
+     | grep -qE 'install ok (installed|half-installed|unpacked|half-configured)'; then
+    mkdir -p /var/lib/hls-livecam
+    printf 'superseded hls-livecam-server at %s\n' "$(date -Is)" \
+        > /var/lib/hls-livecam/renamed-from-hls-livecam-server
+fi
+
 exit 0
