@@ -46,7 +46,12 @@ def _epoch_ms(ts):
         d = datetime.fromisoformat(t)
         if d.tzinfo is None:
             d = d.replace(tzinfo=timezone.utc)
-        return int(d.timestamp() * 1000)
+        # Seconds and milliseconds added as integers, not ts * 1000. An
+        # epoch in milliseconds needs sixteen significant digits, which is the
+        # edge of a float64 -- so the multiply can round, and an identity that
+        # is sometimes one millisecond off is an identity that sometimes
+        # duplicates a message. Integer arithmetic cannot.
+        return int(d.timestamp()) * 1000 + d.microsecond // 1000
     except Exception:
         return None
 
@@ -69,8 +74,22 @@ class Record(object):
 
     @property
     def id(self):
+        # The timestamp is hashed as epoch MILLISECONDS, not as the string it
+        # arrived in. Two reasons, both measured:
+        #
+        # Precision. The store keeps microseconds and the mesh keeps
+        # milliseconds, so a message written at .630540 came back as .630000 --
+        # a different string, a different hash, and the same message stored
+        # twice. Everything is compared at the coarser of the two precisions
+        # because that is the most either side can promise.
+        #
+        # Formatting. '...+00:00', '...Z' and a bare naive stamp are the same
+        # instant written three ways, and this fleet has produced all three.
+        # Identity should not depend on which one a node happens to emit.
+        ms = _epoch_ms(self.ts)
+        when = str(ms) if ms is not None else (self.ts or '')
         return hashlib.sha256(SEP.join(
-            (self.room, self.author, self.ts, self.text)).encode('utf-8')
+            (self.room, self.author, when, self.text)).encode('utf-8')
         ).hexdigest()[:32]
 
     def __repr__(self):
