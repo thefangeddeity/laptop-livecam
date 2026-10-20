@@ -52,20 +52,26 @@ FRAME_W, FRAME_H = 1280, 720
 
 
 def _api_port(host):
-    """The target's control-plane port.
+    """The target's control-plane port. THIS IS PLATFORM-SPECIFIC.
 
-    Was the literal 5000 -- Flask's default, and wrong since the API settled
-    on 8080. Every call in this file has been talking to a closed port on
-    every node, silently, for as long as nobody ran it.
+    macOS node: broadcast-api binds WEB_PORT itself -- app.run(port=WEB_PORT),
+    8080 -- because there is no nginx here. Nothing listens on 5000; measured
+    as connection refused with nothing bound even as root.
 
-    8080 is the real answer on every node in this fleet: the macOS node serves
-    it directly, and the Linux nodes reach it through nginx, which listens
-    there (verified on tanzania and tina). It is overridable because a
-    constant nobody can change is how the 5000 survived, but it is NOT probed
-    from device.env -- I wrote that probe first and it read a WEB_PORT key
-    those files do not contain, so it could only ever fall through to the
-    default while looking like it had checked. A check that cannot fail is
-    worse than a stated assumption.
+    LINUX NODES: the API binds loopback 5000 and nginx on 8080 is the public
+    face that proxies to it. 5000 IS LIVE on tanzania and tina, verified by
+    the Linux lead, and their copy of this file is correct as written -- the
+    control-plane endpoints are not all proxied, so changing it to 8080 there
+    would break it. Do not port this function to Linux.
+
+    This file was literally 5000, which was right on Linux and never right
+    here. I then wrote in a commit message that nothing listened on 5000 "on
+    every node", having checked exactly one node -- the same overreach as
+    calling a file untracked because it was not in the directory I searched.
+    The honest scope of a measurement is the thing measured.
+
+    Overridable because a constant nobody can change is how the wrong one
+    survived.
     """
     return os.environ.get('LIVECAM_API_PORT', '8080')
 
