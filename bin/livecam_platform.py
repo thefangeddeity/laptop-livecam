@@ -63,8 +63,22 @@ def config_path():
     return os.environ.get("LIVECAM_CONFIG") or os.path.join(_base_dir(), "config.env")
 
 
+def rec_dir():
+    """The rolling recording mediamtx writes and cv_notify cuts alert clips
+    from. One definition, because there were previously two and one of them
+    was a Linux path compiled into the macOS port.
+
+    Derived from state_dir(), NOT from _base_dir(): state_dir honours
+    LIVECAM_STATE_DIR, which the bash CLI exports so that a dev checkout and
+    the components it launches agree on where runtime files live. Reaching
+    past it to _base_dir() put the recording in Application Support while the
+    running mediamtx was reading its config from the checkout -- the same
+    two-locations-for-one-thing mistake, one directory over."""
+    return os.environ.get("LIVECAM_REC_DIR") or os.path.join(state_dir(), "rec")
+
+
 def ensure_dirs():
-    for d in (state_dir(), log_dir()):
+    for d in (state_dir(), log_dir(), rec_dir()):
         os.makedirs(d, exist_ok=True)
 
 

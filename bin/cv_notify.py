@@ -115,6 +115,7 @@ class Notifier:
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
                  min_fg=0.0, classes_file='/dev/null',
                  video_flag_file='/dev/null',
+                 rec_dir=None,
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
@@ -128,6 +129,10 @@ class Notifier:
         # Was a hardcoded Linux path, so on macOS it never existed and the
         # switch silently read as "on" no matter what the panel said.
         self.video_flag_file = video_flag_file
+        # Instance attribute shadows the class default, so a node whose
+        # recording lives somewhere else says so once, at construction.
+        if rec_dir:
+            self.REC_DIR = rec_dir
         self.cooldown_sec = float(cooldown_sec)
         # Motion gate. A detection that has never once overlapped moving
         # foreground is furniture: tanzania spent an hour reporting a crumpled
@@ -358,6 +363,14 @@ class Notifier:
     # Live-toggled through a state file, like feed mode and blur: the panel
     # writes it, this reads it per event. Absent file means on.
 
+    # The rolling recording's `cam` path -- a DEFAULT, overridden per node,
+    # the same way snapshot_dir and video_flag_file are. It used to be this
+    # constant and nothing else, which is where the Linux nodes keep it and
+    # which does not exist on macOS: _cut_clip globbed an empty directory and
+    # returned None on every alert, forever. The cutter was correct the whole
+    # time; it was reading a path no platform-aware code had ever written to,
+    # and the function's own "None is never an error worth failing over"
+    # turned a missing feature into a silence nobody could see.
     REC_DIR         = '/var/lib/hls-livecam/rec/cam'
 
     def _video_wanted(self):
@@ -702,4 +715,5 @@ def make_notifier(denv, log=None):
                     min_fg=_num('NOTIFY_MIN_FG', 0.05),
                     classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null',
                     video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
-                        or '/var/lib/hls-livecam/notify_video')
+                        or '/var/lib/hls-livecam/notify_video',
+                    rec_dir=_get('NOTIFY_REC_DIR', '') or None)
