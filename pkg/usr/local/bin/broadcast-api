@@ -37,6 +37,16 @@ BLUR_MODE_FILE  = "/var/lib/hls-livecam/blur_mode"
 DETECT_ALWAYS_FILE = "/var/lib/hls-livecam/detect_always"
 NOTIFY_CLASSES_FILE = "/var/lib/hls-livecam/notify_classes"
 NOTIFY_VIDEO_FILE  = "/var/lib/hls-livecam/notify_video"
+
+
+class _RecorderDisabled(Exception):
+    """RECORD_ENABLED=false -- the evidence recorder was not started.
+
+    Raised into the recorder's own start-up try/except so that one place
+    handles "no recorder" for both reasons, rather than duplicating the
+    teardown path. It is not an error and is not logged as one.
+    """
+
 # Talkback publishes to its own mediamtx path. Nothing else reads it: the
 # node subscribes over RTSP on loopback, because mediamtx re-serves whatever
 # arrives by WHIP on every protocol it speaks, and ffmpeg speaks RTSP.
@@ -1310,12 +1320,40 @@ def _writer_loop():
     # over HLS, so a second path carrying the real picture would be fetchable
     # while Hide is on, quietly undoing the one control whose whole job is
     # that nobody sees the room.
-    _rec_root = "/var/lib/hls-livecam/rec/evidence"
+    _denv_rec = _read_device_env()
+    _rec_root = (str(_denv_rec.get("RECORD_DIR", "")).strip()
+                 or "/var/lib/hls-livecam/rec/evidence")
+
+    # RECORD_ENABLED, default on, because the recorder is not free and the
+    # price is not the same on every node. Measured on tanzania at 1280x720
+    # and 15fps: 38.5% of one core for the x264 leg, and ~4.5MB per 60s
+    # segment, which is 1.6-2.2GB held for the default six-hour window.
+    #
+    # That is affordable on eight cores and a disk with room. It is not
+    # obviously affordable on tina, which is a 2011 i3 with four threads
+    # already measured about 2.8x over its per-frame budget, and 6.0GB free
+    # of 32GB -- a second x264 encode and a third of the remaining disk, on
+    # the node that is the actual family camera. Every other costly CV
+    # feature on this fleet is switchable per node, including by measured
+    # capability; this one shipped without a switch, so it gets one.
+    #
+    # Default true keeps tanzania exactly as it was. A node that cannot
+    # afford it sets RECORD_ENABLED=false in device.env and loses alert
+    # CLIPS only -- stills, detection and alerting are untouched, because
+    # they never came through here.
+    _rec_on = str(_denv_rec.get("RECORD_ENABLED", "true")).strip().lower() \
+        not in ("0", "false", "no", "off")
+    if not _rec_on:
+        print("broadcast-api: evidence recorder disabled "
+              "(RECORD_ENABLED=false); alert clips unavailable, stills "
+              "unaffected", flush=True)
     try:
         os.makedirs(_rec_root, exist_ok=True)
     except Exception:
         pass
     try:
+        if not _rec_on:
+            raise _RecorderDisabled()
         _rec = subprocess.Popen([
             "ffmpeg", "-hide_banner", "-loglevel", "error",
             "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -1323,8 +1361,15 @@ def _writer_loop():
             "-use_wallclock_as_timestamps", "1",
             "-i", "pipe:0", "-an",
             "-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency",
-            "-pix_fmt", "yuv420p", "-b:v", "800k", "-g", str(fr),
-            "-f", "segment", "-segment_time", "60", "-segment_format", "mp4",
+            "-pix_fmt", "yuv420p",
+            # Config, not literals. The evidence leg is not the feed: it
+            # trades bitrate for a rolling window measured in hours, and the
+            # right trade differs per node.
+            "-b:v", str(_denv_rec.get("RECORD_BITRATE", "800k")).strip() or "800k",
+            "-g", str(fr),
+            "-f", "segment",
+            "-segment_time", str(int(float(_denv_rec.get("RECORD_SEGMENT_S", 60)))),
+            "-segment_format", "mp4",
             # Fragmented, so the segment still being written is playable --
             # the clip cutter treats the newest one as open-ended, which is
             # only true if a partial file can be read at all.
@@ -1341,6 +1386,10 @@ def _writer_loop():
            stderr=open(os.path.join(_rec_root, "ffmpeg.log"), "ab",
                        buffering=0),
            bufsize=0)
+    except _RecorderDisabled:
+        # Not a failure, and deliberately not reported as one: the operator
+        # asked for this. Everything downstream already handles _rec = None.
+        _rec = None
     except Exception as _exc:
         print("broadcast-api: evidence recorder failed to start: %s" % _exc,
               file=sys.stderr, flush=True)
