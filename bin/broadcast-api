@@ -834,15 +834,47 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
     last_observe = [0.0]
     last_prune = [0.0]
 
+    # The recorder is written from its OWN thread, behind a bounded queue.
+    #
+    # Writing to it inline looks harmless and is not: rec.stdin is a pipe
+    # opened with bufsize=0, so a write blocks once the pipe fills, and a
+    # block here stops the pump -- which stops the picture, stops the
+    # detector, and shows up as "capture stalled" with nothing pointing at
+    # the recorder. The evidence leg must never be able to do that; it is
+    # the least important consumer of this frame and it was the only one
+    # able to halt the rest.
+    #
+    # Bounded at 8 frames (~half a second at 15fps). Full means the recorder
+    # is behind, and the frame is DROPPED rather than waited on: a clip with
+    # a dropped frame is still evidence, a stalled stream is an outage.
+    rec_q = queue.Queue(maxsize=8) if rec is not None else None
+    rec_dropped = [0]
+
+    def _rec_writer():
+        while True:
+            buf = rec_q.get()
+            if buf is None:
+                break
+            try:
+                rec.stdin.write(buf)
+            except Exception:
+                break      # recorder died; stop feeding a closed pipe
+
+    if rec_q is not None:
+        threading.Thread(target=_rec_writer, daemon=True,
+                         name='cv-rec-writer').start()
+
     def _to_rec(buf):
-        """Never let the recorder take the picture down with it. A failed
-        write here means no clip; a raised exception would mean no stream."""
-        if rec is None or rec.stdin is None:
+        """Never let the recorder take the picture down with it."""
+        if rec_q is None:
             return
         try:
-            rec.stdin.write(buf)
-        except Exception:
-            pass
+            rec_q.put_nowait(buf)
+        except queue.Full:
+            rec_dropped[0] += 1
+            if rec_dropped[0] in (1, 100, 1000) or rec_dropped[0] % 5000 == 0:
+                print('broadcast-api: evidence recorder behind, dropped '
+                      f'{rec_dropped[0]} frame(s)', file=sys.stderr, flush=True)
 
     def _prune():
         """Age out old segments. mediamtx had recordDeleteAfter; writing the
@@ -854,7 +886,8 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
         last_prune[0] = now
         try:
             keep = float(_cfg.get('RECORD_RETENTION_H', 6)) * 3600.0
-            root = os.path.join(STATE_DIR, 'rec', 'cam')
+            root = (str(_cfg.get('RECORD_DIR', '')).strip()
+                    or os.path.join(STATE_DIR, 'rec', 'cam'))
             cutoff = time.time() - keep
             for f in os.listdir(root):
                 if not f.endswith('.mp4'):
@@ -1138,7 +1171,8 @@ def _start_cv_publisher(mode='cv'):
     # THE COST IS REAL AND IT IS CPU: this is a second libx264 encode on a
     # node that also runs YOLO. ultrafast/zerolatency keeps it cheap, but if
     # the CV budget starts being missed, this is the first thing to look at.
-    rec_root = os.path.join(STATE_DIR, 'rec', 'cam')
+    rec_root = (str(_cfg.get('RECORD_DIR', '')).strip()
+                or os.path.join(STATE_DIR, 'rec', 'cam'))
     os.makedirs(rec_root, exist_ok=True)
     r = subprocess.Popen([
         FFMPEG, '-hide_banner', '-loglevel', 'error',
@@ -1148,8 +1182,15 @@ def _start_cv_publisher(mode='cv'):
         '-i', 'pipe:0',
         '-an',
         '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-        '-pix_fmt', 'yuv420p', '-b:v', '1500k', '-g', str(fr),
-        '-f', 'segment', '-segment_time', '60', '-segment_format', 'mp4',
+        '-pix_fmt', 'yuv420p',
+        # Config, not a literal. The evidence leg is not the feed: it trades
+        # bitrate for a rolling window measured in hours, and the right trade
+        # differs per node -- this one has 369G free, tanzania does not.
+        '-b:v', str(_cfg.get('RECORD_BITRATE', '1500k')).strip() or '1500k',
+        '-g', str(fr),
+        '-f', 'segment',
+        '-segment_time', str(int(float(_cfg.get('RECORD_SEGMENT_S', 60)))),
+        '-segment_format', 'mp4',
         # Fragmented, so a segment that is still being written -- or one cut
         # short by a mode change -- is still playable. The clip cutter treats
         # the newest segment as open-ended, which is only true if a partial
