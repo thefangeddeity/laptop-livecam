@@ -1499,8 +1499,15 @@
        converting once at the edge keeps the two from drifting. */
     /* Reset rides on the same row as the lamp. auto margin pushes it to the
        far edge so it lines up with the panel, not with the label. */
-    .roi-reset { margin-left: auto; padding: 2px 8px; font-size: 9px;
-                 letter-spacing: .08em; }
+    /* The two actions share a row under the lamp, indented to the lamp's
+       label so they read as belonging to it rather than as new settings. */
+    .roi-actions { gap: 6px; padding-left: 26px; }
+    .roi-actions .pbtn { flex: 1 1 0; padding: 3px 6px; font-size: 9px;
+                         letter-spacing: .08em; }
+    /* A region that has never been drawn cannot be switched on, and the lamp
+       says so by being unlit and unresponsive rather than by doing nothing
+       when pressed. */
+    .pinled.na { opacity: .4; cursor: default; }
     .roi-layer { position: absolute; inset: 0; z-index: 6; cursor: crosshair;
                  background: rgba(0,0,0,.35); }
     .roi-layer[hidden] { display: none; }
@@ -2208,15 +2215,24 @@
           <!-- The region belongs with Detection, not with the alert content
                switches below: it changes WHAT IS WATCHED, not what an alert
                carries. -->
+          <!-- Two controls, because they answer different questions. The
+               lamp is WHETHER the region applies; the button is WHAT it is.
+               One control doing both means switching the region off throws
+               away the box, and the next "on" costs you a drag -- nobody
+               toggles something that expensive. -->
           <div class="pinrow">
-            <button class="pinled" id="roiBtn" onclick="toggleRoiArm()"
-                    aria-pressed="false" aria-label="Set the detection area"
-                    title="Drag a box on the picture. The detector and its photos and clips are limited to it">
+            <button class="pinled" id="roiBtn" onclick="toggleRoi()"
+                    aria-pressed="false" aria-label="Limit detection to the chosen area"
+                    title="Apply the chosen area. Off watches the whole picture; the area is remembered either way">
               <span class="bulb" id="roiLamp"></span>
             </button>
-            <span class="eng rstlab">Detection area</span>
-            <button class="pbtn roi-reset" id="roiResetBtn" onclick="resetRoi()"
-                    title="Watch the whole picture again">Reset</button>
+            <span class="eng rstlab" id="roiLabel">Detection area</span>
+          </div>
+          <div class="pinrow roi-actions">
+            <button class="pbtn" id="roiSetBtn" onclick="armRoi()"
+                    title="Drag a box on the picture to choose the area">Set area</button>
+            <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
+                    title="Forget the area and watch the whole picture">Reset</button>
           </div>
           <div class="pdiv"></div>
           <div class="pinrow">
@@ -5400,7 +5416,10 @@
   // NOT fill its container -- there are letterbox bars, and a fraction taken
   // against the container would be wrong by the height of them. videoRect()
   // returns the rectangle the PICTURE occupies, not the element's.
-  var roiArmed = false, roiDrag = null, roiCur = null;
+  // roiCur is the stored box (or null if never drawn); roiOn is whether it
+  // APPLIES; roiArmed is whether we are currently drawing one. Three facts,
+  // because collapsing them is what made switching off cost a redraw.
+  var roiArmed = false, roiDrag = null, roiCur = null, roiOn = false;
 
   function videoRect() {
     var v = document.getElementById('video');
@@ -5419,8 +5438,20 @@
     var box = document.getElementById('roiBox');
     if (!layer || !box) return;
     layer.hidden = !roiArmed;
-    paintLed('roi', roiArmed || !!roiCur);
-    if (!roiCur) { box.hidden = true; return; }
+    paintLed('roi', roiOn);
+    var btn = document.getElementById('roiBtn');
+    // Unlit AND unresponsive when there is nothing to apply, rather than a
+    // switch that silently does nothing.
+    if (btn) btn.classList.toggle('na', !roiCur);
+    var lab = document.getElementById('roiLabel');
+    if (lab) lab.textContent = roiCur
+      ? (roiOn ? 'Detection area' : 'Detection area (off)')
+      : 'Detection area (not set)';
+    var rst = document.getElementById('roiResetBtn');
+    if (rst) rst.disabled = !roiCur;
+    // The box stays visible while armed even when switched off, so you can
+    // see what you are about to replace.
+    if (!roiCur || !(roiOn || roiArmed)) { box.hidden = true; return; }
     var r = videoRect(), host = layer.getBoundingClientRect();
     box.hidden = false;
     box.style.left   = (r.left - host.left + roiCur.x * r.width) + 'px';
@@ -5429,11 +5460,18 @@
     box.style.height = (roiCur.h * r.height) + 'px';
   }
 
-  function toggleRoiArm() {
+  function toggleRoi() {
+    // Flips whether the region applies. Sends only {on:...} so the server
+    // keeps the box -- that separation is the reason this is cheap.
+    if (!roiCur) return;
+    post('/api/detect-roi', JSON.stringify({ on: !roiOn }), function() { loadRoi(); });
+  }
+
+  function armRoi() {
     roiArmed = !roiArmed;
     var hint = document.getElementById('roiHint');
     if (hint) hint.textContent = roiCur
-      ? 'Drag to choose a new area, or press Reset for the whole picture'
+      ? 'Drag to choose a new area \u2014 the current one is outlined'
       : 'Drag on the picture to choose the area the detector watches';
     paintRoi();
   }
@@ -5441,7 +5479,7 @@
   function resetRoi() {
     // Empty body is Reset, server-side. Clearing locally first so the box
     // disappears on the press rather than on the reply.
-    roiCur = null; paintRoi();
+    roiCur = null; roiOn = false; roiArmed = false; paintRoi();
     post('/api/detect-roi', '', function() { loadRoi(); });
   }
 
@@ -5449,8 +5487,11 @@
     fetch('/api/detect-roi', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : ''; }).catch(function() { return ''; })
       .then(function(t) {
-        try { var d = JSON.parse(t); roiCur = (d && d.w > 0) ? d : null; }
-        catch (e) { roiCur = null; }
+        try {
+          var d = JSON.parse(t);
+          roiCur = (d && d.w > 0) ? d : null;
+          roiOn = !!(roiCur && d.on);
+        } catch (e) { roiCur = null; roiOn = false; }
         paintRoi();
       });
   }
