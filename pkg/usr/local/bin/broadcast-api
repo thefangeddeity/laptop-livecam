@@ -37,6 +37,7 @@ BLUR_MODE_FILE  = "/var/lib/hls-livecam/blur_mode"
 DETECT_ALWAYS_FILE = "/var/lib/hls-livecam/detect_always"
 NOTIFY_CLASSES_FILE = "/var/lib/hls-livecam/notify_classes"
 NOTIFY_VIDEO_FILE  = "/var/lib/hls-livecam/notify_video"
+NOTIFY_SHOTS_FILE  = "/var/lib/hls-livecam/notify_shots"
 
 
 class _RecorderDisabled(Exception):
@@ -605,6 +606,26 @@ def _detect_always_on():
 # file-backed shape as every other live toggle, so a restart keeps the answer.
 # Defaults ON: a failed cut degrades to stills on its own, so the safe default
 # is the useful one.
+# The stills switch, the same shape as the video one below it. Both can be
+# off at once: the alert still arrives and says what was seen instead of
+# showing it, which is a real setting on a metered connection and not a
+# misconfiguration. Defaults ON -- an alert with no evidence is the less
+# useful default, and an absent file means nobody has decided.
+def _read_notify_shots():
+    try:
+        with open(NOTIFY_SHOTS_FILE) as f:
+            return f.read().strip() != 'false'
+    except Exception:
+        return True
+
+def _write_notify_shots(enabled):
+    try:
+        os.makedirs(os.path.dirname(NOTIFY_SHOTS_FILE), exist_ok=True)
+        with open(NOTIFY_SHOTS_FILE, 'w') as f:
+            f.write('true' if enabled else 'false')
+    except Exception:
+        pass
+
 def _read_notify_video():
     try:
         with open(NOTIFY_VIDEO_FILE) as f:
@@ -2277,6 +2298,19 @@ def notify_classes_post():
 @app.route('/api/detect-always', methods=['GET'])
 def detect_always_get():
     return ('true' if _detect_always_on() else 'false'), 200
+
+@app.route('/api/notify-shots', methods=['GET'])
+def notify_shots_get():
+    return ('true' if _read_notify_shots() else 'false'), 200
+
+@app.route('/api/notify-shots', methods=['POST'])
+def notify_shots_post():
+    val = request.get_data(as_text=True).strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    _write_notify_shots(val == 'true')
+    return (val), 200
+
 
 @app.route('/api/notify-video', methods=['GET'])
 def notify_video_get():

@@ -2144,6 +2144,14 @@
                rule rather than another row in the list above. -->
           <div class="pdiv"></div>
           <div class="pinrow">
+            <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
+                    aria-pressed="false" aria-label="Include photos in alerts"
+                    title="Attach stills. Off with video off, the alert is text only">
+              <span class="bulb" id="alertShotsLamp"></span>
+            </button>
+            <span class="eng rstlab">Include photos</span>
+          </div>
+          <div class="pinrow">
             <button class="pinled" id="alertVideoBtn" onclick="toggleAlertVideo()"
                     aria-pressed="false" aria-label="Include video in alerts"
                     title="Attach a short clip as well as the still">
@@ -5242,7 +5250,7 @@
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
-  var clsOn = {}, detectOn = false, videoOn = false;
+  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false;
 
   function paintLed(id, on) {
     var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
@@ -5259,6 +5267,7 @@
     paintLed('detectBtn', detectOn);
     var dl = document.getElementById('detectLamp');
     if (dl) dl.classList.toggle('on', detectOn);
+    paintLed('alertShots', shotsOn);
     paintLed('alertVideo', videoOn);
     Object.keys(CLS_ID).forEach(function(c) { paintLed(CLS_ID[c], clsOn[c]); });
     // "All living beings" is lit when the four under it are, so the superset
@@ -5306,6 +5315,10 @@
     post('/api/detect-always', detectOn ? 'false' : 'true',
          function(v) { detectOn = v.trim() === 'true'; });
   }
+  function toggleAlertShots() {
+    post('/api/notify-shots', shotsOn ? 'false' : 'true',
+         function(v) { shotsOn = v.trim() === 'true'; });
+  }
   function toggleAlertVideo() {
     post('/api/notify-video', videoOn ? 'false' : 'true',
          function(v) { videoOn = v.trim() === 'true'; });
@@ -5322,6 +5335,10 @@
     fetch('/api/notify-video', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
       .then(function(v) { if (v !== null && e2 === alertsEpoch) videoOn = v.trim() === 'true'; paintAll(); });
+    var e2b = alertsEpoch;
+    fetch('/api/notify-shots', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null && e2b === alertsEpoch) shotsOn = v.trim() === 'true'; paintAll(); });
     var e3 = alertsEpoch;
     fetch('/api/notify-classes', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })

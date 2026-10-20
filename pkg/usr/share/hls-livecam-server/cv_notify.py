@@ -118,12 +118,14 @@ class Notifier:
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
                  min_fg=0.0, name=None,
                  video_flag_file='/var/lib/hls-livecam/notify_video',
+                 shots_flag_file='/var/lib/hls-livecam/notify_shots',
                  rec_dir=None, clip_pre=None, clip_post=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
         self.urls = [u.strip() for u in (urls or []) if u.strip()]
         self.classes = {c.strip().lower() for c in classes if c.strip()}
         self.video_flag_file = video_flag_file
+        self.shots_flag_file = shots_flag_file
         # Instance attribute shadows the class default, so a node whose
         # recording lives elsewhere says so once, at construction.
         if rec_dir:
@@ -297,8 +299,16 @@ class Notifier:
     def _send(self, item):
         text = item.get('text') or f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
+        # Read BEFORE the encode, not before the send. Encoding the stills is
+        # the expensive half of raising an alert, and a setting that does the
+        # work and throws it away is not off.
+        #
+        # A snapshot the operator asked for explicitly ignores this: turning
+        # off automatic photos must not silently break the button that takes
+        # one. Different intentions, same file extension.
+        want_shots = (item.get('cls') == 'snapshot') or self._shots_wanted()
         try:
-            for i, p in enumerate(item['picks']):
+            for i, p in enumerate(item['picks'] if want_shots else []):
                 # The snapshot is the original feed, not the sharpie or CV
                 # render: evidence for a person to look at.
                 bgr = cv2.cvtColor(p['frame'], cv2.COLOR_RGB2BGR)
@@ -355,6 +365,16 @@ class Notifier:
                     os.unlink(path)
                 except Exception:
                     pass
+
+    def _shots_wanted(self):
+        """Whether an alert carries its stills. Same switch shape as video:
+        read per event, absent file means on. Both can be off -- the alert
+        then says what was seen instead of showing it, which is a setting."""
+        try:
+            with open(self.shots_flag_file) as f:
+                return f.read().strip() != 'false'
+        except Exception:
+            return True
 
     def _video_wanted(self):
         try:
@@ -611,6 +631,8 @@ def make_notifier(denv, log=None):
                     spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5),
                     video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
                         or '/var/lib/hls-livecam/notify_video',
+                    shots_flag_file=_get('NOTIFY_SHOTS_FILE', '')
+                        or '/var/lib/hls-livecam/notify_shots',
                     rec_dir=_get('NOTIFY_REC_DIR', '') or None,
                     clip_pre=_num('NOTIFY_CLIP_PRE', 5.0),
                     clip_post=_num('NOTIFY_CLIP_POST', 20.0))
