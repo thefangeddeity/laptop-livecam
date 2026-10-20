@@ -21,9 +21,11 @@ destination is email.
 """
 
 import json
+import glob
 import os
 import queue
 import socket
+import subprocess
 import threading
 import time
 import urllib.error
@@ -107,14 +109,25 @@ class Notifier:
     than a frame copy; encoding and sending run on the worker thread.
     """
 
+    # The rolling recording alert clips are cut from. Injected, because the
+    # evidence recorder writes somewhere this file should not have to guess.
+    REC_DIR = '/var/lib/hls-livecam/rec/evidence'
+
     def __init__(self, urls=None, classes=('human',), cooldown_sec=300,
                  enabled=False, snapshot_dir=None, queue_size=8,
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
-                 min_fg=0.0, name=None):
+                 min_fg=0.0, name=None,
+                 video_flag_file='/var/lib/hls-livecam/notify_video',
+                 rec_dir=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
         self.urls = [u.strip() for u in (urls or []) if u.strip()]
         self.classes = {c.strip().lower() for c in classes if c.strip()}
+        self.video_flag_file = video_flag_file
+        # Instance attribute shadows the class default, so a node whose
+        # recording lives elsewhere says so once, at construction.
+        if rec_dir:
+            self.REC_DIR = rec_dir
         self.cooldown_sec = float(cooldown_sec)
         self.shots = max(1, int(shots))
         self.window_sec = max(0.0, float(window_sec))
@@ -295,6 +308,13 @@ class Notifier:
                     f.write(jpegs[-1])
                 paths.append(path)
 
+            # The clip, cut from the evidence recording. Best-effort: None
+            # is never worth failing a notification over -- the stills still
+            # go, which is why this being broken was invisible for so long.
+            clip = None
+            if self._video_wanted():
+                clip = self._cut_clip(item['when'])
+
             results = []
             other = []
             for u in self.urls:
@@ -302,8 +322,15 @@ class Notifier:
                 if tg:
                     for chat in tg[1]:
                         results.append(self._send_telegram(tg[0], chat, text, jpegs))
+                        # Separate from the photo album on purpose: mixed in
+                        # one media group, a failed clip takes the stills
+                        # down with it.
+                        if clip:
+                            self._send_telegram_video(tg[0], chat, text, clip)
                 else:
                     other.append(u)
+            if clip:
+                paths.append(clip)
             if other and _apprise is not None:
                 ap = _apprise.Apprise()
                 for u in other:
@@ -324,6 +351,120 @@ class Notifier:
                     os.unlink(path)
                 except Exception:
                     pass
+
+    def _video_wanted(self):
+        try:
+            with open(self.video_flag_file) as f:
+                return f.read().strip() != 'false'
+        except Exception:
+            return True
+
+    def _seg_start(self, path):
+        """Wall-clock start of a mediamtx segment, from its own filename."""
+        base = os.path.basename(path).rsplit('.', 1)[0]
+        try:
+            d, t = base.split('_')
+            hh, mm, rest = t.split('-', 2)
+            ss, us = (rest.split('-') + ['0'])[:2]
+            import datetime
+            return datetime.datetime.strptime(
+                f"{d} {hh}:{mm}:{ss}", "%Y-%m-%d %H:%M:%S").timestamp() + int(us) / 1e6
+        except Exception:
+            return None
+
+    def _cut_clip(self, when, pre=5.0, post=4.0):
+        """Cut [when-pre, when+post] out of the rolling recording.
+
+        Returns a path, or None -- and None is never an error worth failing a
+        notification over: the stills still go. Everything here is best-effort
+        precisely because the alert matters more than the clip.
+        """
+        try:
+            segs = []
+            for p in glob.glob(os.path.join(self.REC_DIR, '*.mp4')):
+                st = self._seg_start(p)
+                if st is not None:
+                    segs.append((st, p))
+            if not segs:
+                return None
+            segs.sort()
+            start, end = when - pre, when + post
+
+            # A segment covers [its start, the next segment's start). The last
+            # one is still being written, so treat it as open-ended.
+            chosen = []
+            for i, (st, p) in enumerate(segs):
+                nxt = segs[i + 1][0] if i + 1 < len(segs) else float('inf')
+                if nxt > start and st < end:
+                    chosen.append((st, p))
+            if not chosen:
+                return None
+
+            out = os.path.join(self.snapshot_dir,
+                               'livecam-clip-%d.mp4' % int(when))
+            lst = out + '.txt'
+            with open(lst, 'w') as f:
+                for _, p in chosen:
+                    f.write("file '%s'\n" % p.replace("'", "'\\''"))
+            # -ss AFTER -i on a concat input: accurate, and still stream-copy.
+            cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+                   '-f', 'concat', '-safe', '0', '-i', lst,
+                   '-ss', '%.2f' % max(0.0, start - chosen[0][0]),
+                   '-t', '%.2f' % (end - start),
+                   '-c', 'copy', '-movflags', '+faststart', out]
+            r = subprocess.run(cmd, capture_output=True, timeout=45)
+            try:
+                os.unlink(lst)
+            except Exception:
+                pass
+            if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 1024:
+                self._log('notify: clip cut failed (stills still sent)')
+                try:
+                    os.unlink(out)
+                except Exception:
+                    pass
+                return None
+            return out
+        except Exception as exc:
+            self._log('notify: clip error %s (stills still sent)'
+                      % type(exc).__name__)
+            return None
+
+    def _send_telegram_video(self, token, chat, text, path, _retry=True):
+        """sendVideo, separate from the photo album: Telegram will mix the two
+        in one media group, but then a failed clip takes the stills down with
+        it. They go independently so the evidence always arrives."""
+        chat = self._chat_moves.get(chat, chat)
+        try:
+            with open(path, 'rb') as f:
+                blob = f.read()
+        except Exception:
+            return False
+        body, ctype = _multipart(
+            {'chat_id': chat, 'caption': text, 'supports_streaming': 'true'},
+            {'video': ('clip.mp4', blob)})
+        req = urllib.request.Request(
+            f'https://api.telegram.org/bot{token}/sendVideo', data=body,
+            headers={'Content-Type': ctype})
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                return bool(json.loads(r.read().decode()).get('ok'))
+        except urllib.error.HTTPError as exc:
+            try:
+                err = json.loads(exc.read().decode())
+            except Exception:
+                err = {}
+            moved = (err.get('parameters') or {}).get('migrate_to_chat_id')
+            if moved and _retry:
+                self._chat_moves[chat] = str(moved)
+                return self._send_telegram_video(token, str(moved), text, path,
+                                                 _retry=False)
+            self._log('notify: telegram video failed: HTTP %d %s'
+                      % (exc.code, err.get('description', '')))
+            return False
+        except Exception as exc:
+            self._log('notify: telegram video failed: %s' % type(exc).__name__)
+            return False
 
     def _send_telegram(self, token, chat, text, jpegs, _retry=True):
         """One message: the text as the caption of a photo, or of the first
@@ -416,4 +557,7 @@ def make_notifier(denv, log=None):
                     enabled=enabled, log=log, name=_get('NOTIFY_NAME', '') or None,
                     shots=int(_num('NOTIFY_SHOTS', 3)),
                     window_sec=_num('NOTIFY_WINDOW_SEC', 6.0),
-                    spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5))
+                    spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5),
+                    video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
+                        or '/var/lib/hls-livecam/notify_video',
+                    rec_dir=_get('NOTIFY_REC_DIR', '') or None)
