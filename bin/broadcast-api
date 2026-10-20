@@ -2429,7 +2429,13 @@ def _read_notify_shots():
 #
 # Read per frame by the writer loop and per event by the notifier, so setting
 # one takes effect on the next frame rather than at the next restart.
-def _read_detect_roi():
+def _read_detect_roi_raw():
+    """The stored region including its on/off state, or None if never set.
+
+    The box and whether it is APPLIED are separate facts. A region you spent
+    time choosing should survive being switched off -- otherwise "off" means
+    "draw it again", and nobody toggles something that costs them that.
+    """
     try:
         with open(DETECT_ROI_FILE) as f:
             raw = f.read().strip()
@@ -2439,6 +2445,7 @@ def _read_detect_roi():
         box = {k: float(d[k]) for k in ('x', 'y', 'w', 'h')}
         if box['w'] <= 0 or box['h'] <= 0:
             return None
+        box['on'] = bool(d.get('on', True))
         return box
     except Exception:
         # Every failure here widens to the full frame. A region is an optional
@@ -2447,9 +2454,17 @@ def _read_detect_roi():
         return None
 
 
+def _read_detect_roi():
+    """What the DETECTOR should use: the box only while it is switched on."""
+    r = _read_detect_roi_raw()
+    return r if (r and r.get('on')) else None
+
+
 @app.route('/api/detect-roi', methods=['GET'])
 def detect_roi_get():
-    r = _read_detect_roi()
+    # The RAW state, so the panel can show a defined-but-off region and offer
+    # to switch it back on rather than pretending nothing was ever chosen.
+    r = _read_detect_roi_raw()
     return (json.dumps(r) if r else ''), 200, {'Content-Type': 'application/json'}
 
 
@@ -2464,15 +2479,36 @@ def detect_roi_post():
     raw = request.get_data(as_text=True).strip()
     try:
         os.makedirs(os.path.dirname(DETECT_ROI_FILE), exist_ok=True)
+        # Empty body is Reset: forget the region entirely.
         if not raw:
             with open(DETECT_ROI_FILE, 'w') as f:
                 f.write('')
             return '', 200
         d = json.loads(raw)
-        x, y = float(d['x']), float(d['y'])
-        w, h = float(d['w']), float(d['h'])
+        toggle_only = ('x' not in d and 'on' in d)
+        if not toggle_only:
+            x, y = float(d['x']), float(d['y'])
+            w, h = float(d['w']), float(d['h'])
     except Exception:
         abort(400)
+
+    # OUTSIDE the try on purpose. abort() raises an HTTPException, which is an
+    # Exception, so an abort inside that block would be caught by its own
+    # handler and re-reported as 400 -- an intentional signal swallowed by a
+    # broad except and turned into the wrong answer. It returned 400 for
+    # "there is no region to switch on", which reads as "your request was
+    # malformed" and sends the reader to inspect a request that was fine.
+    if toggle_only:
+        cur = _read_detect_roi_raw()
+        if not cur:
+            abort(409)          # nothing to switch on
+        cur['on'] = bool(d['on'])
+        try:
+            with open(DETECT_ROI_FILE, 'w') as f:
+                f.write(json.dumps(cur))
+        except Exception:
+            abort(500)
+        return json.dumps(cur), 200, {'Content-Type': 'application/json'}
     x = min(max(x, 0.0), 1.0)
     y = min(max(y, 0.0), 1.0)
     w = min(max(w, 0.0), 1.0 - x)
@@ -2481,7 +2517,9 @@ def detect_roi_post():
     # an intention, and one that small would starve the detector of context.
     if w < 0.05 or h < 0.05:
         abort(400)
-    box = {'x': round(x, 5), 'y': round(y, 5), 'w': round(w, 5), 'h': round(h, 5)}
+    # Drawing a region turns it on: nobody draws a box in order to not use it.
+    box = {'x': round(x, 5), 'y': round(y, 5), 'w': round(w, 5), 'h': round(h, 5),
+           'on': bool(d.get('on', True))}
     try:
         with open(DETECT_ROI_FILE, 'w') as f:
             f.write(json.dumps(box))

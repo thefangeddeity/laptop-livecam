@@ -401,6 +401,11 @@ class Notifier:
             if not raw:
                 return None
             d = json.loads(raw)
+            # Switched off means the whole frame, the same as never set. The
+            # box stays in the file so it can be switched back on without
+            # being drawn again; it just stops applying.
+            if not bool(d.get('on', True)):
+                return None
             box = (float(d['x']), float(d['y']), float(d['w']), float(d['h']))
             if box[2] <= 0 or box[3] <= 0:
                 return None
