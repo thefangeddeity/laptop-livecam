@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# 7.0.5 to tina: 6.0.7 -> 7.0.5, which is a package RENAME
-# (hls-livecam-server -> laptop-livecam) and therefore not an ordinary
-# upgrade. Read scripts/../pkg/DEBIAN/prerm's comment block first if you
-# want the why; the short version is that dpkg removes the old package
-# rather than upgrading it, so the OLD prerm runs its full teardown and
-# three things do not come back on their own:
+# Deploy the current committed .deb to tina. Takes its version from
+# pkg/DEBIAN/control, builds from HEAD, and refuses to run if pkg/ is dirty.
+#
+# Written for the 6.0.7 -> 7.0.5 package RENAME (hls-livecam-server ->
+# laptop-livecam), which is not an ordinary upgrade, and kept general
+# afterwards because the parts that make it safe are not rename-specific:
+# capture before, re-assert after, verify independently. Read
+# pkg/DEBIAN/prerm's comment block for the rename story. Its short version
+# is that dpkg removes the old package rather than upgrading it, so the OLD
+# prerm runs its full teardown and three things do not come back on their
+# own. On a same-name upgrade (7.0.5 onward) only the second of these
+# applies, and the restore steps below are no-ops rather than wrong:
 #
 #   1. mediamtx and broadcast-api are stopped AND disabled.
 #   2. /etc/nginx/conf.d/hls-livecam.conf is payload with no conffiles
@@ -53,9 +59,19 @@ HINT
 
 # --- 0. Preflight, before anything is built or copied -----------------
 say "Preflight"
-[ "$VER" = "7.0.5" ] || die "control says Version: $VER, expected 7.0.5"
+[ -n "$VER" ] && [ -n "$PKGNAME" ] \
+    || die "could not read Package/Version out of pkg/DEBIAN/control"
 git -C "$REPO" diff --quiet HEAD -- pkg/ \
     || die "pkg/ has uncommitted changes -- commit first so the .deb matches a commit"
+
+# Refuse to reinstall the version already there. Not a safety rule -- dpkg
+# would do it happily -- but a deploy that silently does nothing new is how
+# you end up believing a fix is live when the build never got rebuilt.
+INSTALLED="$(ssh "$HOST" "dpkg-query -W -f='\${Version}' $PKGNAME 2>/dev/null" || true)"
+if [ "$INSTALLED" = "$VER" ]; then
+    die "$HOST already has $PKGNAME $VER -- bump the version or uninstall first"
+fi
+echo "$HOST has ${INSTALLED:-no $PKGNAME}; deploying $VER"
 COMMIT="$(git -C "$REPO" rev-parse --short HEAD)"
 echo "building $DEB from $COMMIT"
 
