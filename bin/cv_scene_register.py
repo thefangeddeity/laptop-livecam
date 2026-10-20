@@ -51,13 +51,33 @@ import cv_scene
 FRAME_W, FRAME_H = 1280, 720
 
 
+def _api_port(host):
+    """The target's control-plane port.
+
+    Was the literal 5000 -- Flask's default, and wrong since the API settled
+    on 8080. Every call in this file has been talking to a closed port on
+    every node, silently, for as long as nobody ran it.
+
+    8080 is the real answer on every node in this fleet: the macOS node serves
+    it directly, and the Linux nodes reach it through nginx, which listens
+    there (verified on tanzania and tina). It is overridable because a
+    constant nobody can change is how the 5000 survived, but it is NOT probed
+    from device.env -- I wrote that probe first and it read a WEB_PORT key
+    those files do not contain, so it could only ever fall through to the
+    default while looking like it had checked. A check that cannot fail is
+    worse than a stated assumption.
+    """
+    return os.environ.get('LIVECAM_API_PORT', '8080')
+
+
 def _api(host, endpoint, data=None):
     """Small helper for the target node's control plane, over SSH loopback
     (the API binds 127.0.0.1 on each node, not the LAN interface)."""
+    port = _api_port(host)
     if data is None:
-        cmd = f"curl -s -m 3 http://127.0.0.1:5000/api/{endpoint}"
+        cmd = f"curl -s -m 3 http://127.0.0.1:{port}/api/{endpoint}"
     else:
-        cmd = f"curl -s -m 3 -X POST -d '{data}' http://127.0.0.1:5000/api/{endpoint}"
+        cmd = f"curl -s -m 3 -X POST -d '{data}' http://127.0.0.1:{port}/api/{endpoint}"
     out = subprocess.run(['ssh', host, cmd], stdout=subprocess.PIPE,
                          stderr=subprocess.DEVNULL, text=True)
     return out.stdout.strip()
