@@ -157,6 +157,34 @@ hlsSegmentDuration: 1s
 
 paths:
   cam:
+    # THE ROLLING RECORDING ALERT CLIPS ARE CUT FROM.
+    #
+    # cv_notify cuts [detection-5s, detection+4s] out of these segments; the
+    # pre-roll starting BEFORE the detection is the whole reason to send a
+    # clip rather than stills -- you see the cat arrive, not the cat already
+    # sitting there.
+    #
+    # THIS BLOCK EXISTS TWICE, here and in livecam-supervisor's
+    # render_mediamtx_yml(). Both generate this file and both must agree:
+    # the supervisor's copy was written first, a \`livecam restart\` ran this
+    # one four minutes later, and the record block vanished -- recording
+    # stopped, and the next clip came back empty with nothing logged. If you
+    # change one, change the other.
+    #
+    # A second READER of the stream, not a second encoder: mediamtx writes
+    # what it already holds, so this costs disk and not CPU.
+    record: yes
+    # \$STATE_DIR UNESCAPED on purpose: this heredoc is unquoted, so it
+    # expands here and the file gets the real path. Single-quoted in the YAML
+    # because that path contains spaces once this is installed rather than
+    # run from a checkout.
+    recordPath: '$STATE_DIR/rec/%path/%Y-%m-%d_%H-%M-%S-%f'
+    recordFormat: fmp4
+    # One minute per segment, matching the Linux nodes. A clip spans at most
+    # two of them, and the cut is frame-accurate within a segment either way.
+    recordSegmentDuration: 1m
+    # Six hours, as on the Linux nodes, where it measures ~376M.
+    recordDeleteAfter: 6h
   # The reverse direction, published by a browser and read by the node's
   # speaker player. Separate from \`cam\` on purpose: opposite direction,
   # opposite lifetime -- \`cam\` is up as long as the node is, \`talkback\`
