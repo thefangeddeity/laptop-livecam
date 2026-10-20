@@ -161,7 +161,13 @@
     display: flex;
     flex-direction: row;
     min-height: 0;
-    padding: 16px;
+    /* Horizontal padding matches the header's 20px, so the outer edge of each
+       side column lands on the same line as the brand mark on the left and
+       the status pill on the right. At 16px the columns overhung the header's
+       content by 4px -- not enough to look deliberate, just enough to look
+       like nothing had been aligned. Vertical stays 16px; it is not sharing
+       an edge with anything. Mobile overrides this to 0. */
+    padding: 16px 20px;
     gap: 16px;
   }
 
@@ -895,7 +901,12 @@
 
   /* ── DESKTOP SIDEBAR ── */
   .sidebar {
-    width: 260px;
+    /* 260 -> 300. The columns carry the Messages card, and its input and its
+       message list were the narrowest things on a screen with room to spare:
+       at 260 the sender column and the text competed for the same inch. The
+       video keeps the remainder, and it is the element that loses least from
+       40px -- it scales, text does not. Mobile overrides this to 100%. */
+    width: 300px;
     background: none;
     border: 0;
     box-shadow: none;
@@ -1395,8 +1406,17 @@
                             inset 0 0 18px rgba(101,123,131,.10); }
     /* Three columns so a run of messages from one machine lines up under
        its name instead of repeating it on every line. */
-    .ele-list .em { display: grid; grid-template-columns: 5.2em 1fr auto;
+    /* The name column was a fixed 5.2em, which is narrower than
+       "tanzania:" -- so the longest node in the fleet wrapped its own colon
+       onto the next line. minmax lets the column take the width the names
+       actually need and no more, which keeps short names from leaving a
+       gutter, and max-content means it is measured rather than guessed
+       again the next time a node is named something longer. */
+    .ele-list .em { display: grid;
+                    grid-template-columns: minmax(5.2em, max-content) 1fr auto;
                     gap: 0 6px; margin-bottom: 3px; word-break: break-word; }
+    /* The name itself never breaks; the message does. */
+    .ele-list .em .who { white-space: nowrap; }
     .ele-list .em .who { grid-column: 1; }
     .ele-list .em .txt { grid-column: 2; }
     .ele-list .em .when { grid-column: 3; float: none; margin-left: 0; }
@@ -1474,7 +1494,24 @@
        like siblings would make them look like separate facts. */
     .ele-col { display: flex; flex-direction: column; gap: 4px;
                min-width: 0; }
-    .ele-col.right { align-items: flex-end; text-align: right; }
+    /* The right column is a readout, not a caption, so it gets a readout's
+       housing: the same inset screen the header's build badge sits in, same
+       glass, same border, same inner shadow. Loose text on the right read as
+       something that had been left there; in a recessed screen it reads as
+       an instrument reporting a value -- which is what it is. Borrowed by
+       name from `header .hdr-vfd` rather than restyled, so the two cannot
+       drift apart. */
+    .ele-col.right { align-items: flex-end; text-align: right;
+                     gap: 2px;
+                     border-radius: 5px; padding: 5px 9px;
+                     background: linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+                     border: 1px solid #040809;
+                     box-shadow: inset 0 1px 0 rgba(255,255,255,.05),
+                                 inset 0 0 20px rgba(0,0,0,.75); }
+    html[data-theme="light"] .ele-col.right {
+                     border-color: #c9c0a6;
+                     box-shadow: inset 0 1px 0 rgba(255,255,255,.55),
+                                 inset 0 0 18px rgba(101,123,131,.10); }
 
     /* Rung 2: the SUBJECT of the header -- which machine you are speaking as,
        and now the largest thing in it.
@@ -1583,7 +1620,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-137-g179ae5e-dirty · dev · 179ae5e"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-138-g96e1994-dirty · dev · 96e1994"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
