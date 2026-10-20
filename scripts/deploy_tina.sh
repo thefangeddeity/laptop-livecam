@@ -72,8 +72,24 @@ if [ "$INSTALLED" = "$VER" ]; then
     die "$HOST already has $PKGNAME $VER -- bump the version or uninstall first"
 fi
 echo "$HOST has ${INSTALLED:-no $PKGNAME}; deploying $VER"
-COMMIT="$(git -C "$REPO" rev-parse --short HEAD)"
-echo "building $DEB from $COMMIT"
+# Build from the TAG, not from HEAD. This repo is a shared working tree --
+# other sessions commit into it -- and during the 7.0.8 deploy HEAD moved
+# between the clean-tree assert and `git archive`, so the .deb that shipped
+# was built from a commit that had not existed when the run started. It was
+# harmless that time: the extra commit touched only the clip path, which the
+# target node has disabled. The version number was the casualty -- two
+# different trees both declaring 7.0.8, one on each node.
+#
+# A tag cannot move under us, and requiring one also forces the version in
+# control to correspond to something named. If v$VER does not exist, that is
+# the error, not a reason to fall back to HEAD.
+REF="v$VER"
+git -C "$REPO" rev-parse -q --verify "refs/tags/$REF" >/dev/null \
+    || die "no tag $REF -- tag the release before deploying it"
+COMMIT="$(git -C "$REPO" rev-parse --short "$REF")"
+git -C "$REPO" diff --quiet "$REF" -- pkg/ \
+    || die "pkg/ differs from $REF -- the working tree is not what the tag says"
+echo "building $DEB from $REF ($COMMIT)"
 
 ssh "$HOST" 'test -f ~/tina-backups/hls-livecam-server_6.0.7_amd64.deb' \
     || die "no rollback artifact on $HOST:~/tina-backups/ -- build it from tag v6.0.7 first"
@@ -106,7 +122,7 @@ VIEWER_MD5_REPO="$(md5sum "$REPO/pkg/usr/share/hls-livecam-server/index.html" | 
 # .bak files, and what ships is exactly what is committed.
 say "Building $DEB from a clean export"
 mkdir -p "$WORK/build"
-git -C "$REPO" archive HEAD pkg | tar -x -C "$WORK/build"
+git -C "$REPO" archive "$REF" pkg | tar -x -C "$WORK/build"
 mv "$WORK/build/pkg" "$WORK/build/$PKGNAME"
 find "$WORK/build/$PKGNAME" -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
 find "$WORK/build/$PKGNAME" -type d -exec chmod 755 {} +
