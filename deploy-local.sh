@@ -77,7 +77,29 @@ systemctl restart broadcast-api && echo "  broadcast-api restarted"
 
 echo "== done. verifying =="
 sleep 2
-curl -s -m8 -o /dev/null -w "  viewer :8080 -> %{http_code}\n" http://127.0.0.1:8080/
+curl -s -m8 -o /dev/null -w "  home   :8080/    -> %{http_code}\n" http://127.0.0.1:8080/
+curl -s -m8 -o /dev/null -w "  viewer :8080/llc -> %{http_code}\n" http://127.0.0.1:8080/llc
 curl -s -m8 -o /dev/null -w "  /vendor/hls.min.js -> %{http_code}\n" http://127.0.0.1:8080/vendor/hls.min.js
-curl -s -m8 http://127.0.0.1:8080/ | grep -o "/vendor/hls.min.js\|cdnjs" | head -1 | sed 's/^/  viewer player src: /'
+
+# The viewer is at /llc, not /. Since 496108f ("Home at /, camera at /llc")
+# / serves home.html, which has no player tag in it at all -- so this check
+# was grepping a 9KB page that could never match, grep -o returned 1, and
+# under this script's `set -euo pipefail` the whole deploy ABORTED here,
+# after the files were already installed and the services already restarted.
+# A verification step that kills the run it is verifying, at the last line,
+# having done its job silently wrong for a month.
+#
+# Captured first and matched against the string, rather than piped into
+# `grep -o ... | head -1`: with pipefail, head exits at the first line and
+# the producer takes SIGPIPE, which is a second way for this line to fail on
+# a page that is perfectly fine. And `|| true`, because what this prints is
+# a diagnostic -- it is not the deploy's verdict and must not be able to
+# decide it.
+VIEWER_HTML="$(curl -s -m8 http://127.0.0.1:8080/llc || true)"
+case "$VIEWER_HTML" in
+    *"/vendor/hls.min.js"*) echo "  viewer player src: /vendor/hls.min.js (same-origin)" ;;
+    *cdnjs*)                echo "  viewer player src: cdnjs -- EXPECTED same-origin" ;;
+    "")                     echo "  viewer player src: could not fetch /llc" ;;
+    *)                      echo "  viewer player src: no player tag found" ;;
+esac
 echo "  backup of replaced files: $BK"

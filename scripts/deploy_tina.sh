@@ -131,7 +131,16 @@ for s in preinst postinst prerm; do
     bash -n "$WORK/build/$PKGNAME/DEBIAN/$s" || die "DEBIAN/$s is not valid bash"
 done
 fakeroot dpkg-deb --build "$WORK/build/$PKGNAME" "$WORK/$DEB" >/dev/null
-dpkg-deb -I "$WORK/$DEB" | grep -q "Version: $VER" || die "built .deb does not declare $VER"
+# Captured, not piped into `grep -q`. With pipefail, grep -q exits at its
+# first match and the producer takes SIGPIPE, so the pipeline can report 141
+# for a package that is correct. dpkg-deb's output is small enough that it
+# has never fired here -- which is exactly what makes the shape worth
+# removing rather than relying on.
+DEB_INFO="$(dpkg-deb -I "$WORK/$DEB")"
+case "$DEB_INFO" in
+    *"Version: $VER"*) : ;;
+    *) die "built .deb does not declare $VER" ;;
+esac
 echo "built $(du -h "$WORK/$DEB" | cut -f1) -- $(md5sum "$WORK/$DEB" | cut -d' ' -f1)"
 
 # --- 3. Dry run, then install ----------------------------------------
