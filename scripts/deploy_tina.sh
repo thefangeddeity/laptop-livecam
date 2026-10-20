@@ -86,7 +86,7 @@ echo "$HOST has ${INSTALLED:-no $PKGNAME}; deploying $VER"
 REF="v$VER"
 git -C "$REPO" rev-parse -q --verify "refs/tags/$REF" >/dev/null \
     || die "no tag $REF -- tag the release before deploying it"
-COMMIT="$(git -C "$REPO" rev-parse --short "$REF")"
+COMMIT="$(git -C "$REPO" rev-parse --short "${REF}^{commit}")"
 git -C "$REPO" diff --quiet "$REF" -- pkg/ \
     || die "pkg/ differs from $REF -- the working tree is not what the tag says"
 echo "building $DEB from $REF ($COMMIT)"
