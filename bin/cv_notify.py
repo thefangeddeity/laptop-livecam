@@ -115,6 +115,7 @@ class Notifier:
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
                  min_fg=0.0, classes_file='/dev/null',
                  video_flag_file='/dev/null',
+                 shots_flag_file='/dev/null',
                  rec_dir=None, clip_pre=None, clip_post=None,
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
@@ -129,6 +130,7 @@ class Notifier:
         # Was a hardcoded Linux path, so on macOS it never existed and the
         # switch silently read as "on" no matter what the panel said.
         self.video_flag_file = video_flag_file
+        self.shots_flag_file = shots_flag_file
         # Instance attribute shadows the class default, so a node whose
         # recording lives somewhere else says so once, at construction.
         if rec_dir:
@@ -379,6 +381,21 @@ class Notifier:
     # turned a missing feature into a silence nobody could see.
     REC_DIR         = '/var/lib/hls-livecam/rec/cam'
 
+    def _shots_wanted(self):
+        """Whether an alert carries its stills. Same switch shape as video:
+        read per event, absent file means on.
+
+        Both can be off at once and that is a legitimate setting, not a
+        misconfiguration -- the alert still arrives, it just says what was
+        seen instead of showing it. Somebody on a metered connection, or who
+        only wants to know the cat came in, is served by exactly that.
+        """
+        try:
+            with open(self.shots_flag_file) as f:
+                return f.read().strip() != 'false'
+        except Exception:
+            return True
+
     def _video_wanted(self):
         try:
             with open(self.video_flag_file) as f:
@@ -611,8 +628,16 @@ class Notifier:
     def _send(self, item):
         text = item.get('text') or f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
+        # Encoding the stills is the expensive half of an alert, so the switch
+        # is read BEFORE the work rather than before the send. Off means the
+        # frames are never JPEG-encoded at all, not encoded and discarded.
+        #
+        # A snapshot the operator asked for explicitly is not an alert's
+        # stills and ignores this -- turning off automatic photos must not
+        # silently break the button that takes one.
+        want_shots = (item.get('cls') == 'snapshot') or self._shots_wanted()
         try:
-            for i, p in enumerate(item['picks']):
+            for i, p in enumerate(item['picks'] if want_shots else []):
                 # The snapshot is the original feed, not the sharpie or CV
                 # render: evidence for a person to look at.
                 bgr = cv2.cvtColor(p['frame'], cv2.COLOR_RGB2BGR)
@@ -778,6 +803,8 @@ def make_notifier(denv, log=None):
                     classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null',
                     video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
                         or '/var/lib/hls-livecam/notify_video',
+                    shots_flag_file=_get('NOTIFY_SHOTS_FILE', '')
+                        or '/var/lib/hls-livecam/notify_shots',
                     rec_dir=_get('NOTIFY_REC_DIR', '') or None,
                     clip_pre=_num('NOTIFY_CLIP_PRE', 5.0),
                     clip_post=_num('NOTIFY_CLIP_POST', 20.0))

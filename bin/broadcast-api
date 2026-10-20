@@ -53,6 +53,7 @@ LOCK_FILE      = os.path.join(STATE_DIR, "msg_lock")
 DETECT_ALWAYS_FILE = os.path.join(STATE_DIR, "detect_always")
 NOTIFY_CLASSES_FILE = os.path.join(STATE_DIR, "notify_classes")
 NOTIFY_VIDEO_FILE   = os.path.join(STATE_DIR, "notify_video")
+NOTIFY_SHOTS_FILE   = os.path.join(STATE_DIR, "notify_shots")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
 GOL_COLS       = 80
@@ -2397,6 +2398,38 @@ def _read_notify_video():
             return f.read().strip() != 'false'
     except Exception:
         return True
+
+
+# The stills switch, the same shape as the video one below it. Both can be
+# off at once: the alert still arrives and says what was seen instead of
+# showing it, which is a real setting for a metered connection and not a
+# misconfiguration. Defaults ON, because an alert with no evidence is the
+# less useful default.
+def _read_notify_shots():
+    try:
+        with open(NOTIFY_SHOTS_FILE) as f:
+            return f.read().strip() != 'false'
+    except Exception:
+        return True
+
+
+@app.route('/api/notify-shots', methods=['GET'])
+def notify_shots_get():
+    return ('true' if _read_notify_shots() else 'false'), 200
+
+
+@app.route('/api/notify-shots', methods=['POST'])
+def notify_shots_post():
+    val = request.get_data(as_text=True).strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    try:
+        os.makedirs(os.path.dirname(NOTIFY_SHOTS_FILE), exist_ok=True)
+        with open(NOTIFY_SHOTS_FILE, 'w') as f:
+            f.write(val)
+    except Exception:
+        abort(500)
+    return val, 200
 
 
 @app.route('/api/notify-video', methods=['GET'])
