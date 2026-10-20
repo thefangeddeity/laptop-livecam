@@ -357,7 +357,15 @@ take_camera() {
 # Asks the organism through its public command; no organism means no autostart.
 organism_autostarts() {
   [ -x "$ORGANISM_CLI" ] || return 1
-  "$ORGANISM_CLI" --autostart 2>/dev/null | grep -qE '^autostart *: *on'
+  # NOT a pipe into `grep -q`. Under `set -o pipefail` (line 23) grep exits at
+  # its first match, the writer takes SIGPIPE, and the pipeline reports 141 --
+  # so a MATCH is returned as a failure and this function says "does not
+  # autostart" about a node that does. Reproduced here: rc=141 on a matching
+  # input. Capture first, match against the string; nothing can be killed
+  # mid-write.
+  local out
+  out="$("$ORGANISM_CLI" --autostart 2>/dev/null || true)"
+  grep -qE '^autostart *: *on' <<<"$out"
 }
 
 # The supervisor's rule (LOG_MAX_BYTES in livecam-supervisor), applied when
@@ -581,8 +589,13 @@ EOF
 STARTER_APP="$HOME/Applications/HLS Livecam Startup.app"
 
 login_item_registered() {
-  osascript -e 'tell application "System Events" to get name of every login item' \
-    2>/dev/null | grep -q "HLS Livecam Startup"
+  # Same SIGPIPE-under-pipefail trap as organism_autostarts above: osascript is
+  # usually short enough to finish writing first, which makes this the worse
+  # kind -- it works until the machine has enough login items.
+  local out
+  out="$(osascript -e 'tell application "System Events" to get name of every login item' \
+         2>/dev/null || true)"
+  grep -q "HLS Livecam Startup" <<<"$out"
 }
 
 # The Login Item shim predates the LaunchAgent and exec'd the supervisor
