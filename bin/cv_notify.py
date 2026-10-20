@@ -115,7 +115,7 @@ class Notifier:
                  log=None, shots=3, window_sec=6.0, spacing_sec=1.5,
                  min_fg=0.0, classes_file='/dev/null',
                  video_flag_file='/dev/null',
-                 rec_dir=None,
+                 rec_dir=None, clip_pre=None, clip_post=None,
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
@@ -133,6 +133,12 @@ class Notifier:
         # recording lives somewhere else says so once, at construction.
         if rec_dir:
             self.REC_DIR = rec_dir
+        # How much of the room either side of the detection goes in the clip.
+        # Both come from config; the numbers here are only what a node that
+        # says nothing gets. The post-roll is the one that matters and it is
+        # why the clip used to stop too soon -- see _send.
+        self.clip_pre = 5.0 if clip_pre is None else float(clip_pre)
+        self.clip_post = 20.0 if clip_post is None else float(clip_post)
         self.cooldown_sec = float(cooldown_sec)
         # Motion gate. A detection that has never once overlapped moving
         # foreground is furniture: tanzania spent an hour reporting a crumpled
@@ -393,13 +399,15 @@ class Notifier:
         except Exception:
             return None
 
-    def _cut_clip(self, when, pre=5.0, post=4.0):
+    def _cut_clip(self, when, pre=None, post=None):
         """Cut [when-pre, when+post] out of the rolling recording.
 
         Returns a path, or None -- and None is never an error worth failing a
         notification over: the stills still go. Everything here is best-effort
         precisely because the alert matters more than the clip.
         """
+        pre = self.clip_pre if pre is None else float(pre)
+        post = self.clip_post if post is None else float(post)
         try:
             segs = []
             for p in glob.glob(os.path.join(self.REC_DIR, '*.mp4')):
@@ -450,6 +458,51 @@ class Notifier:
             self._log('notify: clip error %s (stills still sent)'
                       % type(exc).__name__)
             return None
+
+    def _schedule_clip(self, item, text):
+        """Cut and send the clip once post-roll seconds of room exist.
+
+        A timer rather than a sleep in the worker: the worker drains a queue,
+        and blocking it for the length of a post-roll would hold up every
+        other alert behind it. One timer per alert, and the cooldown bounds
+        how many can ever be in flight.
+        """
+        when = item['when']
+        wait = max(0.0, (when + self.clip_post) - time.time())
+
+        def _cut_and_send():
+            clip = self._cut_clip(when)
+            if not clip:
+                return
+            try:
+                other = []
+                for u in self.urls:
+                    tg = _telegram_targets(u)
+                    if not tg:
+                        other.append(u)
+                        continue
+                    for chat in tg[1]:
+                        self._send_telegram_video(tg[0], chat, text, clip)
+                # Non-Telegram destinations used to get the clip as an
+                # attachment on the stills notification. That has already gone
+                # by the time this runs, so they get their own -- dropping them
+                # silently would be a capability removed by accident while
+                # fixing something else.
+                if other and _apprise is not None:
+                    ap = _apprise.Apprise()
+                    for u in other:
+                        ap.add(u)
+                    ap.notify(title=text, body=text, attach=[clip])
+            finally:
+                # This path owns the file: the stills cleanup ran long ago.
+                try:
+                    os.unlink(clip)
+                except Exception:
+                    pass
+
+        t = threading.Timer(wait, _cut_and_send)
+        t.daemon = True
+        t.start()
 
     def _send_telegram_video(self, token, chat, text, path, _retry=True):
         """sendVideo, separate from the photo album: Telegram will mix the two
@@ -583,9 +636,22 @@ class Notifier:
             # Cut once, reuse for every destination. Snapshots are never
             # held back waiting on it: if the cut fails, clip is None and the
             # stills go exactly as before.
-            clip = None
+            # THE CLIP IS CUT LATER, ON PURPOSE.
+            #
+            # Stills are collected over window_sec and sent when that window
+            # closes, so at this instant only about window_sec of room has
+            # happened since the detection. Cutting here could therefore only
+            # ever reach a few seconds past it -- which is exactly why the clip
+            # stopped while the animal was still walking. The old 4s post-roll
+            # was not a judgement about what is interesting; it was the most
+            # that existed yet.
+            #
+            # So the stills go now and the clip is cut once its tail has actually
+            # been recorded. The two were already sent separately, for the
+            # unrelated reason that a failed clip must not take the stills with
+            # it; this only moves one of them later.
             if item.get('cls') != 'snapshot' and self._video_wanted():
-                clip = self._cut_clip(item['when'])
+                self._schedule_clip(item, text)
 
             results = []
             other = []
@@ -594,12 +660,8 @@ class Notifier:
                 if tg:
                     for chat in tg[1]:
                         results.append(self._send_telegram(tg[0], chat, text, jpegs))
-                        if clip:
-                            self._send_telegram_video(tg[0], chat, text, clip)
                 else:
                     other.append(u)
-            if clip:
-                paths.append(clip)
             if other and _apprise is not None:
                 ap = _apprise.Apprise()
                 for u in other:
@@ -716,4 +778,6 @@ def make_notifier(denv, log=None):
                     classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null',
                     video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
                         or '/var/lib/hls-livecam/notify_video',
-                    rec_dir=_get('NOTIFY_REC_DIR', '') or None)
+                    rec_dir=_get('NOTIFY_REC_DIR', '') or None,
+                    clip_pre=_num('NOTIFY_CLIP_PRE', 5.0),
+                    clip_post=_num('NOTIFY_CLIP_POST', 20.0))
