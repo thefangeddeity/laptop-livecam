@@ -1492,6 +1492,31 @@
     /* A column is a thing over its qualifier. The gap is small on purpose:
        these two lines are one statement read downwards, and spacing them
        like siblings would make them look like separate facts. */
+    /* ── DETECTION REGION ───────────────────────────────────────────
+       The layer sits over the video and only exists while arming. Everything
+       is in PERCENT, because the box is stored as fractions of the frame and
+       the element it is drawn on is whatever size the window happens to be --
+       converting once at the edge keeps the two from drifting. */
+    /* Reset rides on the same row as the lamp. auto margin pushes it to the
+       far edge so it lines up with the panel, not with the label. */
+    .roi-reset { margin-left: auto; padding: 2px 8px; font-size: 9px;
+                 letter-spacing: .08em; }
+    .roi-layer { position: absolute; inset: 0; z-index: 6; cursor: crosshair;
+                 background: rgba(0,0,0,.35); }
+    .roi-layer[hidden] { display: none; }
+    .roi-box { position: absolute; border: 1px solid var(--phos);
+               box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
+               background: transparent; pointer-events: none; }
+    .roi-box[hidden] { display: none; }
+    .roi-hint { position: absolute; left: 50%; bottom: 14px;
+                transform: translateX(-50%); pointer-events: none;
+                font: 600 10px/1.4 var(--mono); letter-spacing: .09em;
+                text-transform: uppercase; color: var(--phos);
+                background: rgba(0,0,0,.65); border: 1px solid #040809;
+                border-radius: 4px; padding: 5px 10px; white-space: nowrap; }
+    @media (max-width: 720px) { .roi-hint { font-size: 9px; white-space: normal;
+                max-width: 80%; text-align: center; } }
+
     .ele-col { display: flex; flex-direction: column; gap: 4px;
                min-width: 0; }
     /* The right column is a readout, not a caption, so it gets a readout's
@@ -1620,7 +1645,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-146-gd4e2df1-dirty · dev · d4e2df1"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-148-g6377c6f-dirty · dev · 6377c6f"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1913,6 +1938,14 @@
       <div class="hide-title">No video signal</div>
       <div class="hide-sub">The camera is switched off</div>
     </div>
+    <!-- DETECTION REGION. Drawn ON the picture, because a region is a
+         statement about the picture and anywhere else makes you hold two
+         things in your head at once. Hidden until armed, so it costs the
+         ordinary viewer nothing. -->
+    <div class="roi-layer" id="roiLayer" hidden>
+      <div class="roi-box" id="roiBox" hidden></div>
+      <div class="roi-hint" id="roiHint">Drag on the picture to choose the area the detector watches</div>
+    </div>
   </div>
 
   <aside class="sidebar side-right" id="sidebar">
@@ -2171,6 +2204,20 @@
           </div>
           <!-- Content of an alert, not a trigger for one -- hence its own
                rule rather than another row in the list above. -->
+          <div class="pdiv"></div>
+          <!-- The region belongs with Detection, not with the alert content
+               switches below: it changes WHAT IS WATCHED, not what an alert
+               carries. -->
+          <div class="pinrow">
+            <button class="pinled" id="roiBtn" onclick="toggleRoiArm()"
+                    aria-pressed="false" aria-label="Set the detection area"
+                    title="Drag a box on the picture. The detector and its photos and clips are limited to it">
+              <span class="bulb" id="roiLamp"></span>
+            </button>
+            <span class="eng rstlab">Detection area</span>
+            <button class="msg-btn roi-reset" id="roiResetBtn" onclick="resetRoi()"
+                    title="Watch the whole picture again">Reset</button>
+          </div>
           <div class="pdiv"></div>
           <div class="pinrow">
             <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
@@ -5344,6 +5391,124 @@
     post('/api/detect-always', detectOn ? 'false' : 'true',
          function(v) { detectOn = v.trim() === 'true'; });
   }
+  // ── DETECTION REGION ──────────────────────────────────────────────────
+  // The box is stored as FRACTIONS of the frame and drawn on an element whose
+  // size is whatever the window happens to be, so every read converts at the
+  // edge and nothing downstream has to know about pixels.
+  //
+  // The video is object-fit:contain on mobile, which means the picture does
+  // NOT fill its container -- there are letterbox bars, and a fraction taken
+  // against the container would be wrong by the height of them. videoRect()
+  // returns the rectangle the PICTURE occupies, not the element's.
+  var roiArmed = false, roiDrag = null, roiCur = null;
+
+  function videoRect() {
+    var v = document.getElementById('video');
+    var box = v.getBoundingClientRect();
+    var vw = v.videoWidth, vh = v.videoHeight;
+    if (!vw || !vh) return box;          // no metadata yet: the element will do
+    var scale = Math.min(box.width / vw, box.height / vh);
+    var w = vw * scale, h = vh * scale;
+    return { left: box.left + (box.width - w) / 2,
+             top: box.top + (box.height - h) / 2,
+             width: w, height: h };
+  }
+
+  function paintRoi() {
+    var layer = document.getElementById('roiLayer');
+    var box = document.getElementById('roiBox');
+    if (!layer || !box) return;
+    layer.hidden = !roiArmed;
+    paintLed('roi', roiArmed || !!roiCur);
+    if (!roiCur) { box.hidden = true; return; }
+    var r = videoRect(), host = layer.getBoundingClientRect();
+    box.hidden = false;
+    box.style.left   = (r.left - host.left + roiCur.x * r.width) + 'px';
+    box.style.top    = (r.top - host.top + roiCur.y * r.height) + 'px';
+    box.style.width  = (roiCur.w * r.width) + 'px';
+    box.style.height = (roiCur.h * r.height) + 'px';
+  }
+
+  function toggleRoiArm() {
+    roiArmed = !roiArmed;
+    var hint = document.getElementById('roiHint');
+    if (hint) hint.textContent = roiCur
+      ? 'Drag to choose a new area, or press Reset for the whole picture'
+      : 'Drag on the picture to choose the area the detector watches';
+    paintRoi();
+  }
+
+  function resetRoi() {
+    // Empty body is Reset, server-side. Clearing locally first so the box
+    // disappears on the press rather than on the reply.
+    roiCur = null; paintRoi();
+    post('/api/detect-roi', '', function() { loadRoi(); });
+  }
+
+  function loadRoi() {
+    fetch('/api/detect-roi', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : ''; }).catch(function() { return ''; })
+      .then(function(t) {
+        try { var d = JSON.parse(t); roiCur = (d && d.w > 0) ? d : null; }
+        catch (e) { roiCur = null; }
+        paintRoi();
+      });
+  }
+
+  (function wireRoi() {
+    var layer = document.getElementById('roiLayer');
+    if (!layer) return;
+    function pt(e) {
+      var t = (e.touches && e.touches[0]) || e;
+      return { x: t.clientX, y: t.clientY };
+    }
+    function begin(e) {
+      if (!roiArmed) return;
+      e.preventDefault();
+      var r = videoRect(), p = pt(e);
+      roiDrag = { x0: p.x, y0: p.y, r: r };
+    }
+    function move(e) {
+      if (!roiDrag) return;
+      e.preventDefault();
+      var p = pt(e), r = roiDrag.r;
+      // Clamped to the picture: a drag that leaves the video must not produce
+      // a region outside the frame, and the server would only clamp it again.
+      var x1 = Math.min(Math.max(roiDrag.x0, r.left), r.left + r.width);
+      var x2 = Math.min(Math.max(p.x, r.left), r.left + r.width);
+      var y1 = Math.min(Math.max(roiDrag.y0, r.top), r.top + r.height);
+      var y2 = Math.min(Math.max(p.y, r.top), r.top + r.height);
+      roiCur = { x: (Math.min(x1, x2) - r.left) / r.width,
+                 y: (Math.min(y1, y2) - r.top) / r.height,
+                 w: Math.abs(x2 - x1) / r.width,
+                 h: Math.abs(y2 - y1) / r.height };
+      paintRoi();
+    }
+    function end(e) {
+      if (!roiDrag) return;
+      roiDrag = null;
+      // Under 5% of a side is a stray click, not an intention -- the same
+      // threshold the server enforces, applied here so the user gets the box
+      // they drew back rather than a silent 400.
+      if (!roiCur || roiCur.w < 0.05 || roiCur.h < 0.05) { loadRoi(); return; }
+      post('/api/detect-roi', JSON.stringify(roiCur), function() {
+        roiArmed = false;
+        loadRoi();
+      });
+    }
+    layer.addEventListener('mousedown', begin);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    layer.addEventListener('touchstart', begin, { passive: false });
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', end);
+    // The box is positioned in pixels derived from the picture's size, so it
+    // has to be recomputed whenever that size can change.
+    window.addEventListener('resize', paintRoi);
+    document.getElementById('video').addEventListener('loadedmetadata', paintRoi);
+    loadRoi();
+  })();
+
   function toggleAlertShots() {
     post('/api/notify-shots', shotsOn ? 'false' : 'true',
          function(v) { shotsOn = v.trim() === 'true'; });
