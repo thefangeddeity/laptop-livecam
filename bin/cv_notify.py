@@ -117,6 +117,7 @@ class Notifier:
                  video_flag_file='/dev/null',
                  shots_flag_file='/dev/null',
                  rec_dir=None, clip_pre=None, clip_post=None,
+                 roi_file=None,
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
@@ -131,6 +132,10 @@ class Notifier:
         # switch silently read as "on" no matter what the panel said.
         self.video_flag_file = video_flag_file
         self.shots_flag_file = shots_flag_file
+        # The detection region, re-read per event like the switches: changing
+        # it must not need a restart, and an alert should be cropped the way
+        # the region was when the alert happened.
+        self.roi_file = roi_file or '/dev/null'
         # Instance attribute shadows the class default, so a node whose
         # recording lives somewhere else says so once, at construction.
         if rec_dir:
@@ -381,6 +386,42 @@ class Notifier:
     # turned a missing feature into a silence nobody could see.
     REC_DIR         = '/var/lib/hls-livecam/rec/cam'
 
+    def _roi(self):
+        """The operator's detection region as (x, y, w, h) fractions, or None.
+
+        Absent file, empty file or unparseable content all mean "whole
+        frame". A region is an optional narrowing, so every failure mode here
+        has to widen rather than narrow -- a corrupt file that silently
+        cropped every alert to a corner would be worse than one that is
+        ignored.
+        """
+        try:
+            with open(self.roi_file) as f:
+                raw = f.read().strip()
+            if not raw:
+                return None
+            d = json.loads(raw)
+            box = (float(d['x']), float(d['y']), float(d['w']), float(d['h']))
+            if box[2] <= 0 or box[3] <= 0:
+                return None
+            return box
+        except Exception:
+            return None
+
+    def _crop_to_roi(self, frame):
+        """Crop a full frame to the region. Returns the frame unchanged when
+        there is no region, so callers need no branch."""
+        box = self._roi()
+        if box is None:
+            return frame
+        h, w = frame.shape[:2]
+        fx, fy, fw, fh = box
+        x = max(0, min(w - 1, int(round(fx * w))))
+        y = max(0, min(h - 1, int(round(fy * h))))
+        bw = max(1, min(w - x, int(round(fw * w))))
+        bh = max(1, min(h - y, int(round(fh * h))))
+        return frame[y:y + bh, x:x + bw]
+
     def _shots_wanted(self):
         """Whether an alert carries its stills. Same switch shape as video:
         read per event, absent file means on.
@@ -453,11 +494,33 @@ class Notifier:
                 for _, p in chosen:
                     f.write("file '%s'\n" % p.replace("'", "'\\''"))
             # -ss AFTER -i on a concat input: accurate, and still stream-copy.
+            # A region means the clip has to be CROPPED, and cropping means
+            # re-encoding: `-c copy` hands the stream through untouched,
+            # which is why a clip normally costs no CPU at all. That property
+            # is worth keeping when there is no region, so the two cases are
+            # genuinely different commands rather than one with a filter that
+            # is sometimes a no-op.
+            roi = self._roi()
+            if roi is None:
+                tail = ['-c', 'copy', '-movflags', '+faststart']
+            else:
+                fx, fy, fw, fh = roi
+                # ffmpeg's crop takes expressions, so the fractions are
+                # resolved against iw/ih at encode time -- no need to know the
+                # recording's resolution here, and it stays correct if the
+                # capture size changes under us. Rounded to even numbers
+                # because yuv420p cannot represent odd dimensions.
+                crop = ('crop=floor(iw*%.6f/2)*2:floor(ih*%.6f/2)*2:'
+                        'floor(iw*%.6f/2)*2:floor(ih*%.6f/2)*2'
+                        % (fw, fh, fx, fy))
+                tail = ['-vf', crop,
+                        '-c:v', 'libx264', '-preset', 'veryfast',
+                        '-pix_fmt', 'yuv420p', '-an',
+                        '-movflags', '+faststart']
             cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
                    '-f', 'concat', '-safe', '0', '-i', lst,
                    '-ss', '%.2f' % max(0.0, start - chosen[0][0]),
-                   '-t', '%.2f' % (end - start),
-                   '-c', 'copy', '-movflags', '+faststart', out]
+                   '-t', '%.2f' % (end - start)] + tail + [out]
             r = subprocess.run(cmd, capture_output=True, timeout=45)
             try:
                 os.unlink(lst)
@@ -640,7 +703,13 @@ class Notifier:
             for i, p in enumerate(item['picks'] if want_shots else []):
                 # The snapshot is the original feed, not the sharpie or CV
                 # render: evidence for a person to look at.
-                bgr = cv2.cvtColor(p['frame'], cv2.COLOR_RGB2BGR)
+                # Cropped to the detection region, so the picture shows the
+                # area that was actually being watched. A still of the whole
+                # room, when only a corner of it is armed, invites the reader
+                # to look for the cat in three quarters of a frame where no
+                # detector was ever running.
+                bgr = cv2.cvtColor(self._crop_to_roi(p['frame']),
+                                   cv2.COLOR_RGB2BGR)
                 # item['when'] is the window's wall clock; p['t'] is this
                 # shot's offset inside it, so together they are when THIS
                 # picture was taken.
@@ -807,4 +876,5 @@ def make_notifier(denv, log=None):
                         or '/var/lib/hls-livecam/notify_shots',
                     rec_dir=_get('NOTIFY_REC_DIR', '') or None,
                     clip_pre=_num('NOTIFY_CLIP_PRE', 5.0),
-                    clip_post=_num('NOTIFY_CLIP_POST', 20.0))
+                    clip_post=_num('NOTIFY_CLIP_POST', 20.0),
+                    roi_file=_get('DETECT_ROI_FILE', '') or None)

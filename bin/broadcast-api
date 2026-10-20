@@ -54,6 +54,7 @@ DETECT_ALWAYS_FILE = os.path.join(STATE_DIR, "detect_always")
 NOTIFY_CLASSES_FILE = os.path.join(STATE_DIR, "notify_classes")
 NOTIFY_VIDEO_FILE   = os.path.join(STATE_DIR, "notify_video")
 NOTIFY_SHOTS_FILE   = os.path.join(STATE_DIR, "notify_shots")
+DETECT_ROI_FILE     = os.path.join(STATE_DIR, "detect_roi")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
 GOL_COLS       = 80
@@ -932,6 +933,8 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
                     last_observe[0] = now
                     proc.set_foveal(True)
                     proc.set_motion_alerts('motion' in _read_notify_classes())
+                    _r = _read_detect_roi()
+                    proc.set_roi((_r['x'], _r['y'], _r['w'], _r['h']) if _r else None)
                     proc.observe(frame)
                 dst.write(_BLACK_FRAME)
                 continue
@@ -949,12 +952,18 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
                     # this branch renders nothing, it writes `raw` through.
                     proc.set_foveal(True)
                     proc.set_motion_alerts('motion' in _read_notify_classes())
+                    _r = _read_detect_roi()
+                    proc.set_roi((_r['x'], _r['y'], _r['w'], _r['h']) if _r else None)
                     proc.observe(frame)
                 dst.write(raw)
                 continue
 
             proc.set_motion_alerts('motion' in _read_notify_classes())
             proc.set_blur(_cv_blur_mode)  # re-read every frame, same as feed mode
+            # The detection region, same cadence: a region changed in the
+            # panel applies to the next frame, not the next restart.
+            _r = _read_detect_roi()
+            proc.set_roi((_r['x'], _r['y'], _r['w'], _r['h']) if _r else None)
             proc.set_foveal(_cv_foveal_mode)  # ditto -- the real gate, not a stub
             proc.set_night(_mode == 'night')  # ditto
             _t_cv = time.perf_counter()
@@ -2411,6 +2420,74 @@ def _read_notify_shots():
             return f.read().strip() != 'false'
     except Exception:
         return True
+
+
+# THE DETECTION REGION: {"x":..,"y":..,"w":..,"h":..} as fractions of the
+# frame, or absent for the whole picture. Fractions because a region stored in
+# pixels means something different the day the capture resolution changes, and
+# nothing would announce it.
+#
+# Read per frame by the writer loop and per event by the notifier, so setting
+# one takes effect on the next frame rather than at the next restart.
+def _read_detect_roi():
+    try:
+        with open(DETECT_ROI_FILE) as f:
+            raw = f.read().strip()
+        if not raw:
+            return None
+        d = json.loads(raw)
+        box = {k: float(d[k]) for k in ('x', 'y', 'w', 'h')}
+        if box['w'] <= 0 or box['h'] <= 0:
+            return None
+        return box
+    except Exception:
+        # Every failure here widens to the full frame. A region is an optional
+        # narrowing, and a corrupt file that silently cropped every alert to a
+        # corner would be far worse than one that is ignored.
+        return None
+
+
+@app.route('/api/detect-roi', methods=['GET'])
+def detect_roi_get():
+    r = _read_detect_roi()
+    return (json.dumps(r) if r else ''), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/detect-roi', methods=['POST'])
+def detect_roi_post():
+    """Set the region, or clear it with an empty body -- which is the Reset.
+
+    Clamped and validated here rather than trusted: this is the only writer,
+    so a box that leaves the frame or inverts itself should never reach the
+    file that the detector and the notifier both read.
+    """
+    raw = request.get_data(as_text=True).strip()
+    try:
+        os.makedirs(os.path.dirname(DETECT_ROI_FILE), exist_ok=True)
+        if not raw:
+            with open(DETECT_ROI_FILE, 'w') as f:
+                f.write('')
+            return '', 200
+        d = json.loads(raw)
+        x, y = float(d['x']), float(d['y'])
+        w, h = float(d['w']), float(d['h'])
+    except Exception:
+        abort(400)
+    x = min(max(x, 0.0), 1.0)
+    y = min(max(y, 0.0), 1.0)
+    w = min(max(w, 0.0), 1.0 - x)
+    h = min(max(h, 0.0), 1.0 - y)
+    # A region smaller than this is almost certainly a stray click rather than
+    # an intention, and one that small would starve the detector of context.
+    if w < 0.05 or h < 0.05:
+        abort(400)
+    box = {'x': round(x, 5), 'y': round(y, 5), 'w': round(w, 5), 'h': round(h, 5)}
+    try:
+        with open(DETECT_ROI_FILE, 'w') as f:
+            f.write(json.dumps(box))
+    except Exception:
+        abort(500)
+    return json.dumps(box), 200, {'Content-Type': 'application/json'}
 
 
 @app.route('/api/notify-shots', methods=['GET'])
