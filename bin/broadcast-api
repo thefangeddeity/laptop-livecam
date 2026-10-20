@@ -815,18 +815,58 @@ _OBSERVE_PERIOD = 1.0 / 5.0   # detection tap rate in plain Show / Hide
 _BLACK_FRAME = (b'\x00' * (FRAME_W * FRAME_H * 3))
 
 
-def _cv_pump(src, dst, proc, first_raw=None):
+def _cv_pump(src, dst, proc, first_raw=None, rec=None):
     """Read raw frames from A, process, write to B. Owns neither process.
 
     first_raw is the frame the caller already pulled off A to prove the
     camera session was open before it opened the microphone. It is a real
     frame of the room, not a probe, so it goes through the pipeline like
     any other rather than being thrown away.
+
+    `rec` is the evidence recorder, and it gets the frame BEFORE any mode
+    rendering -- unrendered in Show, un-blacked in Hide, un-annotated in CV.
+    An alert clip should show the room, not show what the viewer happened to
+    have selected when the cat walked through.
     """
     nbytes = FRAME_W * FRAME_H * 3
     dropped = 0
     pending = first_raw
     last_observe = [0.0]
+    last_prune = [0.0]
+
+    def _to_rec(buf):
+        """Never let the recorder take the picture down with it. A failed
+        write here means no clip; a raised exception would mean no stream."""
+        if rec is None or rec.stdin is None:
+            return
+        try:
+            rec.stdin.write(buf)
+        except Exception:
+            pass
+
+    def _prune():
+        """Age out old segments. mediamtx had recordDeleteAfter; writing the
+        files ourselves means doing this ourselves, and an unbounded rolling
+        recording fills a disk at about 20MB an hour."""
+        now = time.monotonic()
+        if now - last_prune[0] < 300:
+            return
+        last_prune[0] = now
+        try:
+            keep = float(_cfg.get('RECORD_RETENTION_H', 6)) * 3600.0
+            root = os.path.join(STATE_DIR, 'rec', 'cam')
+            cutoff = time.time() - keep
+            for f in os.listdir(root):
+                if not f.endswith('.mp4'):
+                    continue
+                fp = os.path.join(root, f)
+                try:
+                    if os.path.getmtime(fp) < cutoff:
+                        os.unlink(fp)
+                except Exception:
+                    pass
+        except Exception:
+            pass
     while not _cv_stop.is_set():
         if pending is not None:
             raw, pending = pending, None
@@ -835,6 +875,10 @@ def _cv_pump(src, dst, proc, first_raw=None):
             if raw is None:
                 break                  # A exited or was killed
         try:
+            # The real frame, before anything renders over it. Every mode
+            # feeds the recorder the same picture of the room.
+            _to_rec(raw)
+            _prune()
             frame = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
 
             # Plain Show: the viewer asked for the unaltered camera, so render
@@ -1075,12 +1119,54 @@ def _start_cv_publisher(mode='cv'):
     ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
        stderr=_open_ffmpeg_log(), bufsize=0)
 
+    # ── THE EVIDENCE RECORDER ──────────────────────────────────────
+    # A third leg, fed the REAL frame, writing one-minute segments straight
+    # to disk. cv_notify cuts alert clips out of these.
+    #
+    # WHY NOT mediamtx's own recorder, which is free: because it can only
+    # record what is PUBLISHED, and in Hide what is published is black. The
+    # clip arrived as a black rectangle while the stills showed the animal --
+    # the alert's own evidence going blank in the mode you are most likely to
+    # be in when you want it.
+    #
+    # WHY NOT a second mediamtx path carrying the real picture: mediamtx
+    # serves every path it holds over HLS, and hlsAddress is :8888 on all
+    # interfaces. That path would be fetchable from the LAN while Hide is on,
+    # which would quietly undo the one control whose whole job is that nobody
+    # sees the room. Straight to disk has no serving surface to secure.
+    #
+    # THE COST IS REAL AND IT IS CPU: this is a second libx264 encode on a
+    # node that also runs YOLO. ultrafast/zerolatency keeps it cheap, but if
+    # the CV budget starts being missed, this is the first thing to look at.
+    rec_root = os.path.join(STATE_DIR, 'rec', 'cam')
+    os.makedirs(rec_root, exist_ok=True)
+    r = subprocess.Popen([
+        FFMPEG, '-hide_banner', '-loglevel', 'error',
+        '-f', 'rawvideo', '-pix_fmt', 'rgb24',
+        '-s', f'{FRAME_W}x{FRAME_H}', '-framerate', str(fr),
+        '-use_wallclock_as_timestamps', '1',
+        '-i', 'pipe:0',
+        '-an',
+        '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+        '-pix_fmt', 'yuv420p', '-b:v', '1500k', '-g', str(fr),
+        '-f', 'segment', '-segment_time', '60', '-segment_format', 'mp4',
+        # Fragmented, so a segment that is still being written -- or one cut
+        # short by a mode change -- is still playable. The clip cutter treats
+        # the newest segment as open-ended, which is only true if a partial
+        # file can be read at all.
+        '-segment_format_options', 'movflags=+frag_keyframe+empty_moov',
+        '-reset_timestamps', '1', '-strftime', '1',
+        os.path.join(rec_root, '%Y-%m-%d_%H-%M-%S.mp4'),
+    ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+       stderr=_open_ffmpeg_log(), bufsize=0)
+
     _cv_stop.clear()
     _cv_thread = threading.Thread(target=_cv_pump,
-                                  args=(a.stdout, b.stdin, proc, first_raw),
+                                  args=(a.stdout, b.stdin, proc, first_raw, r),
                                   daemon=True, name='cv-pump')
     _cv_thread.start()
-    _cv_procs[:] = [a, b]
+
+    _cv_procs[:] = [a, b, r]
     print(f'broadcast-api: CV capture: camera={video_idx} -> CVProcessor -> '
           f'{rtsp_url} (audio={audio_idx})', file=sys.stderr, flush=True)
     return b        # B holds the RTSP socket, so B is what the watchdog polls

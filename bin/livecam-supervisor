@@ -218,39 +218,6 @@ hlsSegmentDuration: 1s
 
 paths:
   cam:
-    # THE ROLLING RECORDING THE ALERT CLIPS ARE CUT FROM.
-    #
-    # cv_notify cuts [detection-5s, detection+4s] out of these segments, which
-    # is the whole reason to send a clip rather than stills: the pre-roll
-    # starts BEFORE the detection, so you see the cat arrive instead of the
-    # cat already sitting there.
-    #
-    # This was missing on this node entirely. The cutter was written, the
-    # sendVideo path was written, and nothing ever recorded -- so _cut_clip
-    # globbed an empty directory, returned None, and the code's own comment
-    # ("None is never an error worth failing a notification over") turned a
-    # missing feature into a silence. Stills kept arriving, so nothing looked
-    # broken.
-    #
-    # Recording is a SECOND reader of the same stream, not a second encoder:
-    # mediamtx writes what it already has, so this costs disk and not CPU --
-    # which matters on a node whose CV budget is the scarce thing.
-    record: yes
-    # Single-quoted: this platform's base directory is
-    # ~/Library/Application Support/HLS Livecam, which has spaces in it. YAML
-    # tolerates them in a bare scalar today, and would stop the moment a path
-    # contained a colon. Quoting costs nothing and removes the class.
-    recordPath: '{rec_root}/%path/%Y-%m-%d_%H-%M-%S-%f'
-    recordFormat: fmp4
-    # One minute per segment, matching the Linux nodes. A clip spans at most
-    # two of them, and a shorter segment would multiply the files without
-    # making the cut any more accurate -- the cut is frame-accurate within a
-    # segment either way.
-    recordSegmentDuration: 1m
-    # Six hours is what the Linux nodes keep, and it measures ~376M there.
-    # This disk has 369G free; retention is bounded by what is useful to go
-    # back to, not by space.
-    recordDeleteAfter: 6h
   # The reverse direction: published by a browser, read by this node's speaker
   # player. Kept off `cam` deliberately -- opposite direction, opposite
   # lifetime, and merging them would broadcast a viewer's microphone to every
