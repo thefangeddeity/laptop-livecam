@@ -161,7 +161,12 @@
     display: flex;
     flex-direction: row;
     min-height: 0;
-    padding: 16px;
+    /* Horizontal padding matches the header's 20px, so the outer edge of each
+       side column lands on the same line as the brand mark and the status
+       pill. At 16px the columns overhung the header's content by 4px -- not
+       enough to look deliberate, just enough to look unaligned. Mobile
+       overrides this to 0. */
+    padding: 16px 20px;
     gap: 16px;
   }
 
@@ -895,7 +900,11 @@
 
   /* ── DESKTOP SIDEBAR ── */
   .sidebar {
-    width: 260px;
+    /* 260 -> 300: the columns carry the Messages card, whose list and input
+       were the narrowest things on a screen with room to spare. The video
+       keeps the remainder and loses least by it -- a picture scales, text
+       does not. Mobile overrides this to 100%. */
+    width: 300px;
     background: none;
     border: 0;
     box-shadow: none;
@@ -1395,8 +1404,13 @@
                             inset 0 0 18px rgba(101,123,131,.10); }
     /* Three columns so a run of messages from one machine lines up under
        its name instead of repeating it on every line. */
-    .ele-list .em { display: grid; grid-template-columns: 5.2em 1fr auto;
+    /* 5.2em is narrower than "tanzania:", so the longest node in the fleet
+       wrapped its own colon onto the next line. Measured, not guessed again
+       the next time a node is named something longer. */
+    .ele-list .em { display: grid;
+                    grid-template-columns: minmax(5.2em, max-content) 1fr auto;
                     gap: 0 6px; margin-bottom: 3px; word-break: break-word; }
+    .ele-list .em .who { white-space: nowrap; }
     .ele-list .em .who { grid-column: 1; }
     .ele-list .em .txt { grid-column: 2; }
     .ele-list .em .when { grid-column: 3; float: none; margin-left: 0; }
@@ -1471,7 +1485,20 @@
        60% larger than its neighbours and the only non-mono thing in the row. */
     .ele-col { display: flex; flex-direction: column; gap: 4px;
                min-width: 0; }
-    .ele-col.right { align-items: flex-end; text-align: right; }
+    /* A readout, not a caption, so it gets a readout's housing: the same
+       inset screen the header's build badge sits in, borrowed by name from
+       `header .hdr-vfd` so the two cannot drift apart. */
+    .ele-col.right { align-items: flex-end; text-align: right;
+                     gap: 2px;
+                     border-radius: 5px; padding: 5px 9px;
+                     background: linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+                     border: 1px solid #040809;
+                     box-shadow: inset 0 1px 0 rgba(255,255,255,.05),
+                                 inset 0 0 20px rgba(0,0,0,.75); }
+    html[data-theme="light"] .ele-col.right {
+                     border-color: #c9c0a6;
+                     box-shadow: inset 0 1px 0 rgba(255,255,255,.55),
+                                 inset 0 0 18px rgba(101,123,131,.10); }
 
     .me { font: 700 15px/1 var(--mono); letter-spacing: .005em;
           color: #d8bd7e; text-shadow: none;
