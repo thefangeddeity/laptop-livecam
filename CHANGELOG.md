@@ -4,6 +4,25 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.28
+
+- **The light switch is visible in the mobile header again.**
+  `header .status-bar` was `display: none` below 720px, so moving the theme
+  switch into the header hid it on phones. The rule predates the switch and
+  its reasoning was sound for what it covered: brand, version strip and LIVE
+  pill do not fit in ~390px, and the pill was the only one of the three with
+  duplicates already above the fold -- the VIDEO tube's LIVE segment and the
+  HLS lamp. That does not extend to the switch, which has no duplicate
+  anywhere since it left Settings, so the container rule removed the only
+  theme control on mobile entirely.
+  The **pill** is hidden now instead of the bar around it: identical outcome
+  for the pill, and the original rule's careful point still holds --
+  `textContent` is readable and writable while hidden, so `paintLamps()` and
+  `setStatus()` go on driving the tube's LIVE segment and the HLS lamp.
+- The switch keeps its place and drops its word on mobile. ~390px is still
+  ~390px, and the label is exactly what would push the product name onto two
+  lines again.
+
 ## 7.0.27
 
 - **Pixelate instead of black**, as a setting under the mask. Black stays the
