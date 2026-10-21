@@ -56,6 +56,7 @@ NOTIFY_VIDEO_FILE   = os.path.join(STATE_DIR, "notify_video")
 NOTIFY_SHOTS_FILE   = os.path.join(STATE_DIR, "notify_shots")
 NOTIFY_PRESENCE_FILE = os.path.join(STATE_DIR, "notify_presence_pause")
 DETECT_ROI_FILE     = os.path.join(STATE_DIR, "detect_roi")
+PRIVACY_MASK_FILE   = os.path.join(STATE_DIR, "privacy_mask")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
 GOL_COLS       = 80
@@ -674,6 +675,142 @@ def _start_cam_reader():
     ], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
 
 
+def _read_detect_roi_raw():
+    """The stored region including its on/off state, or None if never set.
+
+    The box and whether it is APPLIED are separate facts. A region you spent
+    time choosing should survive being switched off -- otherwise "off" means
+    "draw it again", and nobody toggles something that costs them that.
+    """
+    try:
+        with open(DETECT_ROI_FILE) as f:
+            raw = f.read().strip()
+        if not raw:
+            return None
+        d = json.loads(raw)
+        box = {k: float(d[k]) for k in ('x', 'y', 'w', 'h')}
+        if box['w'] <= 0 or box['h'] <= 0:
+            return None
+        box['on'] = bool(d.get('on', True))
+        return box
+    except Exception:
+        # Every failure here widens to the full frame. A region is an optional
+        # narrowing, and a corrupt file that silently cropped every alert to a
+        # corner would be far worse than one that is ignored.
+        return None
+
+
+
+_mask_cache = {'at': 0.0, 'box': (False, None)}
+
+
+def _privacy_mask_box():
+    """The mask rectangle as fractions, or None. Cached for a second: this is
+    consulted on every camera frame.
+
+    MASKED IS THE DEFAULT. An absent file means on -- a region somebody took
+    the trouble to draw is private until they say otherwise. Only the literal
+    'false' turns it off.
+
+    It reuses the detection region's geometry rather than storing a second
+    rectangle: one region with a mode, since two would rot out of step. The
+    raw reader is used so the mask still applies when the region is switched
+    off for DETECTION -- different questions about the same box.
+    """
+    now = time.monotonic()
+    if now - _mask_cache['at'] < 1.0:
+        return _mask_cache['box']
+    _mask_cache['at'] = now
+    try:
+        with open(PRIVACY_MASK_FILE) as f:
+            on = f.read().strip() != 'false'
+    except Exception:
+        on = True
+    if not on:
+        _mask_cache['box'] = (False, None)
+        return _mask_cache['box']
+    # NO REGION AT ALL is not a failure -- it is the state of every node
+    # before anyone draws a box, and defaulting to on must never black a
+    # camera that has never had one. A region file that EXISTS and will not
+    # parse is the different case below, and that one blacks.
+    try:
+        _present = os.path.getsize(DETECT_ROI_FILE) > 0
+    except Exception:
+        _present = False
+    if not _present:
+        _mask_cache['box'] = (False, None)
+        return _mask_cache['box']
+    box = None
+    try:
+        r = _read_detect_roi_raw()
+        if r:
+            x, y, w, h = (float(r['x']), float(r['y']),
+                          float(r['w']), float(r['h']))
+            if w > 0 and h > 0:
+                box = (x, y, w, h)
+    except Exception:
+        box = None
+    _mask_cache['box'] = (True, box)
+    return _mask_cache['box']
+
+
+def _apply_privacy_mask(raw):
+    """Black out everything outside the region, on the frame everything else
+    is derived from.
+
+    On this lineage that is _cv_pump's `raw`: the recorder (_to_rec), the
+    detector (observe) and the published picture (dst.write) all come from
+    it, so masking there is the only placement where a clip cannot disagree
+    with the switch. _drain_loop's cache is masked too, for the consumers
+    that read it.
+
+    Fails CLOSED, deliberately against the house rule for this geometry:
+    every other reader widens on failure so a corrupt file cannot silently
+    narrow what is watched, but the only unacceptable outcome here is showing
+    the room while the switch says hidden.
+
+    Off costs nothing -- raw is returned untouched, no copy.
+    """
+    try:
+        on, box = _privacy_mask_box()
+    except Exception:
+        on, box = True, None
+    if not on:
+        return raw
+    if box is None:
+        return b'\x00' * FRAME_BYTES
+    try:
+        arr = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
+        fx, fy, fw, fh = box
+        x = max(0, min(FRAME_W - 1, int(round(fx * FRAME_W))))
+        y = max(0, min(FRAME_H - 1, int(round(fy * FRAME_H))))
+        w = max(1, min(FRAME_W - x, int(round(fw * FRAME_W))))
+        h = max(1, min(FRAME_H - y, int(round(fh * FRAME_H))))
+        out = np.zeros((FRAME_H, FRAME_W, 3), np.uint8)
+        out[y:y + h, x:x + w] = arr[y:y + h, x:x + w]
+        return out.tobytes()
+    except Exception as exc:
+        print('broadcast-api: privacy mask failed, blanking frame: '
+              f'{type(exc).__name__}: {exc}', file=sys.stderr, flush=True)
+        return b'\x00' * FRAME_BYTES
+
+
+def _read_privacy_mask():
+    """Absent means MASKED -- see _privacy_mask_box. Only 'false' is off."""
+    try:
+        with open(PRIVACY_MASK_FILE) as f:
+            return f.read().strip() != 'false'
+    except Exception:
+        return True
+
+
+def _write_privacy_mask(enabled):
+    os.makedirs(os.path.dirname(PRIVACY_MASK_FILE), exist_ok=True)
+    with open(PRIVACY_MASK_FILE, 'w') as f:
+        f.write('true' if enabled else 'false')
+    _mask_cache['at'] = 0.0
+
+
 def _drain_loop(cam_holder):
     """Continuously read camera frames into the shared cache; restart on EOF."""
     global _cam_frame, _cam_proc
@@ -681,6 +818,7 @@ def _drain_loop(cam_holder):
         try:
             raw = cam_holder[0].stdout.read(FRAME_BYTES)
             if len(raw) == FRAME_BYTES:
+                raw = _apply_privacy_mask(raw)
                 with _cam_frame_lock:
                     _cam_frame = raw
             else:
@@ -910,6 +1048,11 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
             raw = _read_exact(src, nbytes)
             if raw is None:
                 break                  # A exited or was killed
+        # BEFORE the branch below: _to_rec, the detector's observe() and the
+        # published dst.write() are all derived from this one buffer, so one
+        # call here is what makes the mask a property of the frame rather
+        # than of three remembered call sites.
+        raw = _apply_privacy_mask(raw)
         try:
             # The real frame, before anything renders over it. Every mode
             # feeds the recorder the same picture of the room.
@@ -2444,31 +2587,6 @@ def _read_presence_pause():
 #
 # Read per frame by the writer loop and per event by the notifier, so setting
 # one takes effect on the next frame rather than at the next restart.
-def _read_detect_roi_raw():
-    """The stored region including its on/off state, or None if never set.
-
-    The box and whether it is APPLIED are separate facts. A region you spent
-    time choosing should survive being switched off -- otherwise "off" means
-    "draw it again", and nobody toggles something that costs them that.
-    """
-    try:
-        with open(DETECT_ROI_FILE) as f:
-            raw = f.read().strip()
-        if not raw:
-            return None
-        d = json.loads(raw)
-        box = {k: float(d[k]) for k in ('x', 'y', 'w', 'h')}
-        if box['w'] <= 0 or box['h'] <= 0:
-            return None
-        box['on'] = bool(d.get('on', True))
-        return box
-    except Exception:
-        # Every failure here widens to the full frame. A region is an optional
-        # narrowing, and a corrupt file that silently cropped every alert to a
-        # corner would be far worse than one that is ignored.
-        return None
-
-
 def _read_detect_roi():
     """What the DETECTOR should use: the box only while it is switched on."""
     r = _read_detect_roi_raw()
@@ -2541,6 +2659,23 @@ def detect_roi_post():
     except Exception:
         abort(500)
     return json.dumps(box), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/privacy-mask', methods=['GET'])
+def privacy_mask_get():
+    return ('true' if _read_privacy_mask() else 'false'), 200
+
+
+@app.route('/api/privacy-mask', methods=['POST'])
+def privacy_mask_post():
+    val = (request.get_data(as_text=True) or '').strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    try:
+        _write_privacy_mask(val == 'true')
+    except Exception:
+        abort(500)
+    return ('true' if _read_privacy_mask() else 'false'), 200
 
 
 @app.route('/api/presence-pause', methods=['GET'])

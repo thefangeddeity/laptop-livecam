@@ -1570,18 +1570,20 @@
        the brand keeps the left edge, and wrapping on a narrow screen rather
        than squeezing the live indicator. */
     .hdr-tog { display: inline-flex; align-items: center; gap: 6px; }
-    /* A .reset had no pressed state, because its only user until now was
-       #combToggle -- a MENU control, which reports open/closed through
-       aria-expanded and deliberately stays unmodified. A global on/off
-       switch has to show its position, so the pin slides and lights, the
-       way a rocker does. */
-    .reset .pin { transition: transform .12s ease, background .12s ease; }
-    .reset:not(.pressed) .pin { transform: translateX(-4px); }
-    .reset.pressed .pin { transform: translateX(4px);
+    /* .reset is a PUSH button -- Reload, and the notch menu. It had no
+       pressed state because nothing using it needed one, and it still has
+       none: those three are unchanged.
+
+       A switch is a different control that happens to share the housing, so
+       it FORKS rather than redefining the base. .tog is the modifier, applied
+       only to the theme switch: the pin slides to show its position and
+       lights when on, the way a rocker does. Styling .reset itself for this
+       is what pushed the Reload pins 4px off centre. */
+    .reset.tog .pin { transition: transform .12s ease, background .12s ease; }
+    .reset.tog:not(.pressed) .pin { transform: translateX(-4px); }
+    .reset.tog.pressed .pin { transform: translateX(4px);
       background: linear-gradient(180deg,#6fe08f 0%,#49a862 52%,#3f8f52 100%);
       box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 0 6px var(--led-glow); }
-    /* The menu toggle keeps the old centred, unlit pin. */
-    #combToggle .pin { transform: none; }
     .status-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
                   justify-content: flex-end; }
     .roi-h.nw { left: 0;    top: 0; }
@@ -1774,7 +1776,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-159-g4a5bcab-dirty · dev · 4a5bcab"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-160-g64f9fec-dirty · dev · 64f9fec"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -1782,7 +1784,7 @@
          a third control shape for a global toggle would be one more thing to
          learn for no gain. -->
     <div class="hdr-tog">
-      <button type="button" class="reset" id="themeBtn" onclick="toggleTheme()"
+      <button type="button" class="reset tog" id="themeBtn" onclick="toggleTheme()"
               aria-pressed="false" aria-label="Light theme"
               title="Light theme"><span class="pin"></span></button>
       <span class="eng rstlab">Light</span>
@@ -2375,6 +2377,22 @@
                     title="Keep the area you drew and stop editing">Set</button>
             <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
                     title="Forget the area and watch the whole picture">Reset</button>
+          </div>
+          <!-- Same rectangle as the detection region, with a different
+               question asked of it: that one is where the detector LOOKS,
+               this is what anybody may SEE. One region with a mode, not two
+               rectangles to keep in step.
+
+               Not .detdep: this does not depend on Detection. Blacking the
+               room out is meaningful with detection switched off entirely --
+               arguably that is exactly when you want it. -->
+          <div class="pinrow">
+            <button class="pinled" id="privacyMaskBtn" onclick="togglePrivacyMask()"
+                    aria-pressed="false" aria-label="Black out everything outside the area"
+                    title="ON by default once an area is set. Everything outside it is blacked out at the camera, before anything is encoded -- the stream, clips, snapshots and the detector all inherit it. Switch off to show the whole room.">
+              <span class="bulb" id="privacyMaskLamp"></span>
+            </button>
+            <span class="eng rstlab">Black out the rest</span>
           </div>
         <div class="setgrp eng detdep">What alerts carry</div>
           <div class="pinrow detdep">
@@ -5527,7 +5545,7 @@
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
-  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false;
+  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false, maskOn = false;
 
   function paintLed(id, on) {
     var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
@@ -5551,6 +5569,12 @@
     // never disagrees with its members.
     paintLed('clsLiving', SPECIES.every(function(s) { return clsOn[s]; }));
     paintLed('presencePause', presenceOn);
+    paintLed('privacyMask', maskOn);
+    // Dead without a rectangle, and says so rather than failing on click:
+    // switching it on with no region would black the whole picture, which
+    // looks exactly like a broken camera.
+    var pm = document.getElementById('privacyMaskBtn');
+    if (pm) pm.classList.toggle('na', !roiCur);
     var g = document.getElementById('alertGroup');
     if (g) g.classList.toggle('inactive', !detectOn);
     // The lifted groups dim with Detection too -- see .detdep.
@@ -5874,6 +5898,11 @@
     post('/api/notify-video', videoOn ? 'false' : 'true',
          function(v) { videoOn = v.trim() === 'true'; });
   }
+  function togglePrivacyMask() {
+    if (!roiCur && !maskOn) return;          // nothing to keep; see paintAll
+    post('/api/privacy-mask', maskOn ? 'false' : 'true',
+         function(v) { maskOn = v.trim() === 'true'; });
+  }
   function togglePresencePause() {
     post('/api/presence-pause', presenceOn ? 'false' : 'true',
          function(v) { presenceOn = v.trim() === 'true'; });
@@ -5894,10 +5923,14 @@
     fetch('/api/notify-shots', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
       .then(function(v) { if (v !== null && e2b === alertsEpoch) shotsOn = v.trim() === 'true'; paintAll(); });
-var ePres = alertsEpoch;
-fetch('/api/presence-pause', { cache: 'no-store' })
-  .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
-  .then(function(v) { if (v !== null && ePres === alertsEpoch) presenceOn = v.trim() === 'true'; paintAll(); });
+      var eMask = alertsEpoch;
+      fetch('/api/privacy-mask', { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+        .then(function(v) { if (v !== null && eMask === alertsEpoch) maskOn = v.trim() === 'true'; paintAll(); });
+      var ePres = alertsEpoch;
+      fetch('/api/presence-pause', { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+        .then(function(v) { if (v !== null && ePres === alertsEpoch) presenceOn = v.trim() === 'true'; paintAll(); });
     var e3 = alertsEpoch;
     fetch('/api/notify-classes', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
