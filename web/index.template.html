@@ -2394,6 +2394,20 @@
             </button>
             <span class="eng rstlab">Black out the rest</span>
           </div>
+          <!-- Indented under the mask because it only modifies it: this is
+               HOW the outside is hidden, not WHETHER. Pixelation is the
+               weaker of the two and the title says so -- a mosaic keeps
+               coarse structure (how many people, where, when they move),
+               and the block size is a judgement about how much of that is
+               acceptable rather than a guarantee. -->
+          <div class="pinrow sub">
+            <button class="pinled" id="maskPixelBtn" onclick="toggleMaskStyle()"
+                    aria-pressed="false" aria-label="Pixelate instead of blacking out"
+                    title="Pixelate the outside instead of blacking it. Weaker: a mosaic still shows how many people are there and when they move. Black hides everything.">
+              <span class="bulb" id="maskPixelLamp"></span>
+            </button>
+            <span class="eng rstlab">Pixelate instead</span>
+          </div>
         <div class="setgrp eng detdep">What alerts carry</div>
           <div class="pinrow detdep">
             <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
@@ -5545,7 +5559,7 @@
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
-  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false, maskOn = false;
+  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false, maskOn = false, maskPixel = false;
 
   function paintLed(id, on) {
     var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
@@ -5570,6 +5584,10 @@
     paintLed('clsLiving', SPECIES.every(function(s) { return clsOn[s]; }));
     paintLed('presencePause', presenceOn);
     paintLed('privacyMask', maskOn);
+    paintLed('maskPixel', maskPixel);
+    // Inert unless something is actually being hidden.
+    var mp = document.getElementById('maskPixelBtn');
+    if (mp) mp.classList.toggle('na', !(maskOn && roiCur));
     // Dead without a rectangle, and says so rather than failing on click:
     // switching it on with no region would black the whole picture, which
     // looks exactly like a broken camera.
@@ -5898,6 +5916,10 @@
     post('/api/notify-video', videoOn ? 'false' : 'true',
          function(v) { videoOn = v.trim() === 'true'; });
   }
+  function toggleMaskStyle() {
+    post('/api/mask-style', maskPixel ? 'black' : 'pixel',
+         function(v) { maskPixel = v.trim() === 'pixel'; });
+  }
   function togglePrivacyMask() {
     if (!roiCur && !maskOn) return;          // nothing to keep; see paintAll
     post('/api/privacy-mask', maskOn ? 'false' : 'true',
@@ -5923,6 +5945,10 @@
     fetch('/api/notify-shots', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
       .then(function(v) { if (v !== null && e2b === alertsEpoch) shotsOn = v.trim() === 'true'; paintAll(); });
+      var eStyle = alertsEpoch;
+      fetch('/api/mask-style', { cache: 'no-store' })
+        .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+        .then(function(v) { if (v !== null && eStyle === alertsEpoch) maskPixel = v.trim() === 'pixel'; paintAll(); });
       var eMask = alertsEpoch;
       fetch('/api/privacy-mask', { cache: 'no-store' })
         .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
