@@ -4,6 +4,31 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.30
+
+- **"Stretch visible area for display".** With the mask on, the kept area sits
+  small inside a field of black. This scales it up to fill the player, which
+  is the point of setting a small region in the first place.
+  It is a CSS transform on the `<video>` element and nothing else: what is
+  captured, published, recorded and sent to Telegram is byte-for-byte
+  unchanged, so it cannot widen what anyone can see -- only how much of the
+  player the already-visible part uses. Hence per-viewer, in `localStorage`,
+  rather than node state: two people watching the same camera can disagree
+  about this, and `feed_mode` already shows what shared display state costs.
+- Three conditions, each for a reason: with the **mask off** or **no region**
+  the whole frame is already the visible area, and **while editing** it drops
+  back to the full picture, because you cannot redraw a region you cannot see.
+  The region outline hides while stretched -- filling the player, it would
+  trace the edge of the view.
+- The region's origin is measured from the *wrap*, not the video element: the
+  picture is letterboxed inside the element by `object-fit: contain`, so
+  `videoRect()` is the only honest origin. Fit, not fill -- `min()` of the two
+  scale factors, so a wide strip keeps its aspect instead of being cropped a
+  second time by the player's shape.
+- Wired into `paintAll`, not just `paintRoi`: `paintAll` does not call
+  `paintRoi`, so otherwise the stretch would have engaged only when the
+  *region* was touched and not when the *mask* was toggled.
+
 ## 7.0.29
 
 - **The settings say what they now do.** "Where to watch" named one of the

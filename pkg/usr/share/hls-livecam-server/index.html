@@ -2411,6 +2411,21 @@
             </button>
             <span class="eng rstlab">Pixelate instead</span>
           </div>
+          <!-- A DISPLAY choice, not a capture one: this scales the picture in
+               the browser so the kept area fills the player instead of
+               sitting in a field of black. Nothing about what is captured,
+               published or recorded changes, so it is per-viewer
+               (localStorage) rather than node state -- two people watching
+               the same camera can disagree, which they cannot about the mask
+               itself. -->
+          <div class="pinrow sub">
+            <button class="pinled" id="fitRoiBtn" onclick="toggleFitRoi()"
+                    aria-pressed="false" aria-label="Stretch the visible area to fill the display"
+                    title="Scale the kept area up to fill the player, instead of showing it small inside the hidden rest. Changes only your view -- not the stream, the recording, or what anyone else sees.">
+              <span class="bulb" id="fitRoiLamp"></span>
+            </button>
+            <span class="eng rstlab">Stretch visible area for display</span>
+          </div>
         <div class="setgrp eng detdep">What alerts carry</div>
           <div class="pinrow detdep">
             <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
@@ -5569,6 +5584,9 @@
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
   var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false, maskOn = false, maskPixel = false;
+  // Per-viewer and remembered: a display preference, not node state.
+  var fitRoi = false;
+  try { fitRoi = localStorage.getItem('fitRoi') === 'true'; } catch (e) {}
 
   function paintLed(id, on) {
     var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
@@ -5594,6 +5612,13 @@
     paintLed('presencePause', presenceOn);
     paintLed('privacyMask', maskOn);
     paintLed('maskPixel', maskPixel);
+    paintLed('fitRoi', fitRoi);
+    var fb = document.getElementById('fitRoiBtn');
+    if (fb) fb.classList.toggle('na', !(maskOn && roiCur));
+    // paintAll does NOT call paintRoi, so without this the stretch would not
+    // engage or release when the MASK is toggled -- only when the region was
+    // touched. Idempotent and cheap: it reads two rects and writes one style.
+    applyFitRoi();
     // Inert unless something is actually being hidden.
     var mp = document.getElementById('maskPixelBtn');
     if (mp) mp.classList.toggle('na', !(maskOn && roiCur));
@@ -5679,6 +5704,44 @@
              width: w, height: h };
   }
 
+  function applyFitRoi() {
+    var v = document.getElementById('video');
+    var wrap = document.querySelector('.video-wrap');
+    if (!v || !wrap) return;
+    // Only when something is actually hidden -- with the mask off the whole
+    // frame IS the visible area and there is nothing to stretch. And never
+    // while editing: you need to see the whole frame to redraw the region,
+    // so arming drops back to the full picture and Set restores the zoom.
+    if (!(fitRoi && roiCur && maskOn && !roiArmed)) {
+      v.style.transform = '';
+      v.style.transformOrigin = '';
+      return;
+    }
+    var wr = wrap.getBoundingClientRect(), r = videoRect();
+    var rw = roiCur.w * r.width, rh = roiCur.h * r.height;
+    if (!(rw > 0 && rh > 0) || !wr.width || !wr.height) { v.style.transform = ''; return; }
+    // The region's top-left measured from the WRAP, not the element: the
+    // picture is letterboxed inside the element by object-fit, so videoRect()
+    // is the only honest origin -- the same reason the region box itself is
+    // positioned against it.
+    var px = (r.left - wr.left) + roiCur.x * r.width;
+    var py = (r.top - wr.top) + roiCur.y * r.height;
+    // Fit, not fill: min() keeps the region's own aspect, so a wide strip
+    // does not get cropped a second time by the player's shape.
+    var sc = Math.min(wr.width / rw, wr.height / rh);
+    // CSS applies right to left, so this is p -> sc*p + t.
+    var tx = (wr.width - sc * rw) / 2 - sc * px;
+    var ty = (wr.height - sc * rh) / 2 - sc * py;
+    v.style.transformOrigin = '0 0';
+    v.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + sc + ')';
+  }
+
+  function toggleFitRoi() {
+    fitRoi = !fitRoi;
+    try { localStorage.setItem('fitRoi', fitRoi); } catch (e) {}
+    paintRoi();
+  }
+
   function paintRoi() {
     var layer = document.getElementById('roiLayer');
     var box = document.getElementById('roiBox');
@@ -5719,7 +5782,10 @@
       : 'Drag on the picture, then press Set';
     // The box stays visible while armed even when switched off, so you can
     // see what you are about to replace.
-    if (!showBox) { box.hidden = true; return; }
+    applyFitRoi();
+    // Stretched, the region fills the player, so its outline would just trace
+    // the edge of the view -- noise describing the frame you are looking at.
+    if (!showBox || (fitRoi && maskOn && !roiArmed)) { box.hidden = true; return; }
     var r = videoRect(), host = layer.getBoundingClientRect();
     box.hidden = false;
     box.style.left   = (r.left - host.left + roiCur.x * r.width) + 'px';
