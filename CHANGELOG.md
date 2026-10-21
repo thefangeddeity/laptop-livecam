@@ -4,6 +4,29 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.14
+
+- **The state directory was never writable by the service.** It arrived as
+  `root:root 755` from whichever process created it first, while the service
+  runs as `http` (Arch) / `www-data` (Debian). The effect was specific and
+  misleading: a state file that already existed could be written, but a NEW
+  one could not be created. So every switch added since the directory
+  appeared failed on first use and only on first use -- `detect_roi` in
+  7.0.11, `notify_presence_pause` in 7.0.13 -- and each looked like a bug in
+  the feature that happened to be new. Now `install -d -g <service> -m 2775`
+  in both packaging scripts, setgid so new files inherit the group rather
+  than depending on the umask of whoever wrote first, plus a one-time
+  handover of the files that predate the rule.
+  7.0.13's switch returned a 500 here rather than appearing to work, which is
+  the only reason this was found rather than shipped.
+- **The Arch install script still patched pyfakewebcam's source**, in both
+  `post_install` and `post_upgrade`. 7.0.12 removed the Debian copy of this
+  and missed these two. On Arch it was the worse of the two: it rewrote a
+  file that the `python-pyfakewebcam` package owns, so `pacman -Qkk` would
+  report that package as modified and the next upgrade of it would silently
+  revert the edit. It was also a no-op -- upstream has used `tobytes()` since
+  before this package declared the dependency.
+
 ## 7.0.13
 
 - **Class toggles never reached the detector.** `cv_notify` set its alerting
