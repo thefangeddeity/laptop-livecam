@@ -1,6 +1,6 @@
 # Tina: the live livecam install, captured 2026-10-05
 
-Tina (Ubuntu, i3-2330M, 3 GB) runs hls-livecam-server, deployed over the 6.0.7 .deb, with
+Tina (Ubuntu, i3-2330M, 3 GB) runs hls-livecam-server, deployed over the .deb (7.0.11 as of 2026-10-20), with
 the same code files as Tanzania (see ../tanzania/MANIFEST.md). The viewer page (Video panel
 above Audio), broadcast-api, the nginx conf, cv_detect.py, cv_processor.py and
 vendor/hls.min.js were copied from Tanzania's live install on 2026-10-05; the other cv_*.py

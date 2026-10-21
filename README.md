@@ -68,25 +68,48 @@ v4l2 device → ffmpeg → RTSP (:8554) → mediamtx → HLS (:8888) → nginx (
 
 ## Requirements
 
-- Ubuntu 20.04+ / Linux Mint 20+ / Debian 11+ (amd64)
+- Debian family (amd64): Ubuntu 20.04+ / Linux Mint 20+ / Debian 11+
+- Arch (x86_64), via the AUR package
 - USB webcam with MJPEG support
-- Internet access during setup (downloads MediaMTX binary)
+- Internet access during setup (downloads the MediaMTX binary)
 
 ---
 
 ## Installation
 
-```bash
-# Install dependencies
-sudo apt update
-sudo apt install ffmpeg nginx v4l-utils python3 python3-psutil wget ca-certificates
+The package is `laptop-livecam`. Build the .deb from a committed tree with
+`scripts/deploy_tina.sh`, which names it `laptop-livecam_<version>_amd64.deb`.
 
-# Install the package
-sudo dpkg -i hls-livecam-server_2.7.3_amd64.deb
+### Debian / Ubuntu / Mint
+
+```bash
+sudo apt update
+
+# Install the package. Use `apt install ./<file>`, not `dpkg -i`: apt reads
+# the Depends field and pulls ffmpeg, nginx, v4l-utils, python3-psutil,
+# python3-flask, python3-pil, python3-numpy, python3-opencv, wget and
+# ca-certificates for you. `dpkg -i` would leave them unresolved.
+sudo apt install ./laptop-livecam_*_amd64.deb
 
 # Run the setup wizard
 sudo hls-livecam-setup
 ```
+
+pyfakewebcam is not packaged by Debian or Ubuntu, so the .deb ships a
+vendored copy under `/usr/share/hls-livecam-server/vendor`. Nothing is
+installed from the network at package-install time.
+
+### Arch
+
+```bash
+# From the AUR packaging repo (aur-laptop-livecam)
+makepkg -si
+
+sudo hls-livecam-setup
+```
+
+Arch gets pyfakewebcam from the `python-pyfakewebcam` dependency the
+PKGBUILD declares, and ignores the vendored copy.
 
 The setup wizard auto-detects your webcam, downloads MediaMTX, writes all config, and starts all services.
 
