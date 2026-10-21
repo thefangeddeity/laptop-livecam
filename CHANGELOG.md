@@ -4,6 +4,34 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.26
+
+- **Masked is the default.** An absent state file now means masked: a region
+  somebody drew is private until they say otherwise, and only the literal
+  `'false'` turns it off. The toggle is how you *unmask*.
+  Flipping the default moved the dangerous case. Previously "on" implied a
+  region existed, because the endpoint refused to switch on without one. With
+  on as the default, a node that never had a region would hit the fail-closed
+  path and black its own camera -- a privacy default becoming a fleet-wide
+  outage. So the two failures are now distinguished: **no region file at all**
+  passes the frame through (the state of every node before anyone draws a
+  box, and not a failure), while a region file that **exists and will not
+  parse** still blacks. The 409 that refused to switch on without a region is
+  gone with it -- it would have blocked the default state itself.
+- **The privacy mask on macOS.** Not a copied patch: that lineage branches
+  elsewhere. `_cv_pump` reads a frame and derives all three consumers from it
+  -- `_to_rec`, a numpy view for `proc.observe()`, and `dst.write(raw)` --
+  so one call after the read covers all of them, including the `pending`
+  path. `_drain_loop`'s shared cache is masked too. `_read_detect_roi_raw`
+  was lifted above both, the same ordering hazard 7.0.25 fixed on the other
+  side.
+- **The Reload buttons are un-deformed.** The theme switch had been built by
+  restyling `.reset` itself -- and `.reset` is a *push* button with three
+  other users: both Reload buttons and the notch menu, all of which got their
+  pin shifted 4px off centre. `.reset` is untouched again; the switch is
+  `.reset.tog`, carried only by the theme button. Sharing a housing is not a
+  reason to share a rule.
+
 ## 7.0.25
 
 - `_privacy_mask_box` called `_read_detect_roi_raw`, defined 1100 lines below
