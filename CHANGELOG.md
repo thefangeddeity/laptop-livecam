@@ -4,6 +4,22 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.15
+
+- **The detection region stays drawn on the picture.** It used to vanish the
+  moment you pressed Set, so the only way to see what was being watched was
+  to press Edit again -- which is also the one action that puts the region at
+  risk of being changed. Bright while editing, dim once locked: the editing
+  box is something you are working on and should dominate; the locked one has
+  to sit under a live picture for hours without pulling the eye.
+- The locked box marks rather than masks. The editing treatment dims the whole
+  frame and casts a spotlight shadow around the box, which is right for
+  choosing an area and would be wrong left on -- it would darken the live view
+  for as long as a region existed. The layer also drops `pointer-events` when
+  locked, or a region would swallow every click on the video.
+- A region that is set but switched OFF draws nothing, because detection is
+  using the whole frame at that point and a box would misreport it.
+
 ## 7.0.14
 
 - **The state directory was never writable by the service.** It arrived as

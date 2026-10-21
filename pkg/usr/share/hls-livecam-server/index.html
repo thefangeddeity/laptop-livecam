@@ -1512,6 +1512,26 @@
                box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
                background: transparent; pointer-events: none; }
     .roi-box[hidden] { display: none; }
+    /* LOCKED: the region stays drawn on the picture after Set, so the watched
+       area is visible without opening the panel. Bright while editing, dim
+       once locked -- the editing box is a thing you are working on and should
+       dominate; the locked one is a reminder that has to sit under the
+       picture for hours without pulling the eye.
+
+       It marks rather than masks: no dimming of the frame and no spotlight
+       shadow, because that treatment belongs to choosing an area and leaving
+       it on would darken the live view for as long as a region existed. The
+       layer also stops taking the pointer, or a locked region would swallow
+       every click on the video. */
+    .roi-layer.locked { background: none; cursor: default; pointer-events: none; }
+    .roi-box.locked { border-color: color-mix(in srgb, var(--phos) 55%, transparent);
+                      box-shadow: 0 0 0 1px rgba(0,0,0,.45);
+                      opacity: .55; }
+    /* No color-mix (older iOS Safari): fall back to plain opacity, which is
+       the part that carries the dimming anyway. */
+    @supports not (color: color-mix(in srgb, red 50%, transparent)) {
+      .roi-box.locked { border-color: var(--phos); opacity: .45; }
+    }
     .roi-hint { position: absolute; left: 50%; bottom: 14px;
                 transform: translateX(-50%); pointer-events: none;
                 font: 600 10px/1.4 var(--mono); letter-spacing: .09em;
@@ -5445,7 +5465,13 @@
     var layer = document.getElementById('roiLayer');
     var box = document.getElementById('roiBox');
     if (!layer || !box) return;
-    layer.hidden = !roiArmed;
+    // The box persists after Set: visible whenever a region is applied,
+    // not only while editing. The layer has to stay up to carry it, so it
+    // goes non-interactive rather than hidden -- see .roi-layer.locked.
+    var showBox = !!roiCur && (roiOn || roiArmed);
+    layer.hidden = !(roiArmed || showBox);
+    layer.classList.toggle('locked', !roiArmed);
+    box.classList.toggle('locked', !roiArmed);
     paintLed('roi', roiOn);
     var btn = document.getElementById('roiBtn');
     // Unlit AND unresponsive when there is nothing to apply, rather than a
@@ -5469,12 +5495,13 @@
     var setb = document.getElementById('roiSetBtn');
     if (setb) setb.disabled = !roiArmed;
     var hint = document.getElementById('roiHint');
+    if (hint) hint.hidden = !roiArmed;
     if (hint) hint.textContent = roiCur
       ? 'Drag to adjust \u2014 press Set when it is right'
       : 'Drag on the picture, then press Set';
     // The box stays visible while armed even when switched off, so you can
     // see what you are about to replace.
-    if (!roiCur || !(roiOn || roiArmed)) { box.hidden = true; return; }
+    if (!showBox) { box.hidden = true; return; }
     var r = videoRect(), host = layer.getBoundingClientRect();
     box.hidden = false;
     box.style.left   = (r.left - host.left + roiCur.x * r.width) + 'px';
