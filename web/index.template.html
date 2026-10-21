@@ -1594,11 +1594,20 @@
        only to the theme switch: the pin slides to show its position and
        lights when on, the way a rocker does. Styling .reset itself for this
        is what pushed the Reload pins 4px off centre. */
-    .reset.tog .pin { transition: transform .12s ease, background .12s ease; }
-    .reset.tog:not(.pressed) .pin { transform: translateX(-4px); }
-    .reset.tog.pressed .pin { transform: translateX(4px);
-      background: linear-gradient(180deg,#6fe08f 0%,#49a862 52%,#3f8f52 100%);
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 0 6px var(--led-glow); }
+    /* A ROUND knob, not the push button's flat capsule. .reset's pin is
+       20x9 in a 30x16 track -- nearly as wide as its housing, so sliding it
+       reads as the whole face shifting rather than a knob travelling. A
+       circle the height of the track is what makes the movement legible,
+       and it is what every physical rocker of this shape looks like.
+
+       12px in a 28px interior leaves 8px either side, so +/-7 travels the
+       full width and keeps a hair of margin at each end. */
+    .reset.tog .pin { width: 12px; height: 12px; border-radius: 50%;
+      transition: transform .14s cubic-bezier(.3,.7,.3,1), background .14s ease; }
+    .reset.tog:not(.pressed) .pin { transform: translateX(-7px); }
+    .reset.tog.pressed .pin { transform: translateX(7px);
+      background: radial-gradient(circle at 50% 35%, #7fe8a0 0%, #49a862 60%, #3f8f52 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 0 7px var(--led-glow); }
     .status-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
                   justify-content: flex-end; }
     .roi-h.nw { left: 0;    top: 0; }
@@ -2368,7 +2377,13 @@
                switches below: it changes WHAT IS WATCHED, not what an alert
                carries. -->
         </div>
-        <div class="setgrp eng detdep">Where to watch</div>
+        <!-- Was "Where to watch", which described one of the three controls
+             under it. The rectangle is shared; what differs is the question
+             asked of it: the detector's scope, what viewers and recordings
+             may see, and how the rest is hidden. The last two work with
+             Detection switched off entirely, so this heading is no longer
+             .detdep -- only the detector's own row is. -->
+        <div class="setgrp eng">What the camera sees</div>
           <!-- Two controls, because they answer different questions. The
                lamp is WHETHER the region applies; the button is WHAT it is.
                One control doing both means switching the region off throws
@@ -2380,7 +2395,7 @@
                     title="Apply the chosen area. Off watches the whole picture; the area is remembered either way">
               <span class="bulb" id="roiLamp"></span>
             </button>
-            <span class="eng rstlab" id="roiLabel">Detection area</span>
+            <span class="eng rstlab" id="roiLabel">Detect only here</span>
           </div>
           <!-- EDIT and SET are exclusive: exactly one is live at a time, so
                the pair itself says which mode you are in. A single button
@@ -2403,11 +2418,11 @@
                arguably that is exactly when you want it. -->
           <div class="pinrow">
             <button class="pinled" id="privacyMaskBtn" onclick="togglePrivacyMask()"
-                    aria-pressed="false" aria-label="Black out everything outside the area"
+                    aria-pressed="false" aria-label="Hide everything outside the area"
                     title="ON by default once an area is set. Everything outside it is blacked out at the camera, before anything is encoded -- the stream, clips, snapshots and the detector all inherit it. Switch off to show the whole room.">
               <span class="bulb" id="privacyMaskLamp"></span>
             </button>
-            <span class="eng rstlab">Black out the rest</span>
+            <span class="eng rstlab">Hide the rest</span>
           </div>
           <!-- Indented under the mask because it only modifies it: this is
                HOW the outside is hidden, not WHETHER. Pixelation is the
@@ -2418,6 +2433,7 @@
           <div class="pinrow sub">
             <button class="pinled" id="maskPixelBtn" onclick="toggleMaskStyle()"
                     aria-pressed="false" aria-label="Pixelate instead of blacking out"
+                    data-note="how, not whether"
                     title="Pixelate the outside instead of blacking it. Weaker: a mosaic still shows how many people are there and when they move. Black hides everything.">
               <span class="bulb" id="maskPixelLamp"></span>
             </button>
@@ -5703,8 +5719,8 @@
     if (btn) btn.classList.toggle('na', !roiCur);
     var lab = document.getElementById('roiLabel');
     if (lab) lab.textContent = roiCur
-      ? (roiOn ? 'Detection area' : 'Detection area (off)')
-      : 'Detection area (not set)';
+      ? (roiOn ? 'Detect only here' : 'Detect everywhere')
+      : 'Detect only here (no area set)';
     var rst = document.getElementById('roiResetBtn');
     if (rst) rst.disabled = !roiCur;
     // Exclusive pair: Edit is lit while drawing, Set is only live then.
