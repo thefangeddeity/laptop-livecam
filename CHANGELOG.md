@@ -4,6 +4,28 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.16
+
+- **Light theme borders were barely visible.** `--border` sat at 1.35:1
+  against the `#fcfbf7` panel and `--border-soft` at 1.30:1. Dark theme is
+  numerically no higher (1.45:1), so matching it would have changed nothing --
+  dark-on-dark edges read better and have highlights doing the work. Raised on
+  their own terms: `--border-soft` 1.30 -> 1.69:1, `--border` 1.35 -> 2.39:1,
+  `--border-strong` 1.61 -> 2.98:1, which lands on WCAG 1.4.11's 3:1 for UI
+  component boundaries with the other two stepped below it. All three keep the
+  palette's warm neutral cast and were checked against the page background and
+  the housing they also border, not only the panel.
+- Four rules hardcoded the old values instead of the variables -- `.talk`,
+  `.box` and two slider thumbs -- and were lifted to match, or they would have
+  kept the faint borders the variables just left behind.
+- `#dcdad0` is also a pressed-button background gradient in two places, so
+  only the border declarations changed. A global replace of the old value
+  would have quietly restyled every pressed control.
+- **The locked detection box dimmed twice**: a 55% `color-mix` nested inside
+  `opacity: .55`, about 30% in the end, and worst against a bright picture.
+  One mechanism now, at 0.62 -- which also retires the `color-mix`
+  `@supports` fallback added for older iOS Safari.
+
 ## 7.0.15
 
 - **The detection region stays drawn on the picture.** It used to vanish the
