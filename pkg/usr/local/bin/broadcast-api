@@ -596,12 +596,18 @@ def _read_detect_always():
         return True
 
 def _write_detect_always(enabled):
-    try:
-        os.makedirs(os.path.dirname(DETECT_ALWAYS_FILE), exist_ok=True)
-        with open(DETECT_ALWAYS_FILE, 'w') as f:
-            f.write('true' if enabled else 'false')
-    except Exception:
-        pass
+    """Raises on failure.
+
+    This used to swallow, and that is how detect_always went releases
+    persisting nothing while the panel showed the lamp move: the state
+    directory was root-owned, every write failed, and `except: pass` turned a
+    permission error into a successful-looking click. The directory is fixed,
+    but the shape that hid it is the bug -- the next full disk or bad mode
+    would be just as silent. The caller turns this into a 500.
+    """
+    os.makedirs(os.path.dirname(DETECT_ALWAYS_FILE), exist_ok=True)
+    with open(DETECT_ALWAYS_FILE, 'w') as f:
+        f.write('true' if enabled else 'false')
 
 _detect_always = _read_detect_always()
 _detect_always_lock = threading.Lock()
@@ -631,12 +637,18 @@ def _read_notify_shots():
         return True
 
 def _write_notify_shots(enabled):
-    try:
-        os.makedirs(os.path.dirname(NOTIFY_SHOTS_FILE), exist_ok=True)
-        with open(NOTIFY_SHOTS_FILE, 'w') as f:
-            f.write('true' if enabled else 'false')
-    except Exception:
-        pass
+    """Raises on failure.
+
+    This used to swallow, and that is how notify_shots went releases
+    persisting nothing while the panel showed the lamp move: the state
+    directory was root-owned, every write failed, and `except: pass` turned a
+    permission error into a successful-looking click. The directory is fixed,
+    but the shape that hid it is the bug -- the next full disk or bad mode
+    would be just as silent. The caller turns this into a 500.
+    """
+    os.makedirs(os.path.dirname(NOTIFY_SHOTS_FILE), exist_ok=True)
+    with open(NOTIFY_SHOTS_FILE, 'w') as f:
+        f.write('true' if enabled else 'false')
 
 def _read_presence_pause():
     """Withhold photos and clips while somebody is home.
@@ -673,12 +685,18 @@ def _read_notify_video():
         return True
 
 def _write_notify_video(enabled):
-    try:
-        os.makedirs(os.path.dirname(NOTIFY_VIDEO_FILE), exist_ok=True)
-        with open(NOTIFY_VIDEO_FILE, 'w') as f:
-            f.write('true' if enabled else 'false')
-    except Exception:
-        pass
+    """Raises on failure.
+
+    This used to swallow, and that is how notify_video went releases
+    persisting nothing while the panel showed the lamp move: the state
+    directory was root-owned, every write failed, and `except: pass` turned a
+    permission error into a successful-looking click. The directory is fixed,
+    but the shape that hid it is the bug -- the next full disk or bad mode
+    would be just as silent. The caller turns this into a 500.
+    """
+    os.makedirs(os.path.dirname(NOTIFY_VIDEO_FILE), exist_ok=True)
+    with open(NOTIFY_VIDEO_FILE, 'w') as f:
+        f.write('true' if enabled else 'false')
 
 def _blur_block():
     """Mosaic cell size in pixels, from device.env, defaulting to 24."""
@@ -2688,7 +2706,10 @@ def notify_shots_post():
     val = request.get_data(as_text=True).strip().lower()
     if val not in ('true', 'false'):
         abort(400)
-    _write_notify_shots(val == 'true')
+    try:
+        _write_notify_shots(val == 'true')
+    except Exception:
+        abort(500)
     return (val), 200
 
 
@@ -2701,7 +2722,10 @@ def notify_video_post():
     val = request.get_data(as_text=True).strip().lower()
     if val not in ('true', 'false'):
         abort(400)
-    _write_notify_video(val == 'true')
+    try:
+        _write_notify_video(val == 'true')
+    except Exception:
+        abort(500)
     return (val), 200
 
 
@@ -2716,7 +2740,10 @@ def detect_always_post():
         _detect_always = enabled
     # Persisted like feed mode and blur: a restart must not silently stop a
     # camera watching a room somebody asked it to watch.
-    _write_detect_always(enabled)
+    try:
+        _write_detect_always(enabled)
+    except Exception:
+        abort(500)
     return ('true' if enabled else 'false'), 200
 
 @app.route('/api/foveal-mode', methods=['GET'])
