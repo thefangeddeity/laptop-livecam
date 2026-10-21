@@ -2492,20 +2492,25 @@
             </button>
             <span class="eng rstlab">Include video</span>
           </div>
-          <!-- The XOR: recording and "somebody is home" are mutually
-               exclusive. It reads presence from the detector regardless of
-               whether People is ticked above, because not wanting to be
-               ALERTED about yourself is the normal case and is a different
-               question from not wanting to be RECORDED. Text alerts still
-               go -- they leak nothing, and a silent camera is indistinguish-
-               able from a broken one. -->
+          <!-- Was "Not while someone's home", which assumed the someone
+               was a RESIDENT. A thief is also a person, and the mechanism
+               cannot tell them apart -- so the old name promised a safety
+               this has never had. The honest name says what you are choosing:
+               this camera watches animals and does not film people, whoever
+               they turn out to be.
+
+               Reads presence from the detector regardless of whether People
+               is ticked above, because not wanting to be ALERTED about
+               yourself is a different question from not wanting to be
+               RECORDED. Text alerts still go -- they leak nothing, and a
+               silent camera is indistinguishable from a broken one. -->
           <div class="pinrow detdep">
             <button class="pinled" id="presencePauseBtn" onclick="togglePresencePause()"
-                    aria-pressed="false" aria-label="Do not record while someone is home"
-                    title="While a person is in view, alerts arrive without photo or clip. A manual snapshot still works.">
+                    aria-pressed="false" aria-label="Detect non-human subjects only"
+                    title="While a person is in view, alerts arrive without photo or clip -- including an intruder. The camera is for the animals; it will not film people. A manual snapshot still works.">
               <span class="bulb" id="presencePauseLamp"></span>
             </button>
-            <span class="eng rstlab">Record while people are home</span>
+            <span class="eng rstlab">Detect non-human only</span>
           </div>
         <div class="setgrp eng">This device</div>
         <!-- The single Settings row the gallery earns. A named set of
@@ -5704,8 +5709,8 @@
     // "All living beings" is lit when the four under it are, so the superset
     // never disagrees with its members.
     paintLed('clsLiving', SPECIES.every(function(s) { return clsOn[s]; }));
-    // Lit = recording continues while people are home.
-    paintLed('presencePause', !presenceOn);
+    // Lit = the restriction is on, like every other lamp.
+    paintLed('presencePause', presenceOn);
     paintLed('privacyMask', maskOn);
     paintLed('maskPixel', maskPixel);
     paintLed('fitRoi', fitRoi);

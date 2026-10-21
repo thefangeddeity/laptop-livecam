@@ -4,6 +4,18 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.35
+
+- **"Not while someone's home" promised a safety it never had.** The name
+  assumed the someone was a *resident*. A thief is also a person and the
+  mechanism cannot tell them apart -- it suppresses evidence for any human in
+  view, which is exactly the person you would most want a picture of. Now
+  **"Detect non-human only"**, which states what is actually being chosen:
+  this camera watches the animals and does not film people, whoever they turn
+  out to be. Lit means the restriction is on, matching every other lamp.
+- The behaviour is deliberately unchanged. Renaming does not fix the intruder
+  case and must not look like it does.
+
 ## 7.0.34
 
 - **The gallery, phase one: collect and name, no machine learning.** One crop
