@@ -4,6 +4,21 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.32
+
+- **One version format across the fleet.** The header read
+  `mac-v1.8.0 @ariana` on one lineage and `7.0.31 @tanzania` on the other --
+  the same field in two formats, with the prefix repeating what the hostname
+  beside it already said. It was not decoration: the lineages genuinely tag
+  differently (`mac-v1.8.0`, `win-v1.0.0`, plain `7.0.31`) and only one fed
+  this label a raw version, so the difference was the *tag* leaking into the
+  UI rather than a decision.
+  Stripping a platform prefix and a leading `v` normalises all three with no
+  per-platform branch: `mac-v1.8.0` -> `1.8.0`, `win-v1.0.0` -> `1.0.0`,
+  `7.0.31` unchanged. Removing rather than adding, because `@ariana` already
+  identifies the member and the version string need not encode it twice.
+  The full tag and build detail stay in the hover title.
+
 ## 7.0.31
 
 - **A drop shadow on the visible-area box in dark mode.** Over static the box
