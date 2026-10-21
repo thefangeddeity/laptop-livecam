@@ -5818,7 +5818,19 @@
 
   function videoRect() {
     var v = document.getElementById('video');
-    var box = v.getBoundingClientRect();
+    // Measured from the WRAP, not the <video>. getBoundingClientRect()
+    // returns the TRANSFORMED rect, and applyFitRoi writes a transform onto
+    // the video -- so measuring the element fed its own output back in: each
+    // tick scaled a rect that was already scaled, and the picture alternated
+    // between stretched and not at the poll rate.
+    //
+    // The video is width:100%/height:100% of the wrap, which has no padding
+    // or border, so the wrap's rect IS the video's untransformed box. It is
+    // also the right answer for every other caller, because the only time a
+    // transform exists is when the region box is hidden anyway.
+    var wrap = v.parentElement && v.parentElement.closest
+      ? (v.closest('.video-wrap') || v.parentElement) : v.parentElement;
+    var box = (wrap || v).getBoundingClientRect();
     var vw = v.videoWidth, vh = v.videoHeight;
     if (!vw || !vh) return box;          // no metadata yet: the element will do
     var scale = Math.min(box.width / vw, box.height / vh);
@@ -5856,8 +5868,13 @@
     // CSS applies right to left, so this is p -> sc*p + t.
     var tx = (wr.width - sc * rw) / 2 - sc * px;
     var ty = (wr.height - sc * rh) / 2 - sc * py;
-    v.style.transformOrigin = '0 0';
-    v.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + sc + ')';
+    var want = 'translate(' + tx + 'px,' + ty + 'px) scale(' + sc + ')';
+    // Idempotent: paintAll runs this on every poll, and writing the same
+    // value back each second is work the compositor does not need.
+    if (v.style.transform !== want) {
+      v.style.transformOrigin = '0 0';
+      v.style.transform = want;
+    }
   }
 
   function toggleFitRoi() {

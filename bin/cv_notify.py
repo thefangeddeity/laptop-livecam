@@ -866,6 +866,21 @@ class Notifier:
         # whether this alert sends. A Telegram outage must not also stop the
         # record of what was seen.
         self._gallery_keep(item)
+        # BOTH switches off means there is nothing to look at, so there is
+        # nothing worth saying either: "Cat detected" with no way to see the
+        # cat is a notification that cannot be acted on. Skipped entirely.
+        #
+        # Deliberately NOT the same as evidence being WITHHELD by "Never film
+        # people": there the text still goes, because a camera declining to
+        # show you something is a fact you should know, and a silent one is
+        # indistinguishable from a broken one. Off is a choice already made;
+        # withheld is a choice being made right now.
+        #
+        # The gallery above still gets its crop: collecting is independent of
+        # notifying, and turning off alerts should not stop the record.
+        manual_pre = item.get('cls') == 'snapshot'
+        if not manual_pre and not self._shots_wanted() and not self._video_wanted():
+            return
         text = item.get('text') or f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
         # Encoding the stills is the expensive half of an alert, so the switch
