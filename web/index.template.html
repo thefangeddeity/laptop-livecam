@@ -1578,6 +1578,10 @@
        be grabbed, and every touch reads as "draw a new one". Visual size
        stays small so they do not cover the picture; the hit zone is widened
        in JS instead, because a 9px dot is not thumb-reachable. */
+    /* .sub-title's 8px bottom margin is sized to separate a heading from a
+       LIST; this one sits between a lamp row and the buttons it captions, so
+       it wants to be close to them and clear of the row above. */
+    .roi-cap { margin: 6px 0 3px; padding-left: 2px; }
     .roi-h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px;
              background: var(--roi-line); border: 1px solid rgba(0,0,0,.55);
              border-radius: 2px; pointer-events: none; }
@@ -2416,11 +2420,17 @@
                     title="The area below is what the camera shows. This also confines the DETECTOR to it -- off keeps watching the whole picture, and the area is remembered either way.">
               <span class="bulb" id="roiLamp"></span>
             </button>
-            <span class="eng rstlab" id="roiLabel">Edit visible area</span>
+            <span class="eng rstlab" id="roiLabel">Detect only here</span>
           </div>
           <!-- EDIT and SET are exclusive: exactly one is live at a time, so
                the pair itself says which mode you are in. A single button
                that changes its own label makes you read it to find out. -->
+          <!-- The caption belongs to the BUTTONS, which is what it describes.
+               It had been the lamp's label, where it read as an imperative on
+               a switch -- and the switch does something else entirely: it
+               confines the detector. One label, two controls, neither
+               described. -->
+          <div class="sub-title roi-cap">Edit visible area</div>
           <div class="pinrow detdep roi-actions">
             <button class="pbtn" id="roiEditBtn" onclick="armRoi()"
                     title="Drag a box on the picture to choose the area">Edit</button>
@@ -2467,13 +2477,17 @@
                (localStorage) rather than node state -- two people watching
                the same camera can disagree, which they cannot about the mask
                itself. -->
-          <div class="pinrow sub">
+          <!-- NOT .sub: indenting this under "Hide the rest" put a personal
+               display preference at the same depth as a privacy control, and
+               the layout then asserts they are the same kind of thing. This
+               one changes nobody's view but your own. -->
+          <div class="pinrow">
             <button class="pinled" id="fitRoiBtn" onclick="toggleFitRoi()"
                     aria-pressed="false" aria-label="Stretch the visible area to fill the display"
                     title="Scale the kept area up to fill the player, instead of showing it small inside the hidden rest. Changes only your view -- not the stream, the recording, or what anyone else sees.">
               <span class="bulb" id="fitRoiLamp"></span>
             </button>
-            <span class="eng rstlab">Stretch visible area for display</span>
+            <span class="eng rstlab">Stretch to fill <span class="cap2">(your view)</span></span>
           </div>
         <div class="setgrp eng detdep">What alerts carry</div>
           <div class="pinrow detdep">
@@ -2505,7 +2519,7 @@
                     title="While a person is in view, alerts arrive without photo or clip. A manual snapshot still works.">
               <span class="bulb" id="presencePauseLamp"></span>
             </button>
-            <span class="eng rstlab">Not while someone's home</span>
+            <span class="eng rstlab">Record while people are home</span>
           </div>
         <div class="setgrp eng">This device</div>
         <div class="pinrow">
@@ -2514,7 +2528,7 @@
                   title="Opt out of buzz entirely -- neither sent nor received">
             <span class="bulb" id="muteBuzzLamp"></span>
           </button>
-          <span class="eng rstlab">Disable buzz</span>
+          <span class="eng rstlab">Buzz</span>
         </div>
         
         <!-- TEST-ONLY: mute the server's physical speaker/headset while a
@@ -2530,7 +2544,7 @@
                   title="Mute the server's physical speaker/headset during RTC -- testing only, mic/roomaudio/signaling stay live">
             <span class="bulb" id="muteSpeakerLamp"></span>
           </button>
-          <span class="eng rstlab">Mute server speaker/headset in RTC</span>
+          <span class="eng rstlab">Server speaker</span>
         </div>
         <div class="pdiv"></div>
         <!-- USER-SAFE audio tunables (server-side, one home per key in
@@ -2771,8 +2785,12 @@
 
   function updateMuteBtn() {
     if (!muteBuzzBtn) return;
-    muteBuzzBtn.classList.toggle('pressed', buzzMuted);
-    muteBuzzBtn.setAttribute('aria-pressed', buzzMuted ? 'true' : 'false');
+    // Lit = buzz is LIVE. Three of ten lamps used to mean the opposite of
+    // the other seven, so "lit" could not be learned -- it had to be read
+    // per row. The stored state and the API are unchanged; only what the
+    // lamp claims is inverted, along with the label above it.
+    muteBuzzBtn.classList.toggle('pressed', !buzzMuted);
+    muteBuzzBtn.setAttribute('aria-pressed', !buzzMuted ? 'true' : 'false');
     // Opting out is opting out of the CHANNEL. The old control silenced
     // incoming alerts and left the key that sends them fully live, so a
     // viewer who had "muted buzzes" could still shake everyone else's
@@ -4255,9 +4273,10 @@
     if (iMute) iMute.className = audioMuted ? 'on' : '';
     // Test-only server speaker mute: same always-clickable rule as Mute mic.
     var sLamp = document.getElementById('muteSpeakerLamp');
-    if (sLamp) sLamp.className = 'bulb' + (_talkMuteSpeaker ? ' on' : '');
+    // Lit = the speaker is LIVE, matching every other lamp.
+    if (sLamp) sLamp.className = 'bulb' + (!_talkMuteSpeaker ? ' on' : '');
     var sBtn = document.getElementById('muteSpeakerBtn');
-    if (sBtn) sBtn.setAttribute('aria-pressed', _talkMuteSpeaker ? 'true' : 'false');
+    if (sBtn) sBtn.setAttribute('aria-pressed', !_talkMuteSpeaker ? 'true' : 'false');
   }
 
   function paintListen() { paintTransport(); paintMute(); }
@@ -5661,7 +5680,8 @@
     // "All living beings" is lit when the four under it are, so the superset
     // never disagrees with its members.
     paintLed('clsLiving', SPECIES.every(function(s) { return clsOn[s]; }));
-    paintLed('presencePause', presenceOn);
+    // Lit = recording continues while people are home.
+    paintLed('presencePause', !presenceOn);
     paintLed('privacyMask', maskOn);
     paintLed('maskPixel', maskPixel);
     paintLed('fitRoi', fitRoi);
@@ -5812,8 +5832,8 @@
     if (btn) btn.classList.toggle('na', !roiCur);
     var lab = document.getElementById('roiLabel');
     if (lab) lab.textContent = roiCur
-      ? (roiOn ? 'Edit visible area' : 'Edit visible area (detecting everywhere)')
-      : 'Edit visible area (none set)';
+      ? (roiOn ? 'Detect only here' : 'Detect everywhere')
+      : 'No area set';
     var rst = document.getElementById('roiResetBtn');
     if (rst) rst.disabled = !roiCur;
     // Exclusive pair: Edit is lit while drawing, Set is only live then.
