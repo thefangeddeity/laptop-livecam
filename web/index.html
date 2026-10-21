@@ -1638,6 +1638,27 @@
                       box-shadow: 0 0 0 1px rgba(0,0,0,.55),
                                   0 0 6px rgba(63,232,205,.30);
                       opacity: .85; }
+    /* A DROP SHADOW in dark mode, because the picture is not always a calm
+       one. Over static -- or foliage, or a patterned rug -- a 1px line and a
+       phosphor glow both sit inside the noise's own frequency range, and the
+       box stops reading as an edge at all. A soft dark shadow is the one cue
+       noise cannot imitate: it is low-frequency and directional, so the eye
+       separates it from grain even when the contrast is similar.
+
+       Dark grey rather than black: pure black against the dark housing just
+       reads as a hole, and this has to look like the box is sitting ABOVE
+       the picture rather than cut into it.
+
+       Dark theme only. `html:not([data-theme="light"])` is the first explicit
+       dark selector in the sheet -- everything else states light and lets
+       dark be the base -- so it is written as a negation rather than a new
+       default, which would silently apply to a third theme if one ever
+       arrives. */
+    html:not([data-theme="light"]) .roi-box.locked {
+      box-shadow: 0 0 0 1px rgba(0,0,0,.6),
+                  0 2px 9px rgba(26,28,32,.9),
+                  0 0 6px rgba(63,232,205,.26);
+    }
     .roi-hint { position: absolute; left: 50%; bottom: 14px;
                 transform: translateX(-50%); pointer-events: none;
                 font: 600 10px/1.4 var(--mono); letter-spacing: .09em;
@@ -1800,7 +1821,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-165-g8f8eb31-dirty · dev · 8f8eb31"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-166-g37e2018-dirty · dev · 37e2018"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -2391,11 +2412,11 @@
                toggles something that expensive. -->
           <div class="pinrow detdep">
             <button class="pinled" id="roiBtn" onclick="toggleRoi()"
-                    aria-pressed="false" aria-label="Limit detection to the chosen area"
-                    title="Apply the chosen area. Off watches the whole picture; the area is remembered either way">
+                    aria-pressed="false" aria-label="Also limit detection to the visible area"
+                    title="The area below is what the camera shows. This also confines the DETECTOR to it -- off keeps watching the whole picture, and the area is remembered either way.">
               <span class="bulb" id="roiLamp"></span>
             </button>
-            <span class="eng rstlab" id="roiLabel">Detect only here</span>
+            <span class="eng rstlab" id="roiLabel">Edit visible area</span>
           </div>
           <!-- EDIT and SET are exclusive: exactly one is live at a time, so
                the pair itself says which mode you are in. A single button
@@ -5782,8 +5803,8 @@
     if (btn) btn.classList.toggle('na', !roiCur);
     var lab = document.getElementById('roiLabel');
     if (lab) lab.textContent = roiCur
-      ? (roiOn ? 'Detect only here' : 'Detect everywhere')
-      : 'Detect only here (no area set)';
+      ? (roiOn ? 'Edit visible area' : 'Edit visible area (detecting everywhere)')
+      : 'Edit visible area (none set)';
     var rst = document.getElementById('roiResetBtn');
     if (rst) rst.disabled = !roiCur;
     // Exclusive pair: Edit is lit while drawing, Set is only live then.
