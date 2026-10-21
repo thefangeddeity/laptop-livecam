@@ -118,6 +118,7 @@ class Notifier:
                  shots_flag_file='/dev/null',
                  rec_dir=None, clip_pre=None, clip_post=None,
                  roi_file=None,
+                 presence_file=None, presence_hold_sec=None,
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
@@ -128,6 +129,14 @@ class Notifier:
         # 'dog' on does not need a restart -- same live-toggle shape as the
         # video switch. Absent file means "use what config.env said".
         self.classes_file = classes_file
+        # Don't record while somebody is home. Presence is tracked whether or
+        # not 'human' is an alerting class: not wanting to be TOLD about
+        # yourself is the ordinary setup, and is a different question from not
+        # wanting to be RECORDED.
+        self.presence_file = presence_file or '/dev/null'
+        self.presence_hold_sec = (60.0 if presence_hold_sec is None
+                                  else float(presence_hold_sec))
+        self._human_seen = None
         # Was a hardcoded Linux path, so on macOS it never existed and the
         # switch silently read as "on" no matter what the panel said.
         self.video_flag_file = video_flag_file
@@ -211,9 +220,12 @@ class Notifier:
         if not self.enabled:
             return False
         cls = (track.cls or '').lower()
+        now = time.monotonic()
+        # BEFORE the class filter, deliberately -- see presence_file above.
+        if cls == 'human':
+            self._human_seen = now
         if cls not in self._classes_wanted():
             return False
-        now = time.monotonic()
         with self._lock:
             win = self._collecting.get(track.track_id)
             if win is not None:
@@ -358,6 +370,27 @@ class Notifier:
         except Exception:
             pass
         return self.classes
+
+    def _presence_pause_on(self):
+        """Absent means off. The opposite default from the shots/video
+        switches, which are on unless turned off: this one withholds
+        evidence, and a setting nobody chose should not stop the camera
+        recording."""
+        try:
+            with open(self.presence_file) as f:
+                return f.read().strip() == 'true'
+        except Exception:
+            return False
+
+    def _presence_blocks(self):
+        """True when somebody is home and the operator asked not to record it.
+
+        The hold is what makes it usable rather than flickering: a person who
+        steps out of frame for a moment has not left the room.
+        """
+        if self._human_seen is None or not self._presence_pause_on():
+            return False
+        return (time.monotonic() - self._human_seen) <= self.presence_hold_sec
 
     def forget_track(self, track_id):
         with self._lock:
@@ -703,7 +736,15 @@ class Notifier:
         # A snapshot the operator asked for explicitly is not an alert's
         # stills and ignores this -- turning off automatic photos must not
         # silently break the button that takes one.
-        want_shots = (item.get('cls') == 'snapshot') or self._shots_wanted()
+        # A snapshot the operator asked for is exempt: they are at the panel
+        # asking for this picture and already know who is home.
+        manual = item.get('cls') == 'snapshot'
+        withhold = (not manual) and self._presence_blocks()
+        if withhold:
+            # Say so. An alert that silently arrives without its picture reads
+            # as a broken camera.
+            text += " -- no photo or clip, someone is home"
+        want_shots = manual or (self._shots_wanted() and not withhold)
         try:
             for i, p in enumerate(item['picks'] if want_shots else []):
                 # The snapshot is the original feed, not the sharpie or CV
@@ -749,7 +790,7 @@ class Notifier:
             # been recorded. The two were already sent separately, for the
             # unrelated reason that a failed clip must not take the stills with
             # it; this only moves one of them later.
-            if item.get('cls') != 'snapshot' and self._video_wanted():
+            if not manual and self._video_wanted() and not withhold:
                 self._schedule_clip(item, text)
 
             results = []
@@ -875,6 +916,8 @@ def make_notifier(denv, log=None):
                     spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5),
                     min_fg=_num('NOTIFY_MIN_FG', 0.05),
                     classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null',
+                    presence_file=_get('NOTIFY_PRESENCE_FILE', '') or '/dev/null',
+                    presence_hold_sec=_num('NOTIFY_PRESENCE_HOLD_SEC', 60.0),
                     video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
                         or '/var/lib/hls-livecam/notify_video',
                     shots_flag_file=_get('NOTIFY_SHOTS_FILE', '')
