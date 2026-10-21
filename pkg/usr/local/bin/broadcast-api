@@ -1337,12 +1337,28 @@ def _privacy_mask_box():
     if now - _mask_cache['at'] < 1.0:
         return _mask_cache['box']
     _mask_cache['at'] = now
+    # MASKED IS THE DEFAULT. An absent file means on: a region that somebody
+    # took the trouble to draw is treated as private until they say otherwise.
+    # Only the literal string 'false' turns it off.
     try:
         with open(PRIVACY_MASK_FILE) as f:
-            on = f.read().strip() == 'true'
+            on = f.read().strip() != 'false'
     except Exception:
-        on = False
+        on = True
     if not on:
+        _mask_cache['box'] = (False, None)
+        return _mask_cache['box']
+    # NO REGION AT ALL means there is nothing to mask, and that is not a
+    # failure -- it is the state every node is in before anyone draws a box.
+    # Defaulting to on must never black a camera that has never had a region,
+    # so this case passes the frame through rather than failing closed.
+    # A region file that EXISTS but will not parse is the different case,
+    # handled below: that one blacks.
+    try:
+        _present = os.path.getsize(DETECT_ROI_FILE) > 0
+    except Exception:
+        _present = False
+    if not _present:
         _mask_cache['box'] = (False, None)
         return _mask_cache['box']
     # ON. Everything from here fails CLOSED: a region that cannot be parsed
@@ -1414,11 +1430,12 @@ def _apply_privacy_mask(raw):
 
 
 def _read_privacy_mask():
+    """Absent means MASKED -- see _privacy_mask_box. Only 'false' is off."""
     try:
         with open(PRIVACY_MASK_FILE) as f:
-            return f.read().strip() == 'true'
+            return f.read().strip() != 'false'
     except Exception:
-        return False
+        return True
 
 
 def _write_privacy_mask(enabled):
@@ -2587,12 +2604,10 @@ def privacy_mask_post():
     val = (request.get_data(as_text=True) or '').strip().lower()
     if val not in ('true', 'false'):
         abort(400)
-    # Refuse to switch ON with nothing to keep: a mask with no rectangle
-    # blacks the entire picture, which looks exactly like a broken camera.
-    if val == 'true':
-        r = _read_detect_roi_raw()
-        if not r or float(r.get('w') or 0) <= 0 or float(r.get('h') or 0) <= 0:
-            abort(409)
+    # The 409 that used to live here refused to switch on without a region,
+    # because a mask with no rectangle blacked the whole picture. With no
+    # region now inert rather than opaque, there is nothing to refuse -- and
+    # refusing would block the default state itself.
     try:
         _write_privacy_mask(val == 'true')
     except Exception:
