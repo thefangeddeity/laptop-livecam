@@ -4,6 +4,48 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.13
+
+- **Class toggles never reached the detector.** `cv_notify` set its alerting
+  classes once, at construction, from `NOTIFY_CLASSES` in `device.env`. The
+  viewer's toggles wrote `/var/lib/hls-livecam/notify_classes`, and nothing
+  read it -- `NOTIFY_CLASSES_FILE` was declared in `device.env` and had no
+  reader anywhere in the tree. tanzania was alerting on `['cat','dog','human']`
+  while its panel showed cat alone, so unticking People did nothing and had
+  never done anything. The classes are now read per event, the same shape as
+  the photos and video switches beside them.
+  `broadcast-api` stores the list already expanded, so there is no second copy
+  of the `living`/`other` expansion table to drift from the first -- the trap
+  `canonical_ms` sits in across three files. A list written by an older build
+  is normalized once at startup, because a node whose operator had chosen
+  "All animate beings" stored the single token `living`, which matches no
+  track and would now alert on nothing.
+- **Don't record while somebody is home.** A switch under "What alerts carry":
+  while a person is in view, alerts still arrive but carry no photo and no
+  clip, and say why. The camera keeps watching and the text still tells you a
+  cat came in -- it just stops producing footage of the people who live here.
+  Presence is read from the detector whether or not People is an alerting
+  class, because not wanting to be *told* about yourself is the normal setup
+  and is a different question from not wanting to be *recorded*. A manual
+  snapshot is exempt: the operator is standing at the panel asking for that
+  picture. The hold after the last sighting is `NOTIFY_PRESENCE_HOLD_SEC`
+  (default 60s), not a literal -- without it, a person stepping out of frame
+  for a moment restarts the recording.
+- **The settings panel is grouped rather than alphabetized.** Alphabetical
+  order was asked for when this was a short flat list; at seventeen controls
+  it put "Detection area" between "Dogs" and "Include photos". Five groups
+  now: Alert me about, Where to watch, What alerts carry, This device, Audio
+  filters. "Detection area" was inside the *alert trigger* group despite being
+  a detection scope, and the photos/video switches sat in the same
+  undifferentiated run as the triggers; both were lifted out. They still dim
+  with Detection, which they had been getting for free by sitting inside
+  `.alertgrp` -- now explicit, as `.detdep`.
+- A `<div class="pdiv"></div>` and the `<div class="pinrow">` after it shared
+  one line, which is part of how that run read as a single blob.
+- `_write_presence_pause` raises instead of swallowing, so a failed write is a
+  500 rather than a lamp that changes and persists nothing -- the exact shape
+  of the `notify_shots` bug found in 7.0.11.
+
 ## 7.0.12
 
 - The Debian package stops installing software at install time. `postinst`

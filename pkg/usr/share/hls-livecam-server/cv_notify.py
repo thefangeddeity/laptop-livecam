@@ -120,13 +120,28 @@ class Notifier:
                  video_flag_file='/var/lib/hls-livecam/notify_video',
                  shots_flag_file='/var/lib/hls-livecam/notify_shots',
                  rec_dir=None, clip_pre=None, clip_post=None,
-                 roi_file=None):
+                 roi_file=None, classes_file=None,
+                 presence_file=None, presence_hold_sec=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
         self.urls = [u.strip() for u in (urls or []) if u.strip()]
+        # The set from device.env. Only a FALLBACK now: the live choice lives
+        # in classes_file, which the panel writes and _wanted_classes() reads
+        # per event. Until 7.0.13 this attribute WAS the live set, so every
+        # class toggle in the viewer wrote a file nothing read -- a node left
+        # alerting on human,cat,dog while the panel showed cat.
         self.classes = {c.strip().lower() for c in classes if c.strip()}
+        self.classes_file = classes_file or '/var/lib/hls-livecam/notify_classes'
         self.video_flag_file = video_flag_file
         self.shots_flag_file = shots_flag_file
+        # Don't record while somebody is home. Presence is tracked whether or
+        # not 'human' is an alerting class, because "stop recording when I walk
+        # in" and "tell me when a person appears" are different questions and
+        # the usual setup answers no to the second.
+        self.presence_file = presence_file or '/var/lib/hls-livecam/notify_presence_pause'
+        self.presence_hold_sec = (60.0 if presence_hold_sec is None
+                                  else float(presence_hold_sec))
+        self._human_seen = None
         # The detection region, re-read per event like the switches.
         self.roi_file = roi_file or '/dev/null'
         # Instance attribute shadows the class default, so a node whose
@@ -187,9 +202,13 @@ class Notifier:
         if not self.enabled:
             return False
         cls = (track.cls or '').lower()
-        if cls not in self.classes:
-            return False
         now = time.monotonic()
+        # BEFORE the class filter, deliberately. A node that does not alert on
+        # people still has to know they are there to stop recording them.
+        if cls == 'human':
+            self._human_seen = now
+        if cls not in self._wanted_classes():
+            return False
         with self._lock:
             win = self._collecting.get(track.track_id)
             if win is not None:
@@ -309,7 +328,16 @@ class Notifier:
         # A snapshot the operator asked for explicitly ignores this: turning
         # off automatic photos must not silently break the button that takes
         # one. Different intentions, same file extension.
-        want_shots = (item.get('cls') == 'snapshot') or self._shots_wanted()
+        # An explicit snapshot is exempt: the operator is standing at the
+        # panel asking for this picture, so they already know who is home.
+        manual = item.get('cls') == 'snapshot'
+        withhold = (not manual) and self._presence_blocks()
+        if withhold:
+            # Say so in the alert. An alert that silently arrives without its
+            # picture reads as a broken camera, and the last thing a privacy
+            # setting should do is make people go looking for a fault.
+            text += " -- no photo or clip, someone is home"
+        want_shots = manual or (self._shots_wanted() and not withhold)
         try:
             for i, p in enumerate(item['picks'] if want_shots else []):
                 # The snapshot is the original feed, not the sharpie or CV
@@ -336,7 +364,7 @@ class Notifier:
             # happened past the detection, so cutting here could never reach
             # further than that. The old short post-roll was not a judgement
             # about what is interesting, it was the most that existed yet.
-            if self._video_wanted():
+            if self._video_wanted() and not withhold:
                 self._schedule_clip(item, text)
 
             results = []
@@ -361,6 +389,7 @@ class Notifier:
             scores = ', '.join(f"t+{p['t']:.1f}s conf {p['conf']:.2f} sharp {p['sharp']:.0f}"
                                for p in item['picks'])
             self._log(f"notify: {item['cls']} track {item['track_id']}, "
+                      f"{'evidence withheld (presence) ' if withhold else ''}"
                       f"{len(jpegs)} shot(s) [{scores}] "
                       f"{'sent' if results and all(results) else 'FAILED'}")
         finally:
@@ -412,6 +441,48 @@ class Notifier:
         bw = max(1, min(w - x, int(round(fw * w))))
         bh = max(1, min(h - y, int(round(fh * h))))
         return frame[y:y + bh, x:x + bw]
+
+    def _wanted_classes(self):
+        """Which classes alert, read per event like the other switches.
+
+        A PRESENT-but-empty file means the operator unticked everything, so it
+        means none -- the same rule broadcast-api's reader states, and for the
+        same reason: falling back to a default on empty turns "alert me about
+        nothing" into "alert me about everything". Only a MISSING or unreadable
+        file falls back to the device.env set.
+
+        The file holds an already-expanded list ('living' and 'other' resolved
+        by the writer), so there is no expansion table here to drift out of
+        step with the one in broadcast-api.
+        """
+        try:
+            with open(self.classes_file) as f:
+                raw = f.read()
+        except Exception:
+            return self.classes
+        return {c.strip().lower()
+                for c in raw.replace('\n', ',').split(',') if c.strip()}
+
+    def _presence_pause_on(self):
+        """Absent file means off: this one withholds evidence, so it is the
+        opposite default from the shots/video switches, which are on unless
+        turned off. A setting nobody chose should not silence the camera."""
+        try:
+            with open(self.presence_file) as f:
+                return f.read().strip() == 'true'
+        except Exception:
+            return False
+
+    def _presence_blocks(self):
+        """True when somebody is home and the operator asked not to record it.
+
+        The hold is what makes this usable rather than flickering: a person who
+        steps out of frame for a moment has not left the room, and without it
+        every gap in detection would start recording them again.
+        """
+        if self._human_seen is None or not self._presence_pause_on():
+            return False
+        return (time.monotonic() - self._human_seen) <= self.presence_hold_sec
 
     def _shots_wanted(self):
         """Whether an alert carries its stills. Same switch shape as video:
@@ -706,4 +777,9 @@ def make_notifier(denv, log=None):
                     clip_pre=_num('NOTIFY_CLIP_PRE', 5.0),
                     clip_post=_num('NOTIFY_CLIP_POST', 20.0),
                     roi_file=_get('DETECT_ROI_FILE', '')
-                        or '/var/lib/hls-livecam/detect_roi')
+                        or '/var/lib/hls-livecam/detect_roi',
+                    classes_file=_get('NOTIFY_CLASSES_FILE', '')
+                        or '/var/lib/hls-livecam/notify_classes',
+                    presence_file=_get('NOTIFY_PRESENCE_FILE', '')
+                        or '/var/lib/hls-livecam/notify_presence_pause',
+                    presence_hold_sec=_num('NOTIFY_PRESENCE_HOLD_SEC', 60.0))

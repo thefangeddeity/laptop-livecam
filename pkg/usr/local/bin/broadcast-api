@@ -46,6 +46,7 @@ DETECT_ALWAYS_FILE = "/var/lib/hls-livecam/detect_always"
 NOTIFY_CLASSES_FILE = "/var/lib/hls-livecam/notify_classes"
 NOTIFY_VIDEO_FILE  = "/var/lib/hls-livecam/notify_video"
 NOTIFY_SHOTS_FILE  = "/var/lib/hls-livecam/notify_shots"
+NOTIFY_PRESENCE_FILE = "/var/lib/hls-livecam/notify_presence_pause"
 DETECT_ROI_FILE    = "/var/lib/hls-livecam/detect_roi"
 
 
@@ -634,6 +635,33 @@ def _write_notify_shots(enabled):
             f.write('true' if enabled else 'false')
     except Exception:
         pass
+
+def _read_presence_pause():
+    """Withhold photos and clips while somebody is home.
+
+    Absent means off -- the opposite default from shots/video, which are on
+    unless turned off. This one withholds evidence, and a setting nobody chose
+    should not quietly stop the camera recording.
+    """
+    try:
+        with open(NOTIFY_PRESENCE_FILE) as f:
+            return f.read().strip() == 'true'
+    except Exception:
+        return False
+
+
+def _write_presence_pause(enabled):
+    """Raises on failure, unlike _write_notify_shots beside it.
+
+    That one swallows its exceptions, which is how notify_shots went three
+    releases persisting nothing while the panel showed the lamp changing --
+    /var/lib/hls-livecam was root-owned and every write failed silently. The
+    caller here turns a failure into a 500 so the panel can say so.
+    """
+    os.makedirs(os.path.dirname(NOTIFY_PRESENCE_FILE), exist_ok=True)
+    with open(NOTIFY_PRESENCE_FILE, 'w') as f:
+        f.write('true' if enabled else 'false')
+
 
 def _read_notify_video():
     try:
@@ -2302,7 +2330,12 @@ def notify_classes_post():
     try:
         os.makedirs(os.path.dirname(NOTIFY_CLASSES_FILE), exist_ok=True)
         with open(NOTIFY_CLASSES_FILE, 'w') as f:
-            f.write(','.join(picked))
+            # EXPANDED, not as picked. cv_notify reads this file per event and
+            # must not carry a second copy of the expansion table -- the same
+            # trap canonical_ms sits in, duplicated across three files. The
+            # 'living' and 'other' tokens survive expansion, so the panel can
+            # still tell which umbrella was chosen.
+            f.write(','.join(_expand_classes(picked)))
     except Exception:
         abort(500)
     # Return what GET would, expansion included, so the panel does not paint
@@ -2418,6 +2451,23 @@ def detect_roi_post():
     except Exception:
         abort(500)
     return _json.dumps(box), 200, {'Content-Type': 'application/json'}
+@app.route('/api/presence-pause', methods=['GET'])
+def presence_pause_get():
+    return ('true' if _read_presence_pause() else 'false'), 200
+
+
+@app.route('/api/presence-pause', methods=['POST'])
+def presence_pause_post():
+    val = (request.get_data(as_text=True) or '').strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    try:
+        _write_presence_pause(val == 'true')
+    except Exception:
+        abort(500)
+    return ('true' if _read_presence_pause() else 'false'), 200
+
+
 @app.route('/api/notify-shots', methods=['GET'])
 def notify_shots_get():
     return ('true' if _read_notify_shots() else 'false'), 200
@@ -2968,7 +3018,40 @@ def _shutdown(signum, frame):
     # nothing left to unwind.
     os._exit(0)
 
+def _normalize_notify_classes():
+    """Rewrite the stored class list in its expanded form, once, at startup.
+
+    From 7.0.13 cv_notify reads this file directly and matches the names
+    against a track's class, with no expansion table of its own. A file
+    written by an older build holds what was PICKED -- so a node whose
+    operator chose "All animate beings" holds the single token 'living',
+    which matches no track, and would alert on nothing at all.
+
+    Only touches a file that actually changes, so a node that is already
+    normal is not rewritten on every restart, and a missing file stays
+    missing (which means "never configured", not "none").
+    """
+    try:
+        with open(NOTIFY_CLASSES_FILE) as f:
+            raw = f.read()
+    except Exception:
+        return
+    want = ','.join(_read_notify_classes())
+    picked = [c.strip().lower() for c in raw.replace('\n', ',').split(',') if c.strip()]
+    if ','.join(picked) == want:
+        return
+    try:
+        with open(NOTIFY_CLASSES_FILE, 'w') as f:
+            f.write(want)
+        print('broadcast-api: notify classes normalized: '
+              f"{','.join(picked) or '(empty)'} -> {want or '(empty)'}", flush=True)
+    except Exception as exc:
+        print(f'broadcast-api: cannot normalize {NOTIFY_CLASSES_FILE}: {exc}',
+              file=sys.stderr, flush=True)
+
+
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
+    _normalize_notify_classes()
     app.run(host='127.0.0.1', port=5000)

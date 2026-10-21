@@ -1377,6 +1377,12 @@
      and tickable would be a control that does nothing -- the same opacity
      .4 the panel already uses for .callctl:disabled and .combrow.bypassed. */
   .alertgrp.inactive { opacity: .4; pointer-events: none; }
+  /* Everything downstream of Detection. These rows used to live inside
+     .alertgrp and inherited its dimming; they were lifted into their own
+     groups because a detection REGION and what an alert CARRIES are not
+     triggers. They are still inert when Detection is off, so they still
+     have to look it. */
+  .detdep.inactive { opacity: .4; pointer-events: none; }
     /* ELE Messenger list. Sized to show the last few exchanges without
        becoming a second application inside the panel -- it scrolls rather
        than growing, so the card never pushes the controls below it off
@@ -2079,8 +2085,14 @@
       </div>
       <div class="panel" id="settingsPanel" hidden style="margin-top:6px;">
         <div class="panel-title eng">Settings</div>
-        <!-- Alphabetized (requirement: "alphabetize these settings") -- Disable
-             buzz, Light theme, Mute server speaker/headset in RTC. -->
+        <!-- Grouped, not alphabetized. Alphabetical order was asked for when
+             this was a short flat list; at seventeen controls it put "Detection
+             area" between "Dogs" and "Include photos" and the panel stopped
+             being readable. The groups below are the questions a person
+             actually arrives with: what triggers an alert, where to watch,
+             what the alert carries, and this device's own preferences. The
+             three in "This device" -- buzz, theme, RTC speaker mute -- are the
+             ones that change nothing about what is recorded. -->
         <div class="pdiv"></div>
         <!-- Structure, not a flat list: "All animate beings" is a SUPERSET of
              the four indented under it, while "All movements" is a different
@@ -2180,12 +2192,14 @@
           <!-- Content of an alert, not a trigger for one -- hence its own
                rule rather than another row in the list above. -->
           <div class="pdiv"></div>
+        </div>
+        <div class="setgrp eng detdep">Where to watch</div>
           <!-- Two controls, because they answer different questions. The
                lamp is WHETHER the region applies; the button is WHAT it is.
                One control doing both means switching the region off throws
                away the box, and the next "on" costs you a drag -- nobody
                toggles something that expensive. -->
-          <div class="pinrow">
+          <div class="pinrow detdep">
             <button class="pinled" id="roiBtn" onclick="toggleRoi()"
                     aria-pressed="false" aria-label="Limit detection to the chosen area"
                     title="Apply the chosen area. Off watches the whole picture; the area is remembered either way">
@@ -2196,7 +2210,7 @@
           <!-- EDIT and SET are exclusive: exactly one is live at a time, so
                the pair itself says which mode you are in. A single button
                that changes its own label makes you read it to find out. -->
-          <div class="pinrow roi-actions">
+          <div class="pinrow detdep roi-actions">
             <button class="pbtn" id="roiEditBtn" onclick="armRoi()"
                     title="Drag a box on the picture to choose the area">Edit</button>
             <button class="pbtn" id="roiSetBtn" onclick="commitRoi()"
@@ -2204,7 +2218,8 @@
             <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
                     title="Forget the area and watch the whole picture">Reset</button>
           </div>
-          <div class="pdiv"></div>          <div class="pinrow">
+        <div class="setgrp eng detdep">What alerts carry</div>
+          <div class="pinrow detdep">
             <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
                     aria-pressed="false" aria-label="Include photos in alerts"
                     title="Attach stills. Off with video off, the alert is text only">
@@ -2212,7 +2227,7 @@
             </button>
             <span class="eng rstlab">Include photos</span>
           </div>
-          <div class="pinrow">
+          <div class="pinrow detdep">
             <button class="pinled" id="alertVideoBtn" onclick="toggleAlertVideo()"
                     aria-pressed="false" aria-label="Include video in alerts"
                     title="Attach a short clip as well as the still">
@@ -2220,8 +2235,22 @@
             </button>
             <span class="eng rstlab">Include video</span>
           </div>
-        </div>
-        <!-- Disable buzz, moved here from the AV panel. -->
+          <!-- The XOR: recording and "somebody is home" are mutually
+               exclusive. It reads presence from the detector regardless of
+               whether People is ticked above, because not wanting to be
+               ALERTED about yourself is the normal case and is a different
+               question from not wanting to be RECORDED. Text alerts still
+               go -- they leak nothing, and a silent camera is indistinguish-
+               able from a broken one. -->
+          <div class="pinrow detdep">
+            <button class="pinled" id="presencePauseBtn" onclick="togglePresencePause()"
+                    aria-pressed="false" aria-label="Do not record while someone is home"
+                    title="While a person is in view, alerts arrive without photo or clip. A manual snapshot still works.">
+              <span class="bulb" id="presencePauseLamp"></span>
+            </button>
+            <span class="eng rstlab">Not while someone's home</span>
+          </div>
+        <div class="setgrp eng">This device</div>
         <div class="pinrow">
           <button class="pinled" id="muteBuzzBtn" onclick="toggleMute()"
                   aria-pressed="false" aria-label="Disable buzz"
@@ -5311,7 +5340,7 @@
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
-  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false;
+  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false;
 
   function paintLed(id, on) {
     var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
@@ -5334,8 +5363,14 @@
     // "All living beings" is lit when the four under it are, so the superset
     // never disagrees with its members.
     paintLed('clsLiving', SPECIES.every(function(s) { return clsOn[s]; }));
+    paintLed('presencePause', presenceOn);
     var g = document.getElementById('alertGroup');
     if (g) g.classList.toggle('inactive', !detectOn);
+    // The lifted groups dim with Detection too -- see .detdep.
+    var dd = document.querySelectorAll('.detdep');
+    for (var i = 0; i < dd.length; i++) {
+      dd[i].classList.toggle('inactive', !detectOn);
+    }
   }
   // Bumped by every local mutation. A poll GET issued BEFORE a toggle can
   // land AFTER it, carrying the pre-toggle value, and the old code let that
@@ -5563,6 +5598,10 @@
     post('/api/notify-video', videoOn ? 'false' : 'true',
          function(v) { videoOn = v.trim() === 'true'; });
   }
+  function togglePresencePause() {
+    post('/api/presence-pause', presenceOn ? 'false' : 'true',
+         function(v) { presenceOn = v.trim() === 'true'; });
+  }
   function pollAlerts() {
     // Snapshot the epoch per request: if the operator changes anything while
     // these are in flight, their answers are stale by definition and are
@@ -5579,6 +5618,10 @@
     fetch('/api/notify-shots', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
       .then(function(v) { if (v !== null && e2b === alertsEpoch) shotsOn = v.trim() === 'true'; paintAll(); });
+    var e2c = alertsEpoch;
+    fetch('/api/presence-pause', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null && e2c === alertsEpoch) presenceOn = v.trim() === 'true'; paintAll(); });
     var e3 = alertsEpoch;
     fetch('/api/notify-classes', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
