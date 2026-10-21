@@ -4,6 +4,15 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.36
+
+- **"Never film people"** -- the honest name for the mechanism. "Detect
+  non-human only" described a detection filter, and this control does not
+  change detection at all: it withholds the *picture*. Alerts still say a
+  person was seen; they carry nothing to look at. That is also what keeps it
+  distinct from unticking People in *Alert me about*, which stops human
+  alerts rather than human footage.
+
 ## 7.0.35
 
 - **"Not while someone's home" promised a safety it never had.** The name
