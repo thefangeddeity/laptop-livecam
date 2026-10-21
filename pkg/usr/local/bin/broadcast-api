@@ -8,8 +8,16 @@ Publisher ffmpeg reads from loopback, pushes to mediamtx. Non-blocking.
 from flask import Flask, request, abort
 import os, subprocess, time, sys, threading, signal, socket, re, collections, queue
 import numpy as np
-import pyfakewebcam
 sys.path.insert(0, '/usr/share/hls-livecam-server')
+# Prefer a distro-packaged pyfakewebcam (Arch has python-pyfakewebcam); fall
+# back to the vendored copy, because Debian/Ubuntu do not package it at all.
+# See vendor/README.md -- this replaced a root pip install in postinst that
+# could fail silently and left unowned files behind.
+try:
+    import pyfakewebcam
+except ImportError:
+    sys.path.insert(1, '/usr/share/hls-livecam-server/vendor')
+    import pyfakewebcam
 import cv_processor as _cvp
 import cv2 as _cv2
 import json as _json

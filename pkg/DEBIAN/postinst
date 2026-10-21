@@ -7,37 +7,16 @@ NC='\033[0m'
 # --- Ensure www-data is in video group --------------------------
 usermod -aG video www-data
 
-# --- Install pyfakewebcam via pip -------------------------------
-if ! python3 -c "import pyfakewebcam" 2>/dev/null; then
-    python3 -m pip --version >/dev/null 2>&1 || apt install -y python3-pip
-    python3 -m pip install pyfakewebcam --break-system-packages --quiet 2>/dev/null || \
-    python3 -m pip install pyfakewebcam --quiet || true
-fi
-
-# --- Patch pyfakewebcam tostring() -> tobytes() -----------------
-python3 - << 'INNEREOF'
-import glob
-patterns = [
-    '/usr/local/lib/python3*/dist-packages/pyfakewebcam/pyfakewebcam.py',
-    '/usr/lib/python3*/dist-packages/pyfakewebcam/pyfakewebcam.py',
-    '/usr/local/lib/python3*/site-packages/pyfakewebcam/pyfakewebcam.py',
-]
-patched = 0
-for pattern in patterns:
-    for path in glob.glob(pattern):
-        with open(path, 'r') as f:
-            src = f.read()
-        if 'tostring()' in src:
-            src = src.replace('tostring()', 'tobytes()')
-            with open(path, 'w') as f:
-                f.write(src)
-            print(f'  patched: {path}')
-            patched += 1
-        else:
-            print(f'  already OK: {path}')
-if patched == 0 and not any(glob.glob(p) for p in patterns):
-    print('  pyfakewebcam not yet installed -- tobytes fix will apply on next run')
-INNEREOF
+# --- pyfakewebcam -----------------------------------------------
+# Shipped in the payload at
+#   /usr/share/hls-livecam-server/vendor/pyfakewebcam
+# because Debian and Ubuntu do not package it. Until 7.0.12 this
+# step pip-installed it as root at install time and then rewrote the
+# library source in place; it needed the network, hid its own failure
+# behind `|| true`, left files no package manager owned, and the patch
+# it applied had become a no-op upstream. broadcast-api prefers a
+# distro package and falls back to the vendored copy, so nothing is
+# installed here any more. See vendor/README.md.
 
 # --- Persistent config directory --------------------------------
 mkdir -p /etc/hls-livecam
