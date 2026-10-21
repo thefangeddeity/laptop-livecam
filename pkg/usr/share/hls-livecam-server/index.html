@@ -1532,10 +1532,21 @@
        24 rather than 25 so the HUD still reads over the box: telemetry wins
        the overlap, since the box is a large shape and the HUD is a few lines
        of text that would be the thing lost. */
-    .roi-layer { position: absolute; inset: 0; z-index: 24; cursor: cell;
+    /* The region line is NOT themed. --phos flips to #1d332e in light theme
+       because it is the colour of text on a near-white housing -- but this
+       line is drawn over VIDEO, and video is dark in both themes. On the
+       powered-down screen that worked out to 1.20:1 before the 0.62 opacity
+       was applied on top, which is why the box was invisible in light theme
+       and fine in dark.
+
+       The dark-theme phosphor, pinned: 10.4:1 on the light theme's off-screen
+       and 12.6:1 on the dark one. It loses contrast only against a genuinely
+       white scene, which is what the 1px black outline below is for. */
+    .roi-layer { --roi-line: #3fe8cd;
+                 position: absolute; inset: 0; z-index: 24; cursor: cell;
                  background: rgba(0,0,0,.35); }
     .roi-layer[hidden] { display: none; }
-    .roi-box { position: absolute; border: 1px solid var(--phos);
+    .roi-box { position: absolute; border: 1px solid var(--roi-line);
                box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
                background: transparent; pointer-events: none; }
     .roi-box[hidden] { display: none; }
@@ -1545,7 +1556,7 @@
        stays small so they do not cover the picture; the hit zone is widened
        in JS instead, because a 9px dot is not thumb-reachable. */
     .roi-h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px;
-             background: var(--phos); border: 1px solid rgba(0,0,0,.55);
+             background: var(--roi-line); border: 1px solid rgba(0,0,0,.55);
              border-radius: 2px; pointer-events: none; }
     /* The header's global toggles. Right-aligned beside the status pill so
        the brand keeps the left edge, and wrapping on a narrow screen rather
@@ -1587,9 +1598,12 @@
        layer also stops taking the pointer, or a locked region would swallow
        every click on the video. */
     .roi-layer.locked { background: none; cursor: default; pointer-events: none; }
-    .roi-box.locked { border-color: var(--phos);
-                      box-shadow: 0 0 0 1px rgba(0,0,0,.45);
-                      opacity: .62; }
+    /* Locked is dimmer than editing, not dim in absolute terms. .62 of a
+       colour that was already failing read as nothing at all. */
+    .roi-box.locked { border-color: var(--roi-line);
+                      box-shadow: 0 0 0 1px rgba(0,0,0,.55),
+                                  0 0 6px rgba(63,232,205,.30);
+                      opacity: .85; }
     .roi-hint { position: absolute; left: 50%; bottom: 14px;
                 transform: translateX(-50%); pointer-events: none;
                 font: 600 10px/1.4 var(--mono); letter-spacing: .09em;
