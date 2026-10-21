@@ -270,6 +270,14 @@ def _write_detect_always(enabled):
     with open(DETECT_ALWAYS_FILE, 'w') as f:
         f.write('true' if enabled else 'false')
 
+
+# Module-level, and NOT optional: detect_always_get() reads this global
+# directly rather than the file. A rewrite of the writer above deleted this
+# line and every GET became a 500 -- the POST still worked, because it
+# assigns the global on the way through, so the setting looked healthy from
+# the one direction nobody tests first.
+_detect_always = _read_detect_always()
+
 def _detect_always_on():
     return _detect_always
 # Blur: a modifier on CV mode, reusing the old Cloak mode's block-art render
