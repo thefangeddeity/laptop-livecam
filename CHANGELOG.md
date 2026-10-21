@@ -4,6 +4,23 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.22
+
+- **The alert clip follows the subject instead of a stopwatch.** It was a
+  fixed window -- 5s before the detection instant, 20s after it, 25 seconds
+  regardless of what happened in them -- so a cat still in frame was cut off
+  mid-visit. The end now follows the last sighting of that track:
+  `_track_seen[track_id]` is stamped every cycle the track is still promoted,
+  and the clip is cut once it has been gone for a whole post-roll.
+  The stamp goes *before* the early returns in `on_promotion`: cooldown and
+  already-notified are exactly the paths a subject that stays takes, so
+  stamping below them would record one sighting and never update.
+- `NOTIFY_CLIP_MAX` (default 120s) caps it. A subject that settles in and
+  sleeps must not produce an unbounded file on a disk already holding six
+  hours of rolling recording.
+- A clip can only ever get *longer*: `post` is floored at `clip_post`, so a
+  subject that leaves immediately still produces exactly the old window.
+
 ## 7.0.21
 
 - **The detection region draws over the static.** It sat at `z-index: 6`,
