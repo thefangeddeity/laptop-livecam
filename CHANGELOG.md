@@ -4,6 +4,30 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.27
+
+- **Pixelate instead of black**, as a setting under the mask. Black stays the
+  default, and the control states that these are not the same privacy rather
+  than offering them as taste: a mosaic keeps coarse structure -- how many
+  people, roughly where, exactly when they move -- and block size is a
+  judgement about how much of that is acceptable, not a guarantee. What it
+  buys is that a pixelated room still reads as a *room*, where a black one
+  reads as a broken camera.
+- **Failure goes to black, never to the picture.** On Linux this reuses
+  `_apply_blur`, which fails *open* by design -- it returns the frame
+  untouched and logs, because its usual caller is a viewer who asked for blur
+  and would rather see the room than nothing. That is exactly wrong for a
+  mask, so the same object coming back is treated as "it did nothing" and the
+  mask falls through to black.
+- macOS has no standalone blur: its mosaic lives inside `CVProcessor` and
+  works on the render, not the raw frame the mask operates on. That side
+  carries its own -- area-average down, nearest-neighbour up -- with `cv2`
+  imported at module load rather than lazily, so a node that cannot pixelate
+  falls back to black from the first frame instead of raising inside the
+  capture thread.
+- Fail-closed is unchanged and still black regardless of style: an
+  unparseable region is not the moment to pick the weaker option.
+
 ## 7.0.26
 
 - **Masked is the default.** An absent state file now means masked: a region

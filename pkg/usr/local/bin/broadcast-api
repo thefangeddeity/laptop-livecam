@@ -49,6 +49,7 @@ NOTIFY_SHOTS_FILE  = "/var/lib/hls-livecam/notify_shots"
 NOTIFY_PRESENCE_FILE = "/var/lib/hls-livecam/notify_presence_pause"
 DETECT_ROI_FILE    = "/var/lib/hls-livecam/detect_roi"
 PRIVACY_MASK_FILE  = "/var/lib/hls-livecam/privacy_mask"
+MASK_STYLE_FILE    = "/var/lib/hls-livecam/mask_style"
 
 
 class _RecorderDisabled(Exception):
@@ -1381,6 +1382,23 @@ def _privacy_mask_box():
     return _mask_cache['box']
 
 
+def _mask_style():
+    """'pixel' or 'black'. Black is the default and the stronger of the two.
+
+    A mosaic is NOT equivalent to blacking out. It leaves coarse structure --
+    how many people, where they are, when they move, roughly what they are
+    doing -- and block size is a guess about how much of that is acceptable,
+    not a guarantee. It is offered because a pixelated room still reads as a
+    room and a black one reads as a fault, which is a real reason to prefer
+    it; it is not offered as the same privacy.
+    """
+    try:
+        with open(MASK_STYLE_FILE) as f:
+            return 'pixel' if f.read().strip() == 'pixel' else 'black'
+    except Exception:
+        return 'black'
+
+
 def _apply_privacy_mask(raw):
     """Black out everything outside the region, on the ONE frame everything
     else is derived from.
@@ -1416,7 +1434,17 @@ def _apply_privacy_mask(raw):
         # Allocate black and copy the kept rectangle in, rather than zeroing
         # four surrounding rectangles: one block copy, and nothing outside can
         # survive by arithmetic error.
-        out = np.zeros((FRAME_H, FRAME_W, 3), np.uint8)
+        if _mask_style() == 'pixel':
+            out = _apply_blur(arr)
+            # _apply_blur FAILS OPEN by design -- it returns the frame
+            # untouched and logs, which is right for a blur the viewer asked
+            # for and wrong for a mask. Same object back means it did
+            # nothing, so fall through to black rather than publish the room.
+            if out is arr:
+                return b'\x00' * FRAME_BYTES
+            out = np.ascontiguousarray(out)
+        else:
+            out = np.zeros((FRAME_H, FRAME_W, 3), np.uint8)
         out[y:y + h, x:x + w] = arr[y:y + h, x:x + w]
         return out.tobytes()
     except Exception as exc:
@@ -2594,6 +2622,25 @@ def detect_roi_post():
     except Exception:
         abort(500)
     return _json.dumps(box), 200, {'Content-Type': 'application/json'}
+@app.route('/api/mask-style', methods=['GET'])
+def mask_style_get():
+    return _mask_style(), 200
+
+
+@app.route('/api/mask-style', methods=['POST'])
+def mask_style_post():
+    val = (request.get_data(as_text=True) or '').strip().lower()
+    if val not in ('pixel', 'black'):
+        abort(400)
+    try:
+        os.makedirs(os.path.dirname(MASK_STYLE_FILE), exist_ok=True)
+        with open(MASK_STYLE_FILE, 'w') as f:
+            f.write(val)
+    except Exception:
+        abort(500)
+    return _mask_style(), 200
+
+
 @app.route('/api/privacy-mask', methods=['GET'])
 def privacy_mask_get():
     return ('true' if _read_privacy_mask() else 'false'), 200
