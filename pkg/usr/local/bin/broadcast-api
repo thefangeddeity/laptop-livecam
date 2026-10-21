@@ -2707,10 +2707,16 @@ def gallery_get():
         else:
             out['labels'].append({'name': d, 'count': len(files),
                                   'cover': files[0] if files else None})
-    out['unlabelled_total'] = len(
-        [f for f in (os.listdir(os.path.join(GALLERY_DIR, 'unlabelled'))
-                     if os.path.isdir(os.path.join(GALLERY_DIR, 'unlabelled'))
-                     else []) if f.lower().endswith('.jpg')])
+    # try/except, not just an isdir guard: isdir covers "missing" and not
+    # "there but unreadable", and a permissions problem would 500 the whole
+    # listing rather than degrade it. The macOS side was written this way;
+    # this one was not, which is the divergence a comb is for.
+    unl = os.path.join(GALLERY_DIR, 'unlabelled')
+    try:
+        out['unlabelled_total'] = len([f for f in os.listdir(unl)
+                                       if f.lower().endswith('.jpg')])
+    except Exception:
+        out['unlabelled_total'] = 0
     return _json.dumps(out), 200, {'Content-Type': 'application/json'}
 
 
