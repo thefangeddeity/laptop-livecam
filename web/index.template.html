@@ -1528,7 +1528,19 @@
        a screenshot". `cell` is the spreadsheet range-selection cursor -- a
        heavier hollow plus, the same MEANING (drag out a region) without the
        collision. JS overrides it per zone; this is the fallback. */
-    .roi-layer { position: absolute; inset: 0; z-index: 6; cursor: cell;
+    /* z-index 24, not 6: above .switch-overlay (20) and .crt-stage (22), so
+       the region keeps drawing through a switch or power-off transition
+       instead of being buried under the snow. Same call already made for the
+       HUD at 25 -- "HUD should draw over static too" -- and the region is the
+       same kind of thing: an overlay describing what the machine is doing,
+       not part of the picture it is showing. Burying it breaks the effect,
+       because a region that vanishes whenever the feed does looks like it
+       stopped applying, and it did not.
+
+       24 rather than 25 so the HUD still reads over the box: telemetry wins
+       the overlap, since the box is a large shape and the HUD is a few lines
+       of text that would be the thing lost. */
+    .roi-layer { position: absolute; inset: 0; z-index: 24; cursor: cell;
                  background: rgba(0,0,0,.35); }
     .roi-layer[hidden] { display: none; }
     .roi-box { position: absolute; border: 1px solid var(--phos);
