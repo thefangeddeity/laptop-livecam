@@ -4,6 +4,39 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.19
+
+- **The detection box had one gesture, and it was the destructive one.**
+  `begin()` unconditionally started a new rubber-band wherever you pressed, so
+  touching the box you had just drawn threw it away. A clean tap hit the 5%
+  minimum-size guard and restored the previous outline, which is why it read
+  as *"it resets"*. Now three gestures: **inside** moves it with the shape
+  preserved (a move that reaches the frame stops rather than squashing),
+  **on a handle** resizes -- corners both axes, edges one, floor at 5% -- and
+  **outside** draws a new one, the only gesture that destroys. Eight handles,
+  9px visual so they do not cover the picture, 22px grab radius on a coarse
+  pointer because a 9px dot is not thumb-reachable. 18 assertions over the
+  zone table and the clamping.
+  Libraries were surveyed (Croppr.js, Cropper.js v2, crop-select-js); they all
+  crop an `<img>`, and the cropping engine is the part we must *not* have,
+  since cropping happens server-side in numpy and ffmpeg. Took the pattern,
+  not the package.
+- **Light theme is not a setting; it is a dimmer.** Promoted to the header in
+  the same `.reset` + `.rstlab` shape as Notch filters. The rule: the header
+  carries controls that respond to the *environment* (light, sound), Settings
+  carries *configuration*.
+- `.reset` had no pressed state -- its only user was `#combToggle`, a menu
+  control reporting through `aria-expanded`. A global on/off switch must show
+  its position, so the pin slides and lights; the menu toggle keeps the old
+  centred, unlit pin.
+- **The version label was the other lineage's.** tanzania served
+  `mac-v1.8.0 @tanzania` while running 7.0.18: a rendered macOS `index.html`
+  had been copied into this tree and carried `var build = 'mac-v1.8.0'`, its
+  explanatory comment, and a `title` of `mac-v1.8.0-129-ga573e72-dirty`.
+  `/api/info` reported `version=7.0.18` correctly the whole time; the viewer
+  never asked. It asks now, and shows nothing rather than a stale value if the
+  call fails.
+
 ## 7.0.18
 
 - **The panel edge was still invisible on mobile, and the two previous
