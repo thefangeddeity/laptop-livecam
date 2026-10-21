@@ -48,6 +48,7 @@ NOTIFY_VIDEO_FILE  = "/var/lib/hls-livecam/notify_video"
 NOTIFY_SHOTS_FILE  = "/var/lib/hls-livecam/notify_shots"
 NOTIFY_PRESENCE_FILE = "/var/lib/hls-livecam/notify_presence_pause"
 DETECT_ROI_FILE    = "/var/lib/hls-livecam/detect_roi"
+PRIVACY_MASK_FILE  = "/var/lib/hls-livecam/privacy_mask"
 
 
 class _RecorderDisabled(Exception):
@@ -1283,6 +1284,126 @@ def _start_cam_reader(denv):
     return subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, env=_pulse_env(denv))
 
+# -- The privacy mask ------------------------------------------------------
+#
+# Defined HERE, above _drain_loop, because that is where it is called and
+# the drain thread starts before the module has finished executing. Left
+# further down with the other state readers, a frame arriving during import
+# would raise NameError into _drain_loop's only handler, which sleeps a
+# second -- a camera stall at every start, self-healing and therefore the
+# kind nobody chases.
+_mask_cache = {'at': 0.0, 'box': (False, None)}
+
+
+def _privacy_mask_box():
+    """The mask rectangle as fractions, or None when masking is off.
+
+    Cached for a second because this is consulted on EVERY camera frame: a
+    stat+read at the capture rate, for a value that changes when somebody
+    clicks a switch, is work for nothing.
+
+    It reuses the detection region's geometry rather than storing a second
+    rectangle. One region with a mode, not two regions to keep in step -- the
+    panel was explicit that two would be the thing that rots. _raw is used so
+    the mask still applies when the region is switched off for DETECTION:
+    those are different questions about the same rectangle.
+    """
+    now = time.monotonic()
+    if now - _mask_cache['at'] < 1.0:
+        return _mask_cache['box']
+    _mask_cache['at'] = now
+    try:
+        with open(PRIVACY_MASK_FILE) as f:
+            on = f.read().strip() == 'true'
+    except Exception:
+        on = False
+    if not on:
+        _mask_cache['box'] = (False, None)
+        return _mask_cache['box']
+    # ON. Everything from here fails CLOSED: a region that cannot be parsed
+    # returns (True, None) and the caller blanks the frame. The detection
+    # region's own reader widens on every failure, deliberately -- a corrupt
+    # file there must not silently narrow what is watched. A privacy mask is
+    # the exact opposite: the only unacceptable outcome is showing the room
+    # while the switch reads "on".
+    box = None
+    try:
+        r = _read_detect_roi_raw()
+        if r:
+            x, y, w, h = (float(r['x']), float(r['y']),
+                          float(r['w']), float(r['h']))
+            if w > 0 and h > 0:
+                box = (x, y, w, h)
+    except Exception:
+        box = None
+    _mask_cache['box'] = (True, box)
+    return _mask_cache['box']
+
+
+def _apply_privacy_mask(raw):
+    """Black out everything outside the region, on the ONE frame everything
+    else is derived from.
+
+    This runs in _drain_loop, at the single point _cam_frame is written --
+    which is the only place that makes it a privacy feature rather than a
+    costume. Three consumers read that cache: the display pipeline, the
+    detector's own tap, and the evidence recorder, which is fed the raw frame
+    BEFORE the render branch. Masking anywhere downstream would leave the
+    recorder -- and therefore every clip and snapshot sent to Telegram --
+    carrying the room it claims to be hiding, with the UI saying otherwise.
+
+    Off costs nothing: raw is returned untouched, no copy, no allocation.
+    """
+    try:
+        on, box = _privacy_mask_box()
+    except Exception:
+        # The lookup itself failing must not reach _drain_loop, whose only
+        # handler sleeps a second -- that would stall the camera for everyone
+        # over a malformed state file. Treat it as masked-but-unusable.
+        on, box = True, None
+    if not on:
+        return raw
+    if box is None:
+        return b'\x00' * FRAME_BYTES
+    try:
+        arr = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
+        fx, fy, fw, fh = box
+        x = max(0, min(FRAME_W - 1, int(round(fx * FRAME_W))))
+        y = max(0, min(FRAME_H - 1, int(round(fy * FRAME_H))))
+        w = max(1, min(FRAME_W - x, int(round(fw * FRAME_W))))
+        h = max(1, min(FRAME_H - y, int(round(fh * FRAME_H))))
+        # Allocate black and copy the kept rectangle in, rather than zeroing
+        # four surrounding rectangles: one block copy, and nothing outside can
+        # survive by arithmetic error.
+        out = np.zeros((FRAME_H, FRAME_W, 3), np.uint8)
+        out[y:y + h, x:x + w] = arr[y:y + h, x:x + w]
+        return out.tobytes()
+    except Exception as exc:
+        # FAIL CLOSED. A mask that silently passes the frame through on an
+        # error is worse than one that never existed, because the switch still
+        # reads "on". A black frame is obviously wrong; an unmasked one is
+        # quietly wrong.
+        print('broadcast-api: privacy mask failed, blanking frame: '
+              f'{type(exc).__name__}: {exc}', file=sys.stderr, flush=True)
+        return b'\x00' * FRAME_BYTES
+
+
+def _read_privacy_mask():
+    try:
+        with open(PRIVACY_MASK_FILE) as f:
+            return f.read().strip() == 'true'
+    except Exception:
+        return False
+
+
+def _write_privacy_mask(enabled):
+    os.makedirs(os.path.dirname(PRIVACY_MASK_FILE), exist_ok=True)
+    with open(PRIVACY_MASK_FILE, 'w') as f:
+        f.write('true' if enabled else 'false')
+    _mask_cache['at'] = 0.0          # take effect on the next frame, not in a second
+
+
+
 # -- Detection's own tap on the camera ------------------------------------
 #
 # Feed mode is ONE global for the whole node: /var/lib/hls-livecam/feed_mode,
@@ -1338,6 +1459,11 @@ def _drain_loop(cam_holder, denv):
         try:
             raw = cam_holder[0].stdout.read(FRAME_BYTES)
             if len(raw) == FRAME_BYTES:
+                # BEFORE the cache, which is the branch point: the display
+                # pipeline, the detector tap and the evidence recorder all
+                # read _cam_frame. Masking here is the only placement where
+                # a clip cannot disagree with the switch.
+                raw = _apply_privacy_mask(raw)
                 with _cam_frame_lock:
                     _cam_frame = raw
                     globals()['_cam_frame_at'] = time.time()
@@ -2451,6 +2577,29 @@ def detect_roi_post():
     except Exception:
         abort(500)
     return _json.dumps(box), 200, {'Content-Type': 'application/json'}
+@app.route('/api/privacy-mask', methods=['GET'])
+def privacy_mask_get():
+    return ('true' if _read_privacy_mask() else 'false'), 200
+
+
+@app.route('/api/privacy-mask', methods=['POST'])
+def privacy_mask_post():
+    val = (request.get_data(as_text=True) or '').strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    # Refuse to switch ON with nothing to keep: a mask with no rectangle
+    # blacks the entire picture, which looks exactly like a broken camera.
+    if val == 'true':
+        r = _read_detect_roi_raw()
+        if not r or float(r.get('w') or 0) <= 0 or float(r.get('h') or 0) <= 0:
+            abort(409)
+    try:
+        _write_privacy_mask(val == 'true')
+    except Exception:
+        abort(500)
+    return ('true' if _read_privacy_mask() else 'false'), 200
+
+
 @app.route('/api/presence-pause', methods=['GET'])
 def presence_pause_get():
     return ('true' if _read_presence_pause() else 'false'), 200
