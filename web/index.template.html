@@ -2228,9 +2228,14 @@
             </button>
             <span class="eng rstlab" id="roiLabel">Detection area</span>
           </div>
+          <!-- EDIT and SET are exclusive: exactly one is live at a time, so
+               the pair itself says which mode you are in. A single button
+               that changes its own label makes you read it to find out. -->
           <div class="pinrow roi-actions">
-            <button class="pbtn" id="roiSetBtn" onclick="armRoi()"
-                    title="Drag a box on the picture to choose the area">Set area</button>
+            <button class="pbtn" id="roiEditBtn" onclick="armRoi()"
+                    title="Drag a box on the picture to choose the area">Edit</button>
+            <button class="pbtn" id="roiSetBtn" onclick="commitRoi()"
+                    title="Keep the area you drew and stop editing">Set</button>
             <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
                     title="Forget the area and watch the whole picture">Reset</button>
           </div>
@@ -5420,6 +5425,10 @@
   // APPLIES; roiArmed is whether we are currently drawing one. Three facts,
   // because collapsing them is what made switching off cost a redraw.
   var roiArmed = false, roiDrag = null, roiCur = null, roiOn = false;
+  // What the box was when editing began. Kept so leaving edit mode without
+  // having moved anything is a no-op rather than a pointless write, and so a
+  // drag can be adjusted repeatedly before any of it is committed.
+  var roiOrig = null;
 
   function videoRect() {
     var v = document.getElementById('video');
@@ -5449,6 +5458,21 @@
       : 'Detection area (not set)';
     var rst = document.getElementById('roiResetBtn');
     if (rst) rst.disabled = !roiCur;
+    // Exclusive pair: Edit is lit while drawing, Set is only live then.
+    // Each button is dead in the mode where pressing it would mean nothing,
+    // so the pair shows the mode without being read.
+    var eb = document.getElementById('roiEditBtn');
+    if (eb) {
+      eb.classList.toggle('pressed', roiArmed);
+      eb.setAttribute('aria-pressed', roiArmed ? 'true' : 'false');
+      eb.disabled = roiArmed;
+    }
+    var setb = document.getElementById('roiSetBtn');
+    if (setb) setb.disabled = !roiArmed;
+    var hint = document.getElementById('roiHint');
+    if (hint) hint.textContent = roiCur
+      ? 'Drag to adjust \u2014 press Set when it is right'
+      : 'Drag on the picture, then press Set';
     // The box stays visible while armed even when switched off, so you can
     // see what you are about to replace.
     if (!roiCur || !(roiOn || roiArmed)) { box.hidden = true; return; }
@@ -5468,18 +5492,36 @@
   }
 
   function armRoi() {
-    roiArmed = !roiArmed;
-    var hint = document.getElementById('roiHint');
-    if (hint) hint.textContent = roiCur
-      ? 'Drag to choose a new area \u2014 the current one is outlined'
-      : 'Drag on the picture to choose the area the detector watches';
+    // EDIT. Enters drawing mode and remembers what was there, so adjusting
+    // repeatedly is free and leaving without changing anything writes
+    // nothing. Nothing is committed by dragging -- saving on drag-release
+    // meant the first sloppy drag was already the answer, and the only way
+    // to correct it was another drag.
+    if (roiArmed) return;              // exclusive: Edit does not un-edit
+    roiArmed = true;
+    roiOrig = roiCur ? { x: roiCur.x, y: roiCur.y, w: roiCur.w, h: roiCur.h } : null;
     paintRoi();
+  }
+
+  function commitRoi() {
+    // SET. Keeps what is drawn and leaves drawing mode. Only Set writes.
+    if (!roiArmed) return;             // exclusive: Set is dead unless editing
+    roiArmed = false;
+    var same = (!roiCur && !roiOrig) || (roiCur && roiOrig
+                 && roiCur.x === roiOrig.x && roiCur.y === roiOrig.y
+                 && roiCur.w === roiOrig.w && roiCur.h === roiOrig.h);
+    if (same) { paintRoi(); return; }  // nothing moved; no pointless write
+    if (!roiCur || roiCur.w < 0.05 || roiCur.h < 0.05) { loadRoi(); return; }
+    // Setting an area turns it on: you drew it in order to use it.
+    post('/api/detect-roi', JSON.stringify({
+      x: roiCur.x, y: roiCur.y, w: roiCur.w, h: roiCur.h, on: true
+    }), function() { loadRoi(); });
   }
 
   function resetRoi() {
     // Empty body is Reset, server-side. Clearing locally first so the box
     // disappears on the press rather than on the reply.
-    roiCur = null; roiOn = false; roiArmed = false; paintRoi();
+    roiCur = null; roiOn = false; roiArmed = false; roiOrig = null; paintRoi();
     post('/api/detect-roi', '', function() { loadRoi(); });
   }
 
@@ -5528,14 +5570,15 @@
     function end(e) {
       if (!roiDrag) return;
       roiDrag = null;
-      // Under 5% of a side is a stray click, not an intention -- the same
-      // threshold the server enforces, applied here so the user gets the box
-      // they drew back rather than a silent 400.
-      if (!roiCur || roiCur.w < 0.05 || roiCur.h < 0.05) { loadRoi(); return; }
-      post('/api/detect-roi', JSON.stringify(roiCur), function() {
-        roiArmed = false;
-        loadRoi();
-      });
+      // Nothing is sent here. The drag only updates the preview; locking the
+      // area is what writes it, so a drag can be redone until it is right.
+      // A stray click that produced a sliver is discarded rather than kept
+      // as the draft, so the previous outline stays on screen.
+      if (!roiCur || roiCur.w < 0.05 || roiCur.h < 0.05) {
+        roiCur = roiOrig ? { x: roiOrig.x, y: roiOrig.y,
+                             w: roiOrig.w, h: roiOrig.h } : null;
+      }
+      paintRoi();
     }
     layer.addEventListener('mousedown', begin);
     window.addEventListener('mousemove', move);
