@@ -4,6 +4,20 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.21
+
+- **The detection region draws over the static.** It sat at `z-index: 6`,
+  under `.switch-overlay` (20), `.crt-stage` (22) and `.hide-overlay` (15), so
+  the snow painted straight over it. A region that disappears whenever the
+  picture does reads as having stopped applying -- it has not; the detector is
+  still watching that rectangle. Now 24, the same call already made for the
+  HUD at 25 and recorded there as *"HUD should draw over static too"*. The
+  region is the same kind of thing: an overlay describing what the machine is
+  *doing*, not part of the picture it is showing. Under the scanlines it would
+  read as footage of a box rather than a statement about the camera.
+  24 rather than 25 so the HUD wins the overlap -- the box is a large shape,
+  the HUD is a few lines of text, and the text is what would be lost.
+
 ## 7.0.20
 
 - **The cursor now says which gesture a press would start.** The handles
