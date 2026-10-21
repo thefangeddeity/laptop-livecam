@@ -4,6 +4,35 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.24
+
+- **The privacy mask.** Everything outside the detection region is blacked out
+  at the camera. Applied in `_drain_loop`, on the single write to
+  `_cam_frame` -- the branch point that the display pipeline, the detector's
+  own tap and the evidence recorder all read from. The recorder is explicitly
+  fed the raw frame *before* the render branch, so masking anywhere downstream
+  would leave every clip and snapshot carrying the room while the switch read
+  "on". One insertion point; all three consumers inherit it by construction.
+  A CSS overlay would have been easier and worthless: the HLS stream still
+  carries the full picture to anyone with the `.m3u8`.
+- It reuses the detection region's geometry rather than storing a second
+  rectangle -- one region with a mode, since two would rot out of step. It
+  reads the raw geometry, so the mask still applies when the region is
+  switched off for *detection*.
+- **It fails closed, deliberately against the house rule.** Every other reader
+  of this geometry widens on failure, so a corrupt file cannot silently narrow
+  what is watched. A privacy mask is the inverse: an unparseable or missing
+  region with the mask on yields a black frame, not a clear one. The lookup is
+  wrapped too, because an exception escaping it would reach `_drain_loop`'s
+  only handler, which sleeps a second -- a camera stall for every viewer.
+- Defined above `_drain_loop` rather than with the other state readers: the
+  drain thread starts before the module finishes executing, so a frame
+  arriving during import would have raised `NameError` into that same handler.
+- Switching it on with no region is refused with 409 rather than blacking the
+  whole picture, which is indistinguishable from a broken camera.
+- Cost: ~2ms/frame at 1280x720 (~3% of the 15fps budget), and nothing at all
+  when off.
+
 ## 7.0.23
 
 - **The region line is bright in both themes.** It used `var(--phos)`, which

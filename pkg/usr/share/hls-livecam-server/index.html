@@ -2348,6 +2348,22 @@
             <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
                     title="Forget the area and watch the whole picture">Reset</button>
           </div>
+          <!-- Same rectangle as the detection region, with a different
+               question asked of it: that one is where the detector LOOKS,
+               this is what anybody may SEE. One region with a mode, not two
+               rectangles to keep in step.
+
+               Not .detdep: this does not depend on Detection. Blacking the
+               room out is meaningful with detection switched off entirely --
+               arguably that is exactly when you want it. -->
+          <div class="pinrow">
+            <button class="pinled" id="privacyMaskBtn" onclick="togglePrivacyMask()"
+                    aria-pressed="false" aria-label="Black out everything outside the area"
+                    title="Everything outside the area is blacked out at the camera, before anything is encoded -- the stream, clips and snapshots all inherit it">
+              <span class="bulb" id="privacyMaskLamp"></span>
+            </button>
+            <span class="eng rstlab">Black out the rest</span>
+          </div>
         <div class="setgrp eng detdep">What alerts carry</div>
           <div class="pinrow detdep">
             <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
@@ -5505,7 +5521,7 @@
   var CLS_ID = { living: 'clsLiving', motion: 'clsMotion', human: 'clsHuman',
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
-  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false;
+  var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false, maskOn = false;
 
   function paintLed(id, on) {
     var b = document.getElementById(id === 'detectBtn' ? id : id + 'Btn');
@@ -5529,6 +5545,12 @@
     // never disagrees with its members.
     paintLed('clsLiving', SPECIES.every(function(s) { return clsOn[s]; }));
     paintLed('presencePause', presenceOn);
+    paintLed('privacyMask', maskOn);
+    // Dead without a rectangle, and says so rather than failing on click:
+    // switching it on with no region would black the whole picture, which
+    // looks exactly like a broken camera.
+    var pm = document.getElementById('privacyMaskBtn');
+    if (pm) pm.classList.toggle('na', !roiCur);
     var g = document.getElementById('alertGroup');
     if (g) g.classList.toggle('inactive', !detectOn);
     // The lifted groups dim with Detection too -- see .detdep.
@@ -5851,6 +5873,11 @@
     post('/api/notify-video', videoOn ? 'false' : 'true',
          function(v) { videoOn = v.trim() === 'true'; });
   }
+  function togglePrivacyMask() {
+    if (!roiCur && !maskOn) return;          // nothing to keep; see paintAll
+    post('/api/privacy-mask', maskOn ? 'false' : 'true',
+         function(v) { maskOn = v.trim() === 'true'; });
+  }
   function togglePresencePause() {
     post('/api/presence-pause', presenceOn ? 'false' : 'true',
          function(v) { presenceOn = v.trim() === 'true'; });
@@ -5871,6 +5898,10 @@
     fetch('/api/notify-shots', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
       .then(function(v) { if (v !== null && e2b === alertsEpoch) shotsOn = v.trim() === 'true'; paintAll(); });
+    var e2d = alertsEpoch;
+    fetch('/api/privacy-mask', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null && e2d === alertsEpoch) maskOn = v.trim() === 'true'; paintAll(); });
     var e2c = alertsEpoch;
     fetch('/api/presence-pause', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
