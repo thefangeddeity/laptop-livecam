@@ -1540,10 +1540,21 @@
        24 rather than 25 so the HUD still reads over the box: telemetry wins
        the overlap, since the box is a large shape and the HUD is a few lines
        of text that would be the thing lost. */
-    .roi-layer { position: absolute; inset: 0; z-index: 24; cursor: cell;
+    /* The region line is NOT themed. --phos flips to #1d332e in light theme
+       because it is the colour of text on a near-white housing -- but this
+       line is drawn over VIDEO, and video is dark in both themes. On the
+       powered-down screen that worked out to 1.20:1 before the 0.62 opacity
+       was applied on top, which is why the box was invisible in light theme
+       and fine in dark.
+
+       The dark-theme phosphor, pinned: 10.4:1 on the light theme's off-screen
+       and 12.6:1 on the dark one. It loses contrast only against a genuinely
+       white scene, which is what the 1px black outline below is for. */
+    .roi-layer { --roi-line: #3fe8cd;
+                 position: absolute; inset: 0; z-index: 24; cursor: cell;
                  background: rgba(0,0,0,.35); }
     .roi-layer[hidden] { display: none; }
-    .roi-box { position: absolute; border: 1px solid var(--phos);
+    .roi-box { position: absolute; border: 1px solid var(--roi-line);
                box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
                background: transparent; pointer-events: none; }
     .roi-box[hidden] { display: none; }
@@ -1553,7 +1564,7 @@
        stays small so they do not cover the picture; the hit zone is widened
        in JS instead, because a 9px dot is not thumb-reachable. */
     .roi-h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px;
-             background: var(--phos); border: 1px solid rgba(0,0,0,.55);
+             background: var(--roi-line); border: 1px solid rgba(0,0,0,.55);
              border-radius: 2px; pointer-events: none; }
     /* The header's global toggles. Right-aligned beside the status pill so
        the brand keeps the left edge, and wrapping on a narrow screen rather
@@ -1595,9 +1606,12 @@
        layer also stops taking the pointer, or a locked region would swallow
        every click on the video. */
     .roi-layer.locked { background: none; cursor: default; pointer-events: none; }
-    .roi-box.locked { border-color: var(--phos);
-                      box-shadow: 0 0 0 1px rgba(0,0,0,.45);
-                      opacity: .62; }
+    /* Locked is dimmer than editing, not dim in absolute terms. .62 of a
+       colour that was already failing read as nothing at all. */
+    .roi-box.locked { border-color: var(--roi-line);
+                      box-shadow: 0 0 0 1px rgba(0,0,0,.55),
+                                  0 0 6px rgba(63,232,205,.30);
+                      opacity: .85; }
     .roi-hint { position: absolute; left: 50%; bottom: 14px;
                 transform: translateX(-50%); pointer-events: none;
                 font: 600 10px/1.4 var(--mono); letter-spacing: .09em;
@@ -2704,7 +2718,30 @@
       .then(function(v) { if (v !== null) applyLock(v.trim() === 'true'); });
   }
   pollLock();
-  setInterval(pollLock, 5000);
+  // EVERY poller goes through this. Browsers throttle background timers, but
+  // throttling is not skipping: a phone with the screen off still wakes its
+  // radio for each of these. Measured before the change -- 284 requests a
+  // minute kept running with the tab hidden, 17,040 an hour, per viewer.
+  //
+  // Three pollers already had `if (!document.hidden)` inline and eleven did
+  // not, which is the kind of split that stays split. One wrapper instead, so
+  // a new poller cannot be added unguarded without going out of its way.
+  var _pollers = [];
+  function pollEvery(fn, ms) {
+    _pollers.push(fn);
+    return setInterval(function () { if (!document.hidden) fn(); }, ms);
+  }
+  // Coming back must not show up to ten seconds of stale state, so everything
+  // catches up at once. This is what makes skipping safe rather than a
+  // trade of battery for staleness.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    for (var i = 0; i < _pollers.length; i++) {
+      try { _pollers[i](); } catch (e) {}
+    }
+  });
+
+  pollEvery(pollLock, 5000);
 
   function toggleMute() {
     buzzMuted = !buzzMuted;
@@ -2953,7 +2990,7 @@
   }
 
   updateMuteBtn();
-  setInterval(pollBuzz, 1000);
+  pollEvery(pollBuzz, 1000);
 
 
   var switchOverlay = document.getElementById('switchOverlay');
@@ -2986,7 +3023,15 @@
   var NOISE_W = 224;
   function noiseH() { return Math.max(1, Math.round(NOISE_W / feedAR)); }
 
-  function drawStatic() { drawStaticInto(switchStatic); }
+  function drawStatic() {
+    // 15fps of generated noise into a canvas nobody is looking at. The timer
+    // is correctly started and stopped with the overlay, but a node whose
+    // camera is faulted shows static indefinitely -- so "stopped when not
+    // needed" was never reached on exactly the node that could least afford
+    // the work.
+    if (document.hidden) return;
+    drawStaticInto(switchStatic);
+  }
 
   // Same snow, any canvas. The switch cover animates it frame by frame; the
   // CRT power-off needs exactly one frame of it to collapse.
@@ -3263,7 +3308,7 @@
       .then(function(p) { pipeline = p; paintLamps(); applyCvCapability(); });
   }
   pollPipeline();
-  setInterval(function() { if (!document.hidden) pollPipeline(); }, 4000);
+  pollEvery(pollPipeline, 4000);
 
   // 2D: the flat scene model -- homography plus its region dictionary --
   // registered and usable, red when it has gone stale, dark when the node
@@ -3367,7 +3412,7 @@
       .then(function(v) { if (v !== null) { blurOn = v.trim() === 'true'; paintBlur(); } });
   }
   pollBlurState();
-  setInterval(pollBlurState, 5000);
+  pollEvery(pollBlurState, 5000);
 
   // Show/Hide/CV come through here; Blur no longer does -- it is
   // independent now (toggleBlur() above), not coupled to a mode switch.
@@ -3434,7 +3479,7 @@
       .then(function(v) { if (v !== null) applyFoveal(v.trim() === 'true'); });
   }
   pollFoveal();
-  setInterval(pollFoveal, 5000);
+  pollEvery(pollFoveal, 5000);
 
   // ── SCENE MODEL — three-state: registered / stale / unregistered ──
   // The scene row was dropped from this panel, so this variable is now the
@@ -3447,7 +3492,7 @@
       .then(function (j) { if (j) { cvState = j; paintAnalysis(); } })
       .catch(function () {});
   }
-  setInterval(function () { if (!document.hidden) pollCvState(); }, 2000);
+  pollEvery(pollCvState, 2000);
   pollCvState();
   function applySceneState(state) {
     sceneState = state;
@@ -3491,7 +3536,7 @@
       });
   }
   pollSceneStatus();
-  setInterval(pollSceneStatus, 10000);
+  pollEvery(pollSceneStatus, 10000);
 
   // ── FEED MODE — server-side ──
   // Static covers a transition INTO a picture; the CRT power-off covers a
@@ -3616,7 +3661,7 @@
   // Ask immediately rather than waiting out the first interval: the page has
   // no picture and no painted controls until this answers.
   pollFeedMode();
-  setInterval(pollFeedMode, 3000);
+  pollEvery(pollFeedMode, 3000);
 
   // ── HLS ──
   function setStatus(text, mode) {
@@ -4160,7 +4205,7 @@
       });
   }
   pollAudio();
-  setInterval(pollAudio, 5000);
+  pollEvery(pollAudio, 5000);
 
   var reloadBtn = document.getElementById('reloadBtn');
   function manualReload() {
@@ -4519,7 +4564,7 @@
       .then(function (v) { if (v !== null && v.trim() !== 'true') stopTalk('stopped by the node'); })
       .catch(function () {});
   }
-  setInterval(pollTalk, 4000);
+  pollEvery(pollTalk, 4000);
   window.addEventListener('pagehide', function () { if (talking) stopTalk(); });
   paintTalk();
 
@@ -4740,7 +4785,7 @@
       .then(function (v) { if (v !== null && v.trim() === 'false') stopTwoWay(); })
       .catch(function () {});
   }
-  setInterval(pollTwoWay, 4000);
+  pollEvery(pollTwoWay, 4000);
   window.addEventListener('pagehide', function () { if (twoWayOn) stopTwoWay(); });
 
   // ── LEVEL TRACE ──────────────────────────────────────────────────
@@ -5311,7 +5356,7 @@
   }
 
   eleProbe();
-  setInterval(function () { if (!document.hidden) eleProbe(); }, 10000);
+  pollEvery(eleProbe, 10000);
   window.addEventListener('focus', function () { if (elePresent) eleRenderHistory(); });
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) eleProbe();
@@ -5388,7 +5433,7 @@
       });
   }
   pollBroadcast();
-  setInterval(pollBroadcast, 1000);
+  pollEvery(pollBroadcast, 1000);
 
   function doPost(body, onOk) {
     fetch('/api/broadcast', {
@@ -5859,7 +5904,7 @@ fetch('/api/presence-pause', { cache: 'no-store' })
       .then(function(v) { if (v !== null && e3 === alertsEpoch) applyCls(v); paintAll(); });
   }
   pollAlerts();
-  setInterval(pollAlerts, 5000);
+  pollEvery(pollAlerts, 5000);
 
 </script>
 </body>
