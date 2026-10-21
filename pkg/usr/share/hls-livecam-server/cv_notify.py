@@ -120,7 +120,8 @@ class Notifier:
                  video_flag_file='/var/lib/hls-livecam/notify_video',
                  shots_flag_file='/var/lib/hls-livecam/notify_shots',
                  rec_dir=None, clip_pre=None, clip_post=None, clip_max=None,
-                 roi_file=None, classes_file=None,
+                 roi_file=None, classes_file=None, gallery_dir=None,
+                 gallery_keep=None, gallery_pad=None,
                  presence_file=None, presence_hold_sec=None):
         self.enabled = bool(enabled) and bool(urls) and (
             _apprise is not None or all(_telegram_targets(u) for u in urls))
@@ -138,6 +139,14 @@ class Notifier:
         # not 'human' is an alerting class, because "stop recording when I walk
         # in" and "tell me when a person appears" are different questions and
         # the usual setup answers no to the second.
+        # THE GALLERY. Crops of what was seen, one per visit, kept so an
+        # individual can be labelled later. Deliberately its own directory
+        # and its own retention: a labelled picture of a household member is
+        # a different kind of thing from a motion clip and must not inherit
+        # the recording's lifetime by accident.
+        self.gallery_dir = gallery_dir or ''
+        self.gallery_keep = 400 if gallery_keep is None else int(gallery_keep)
+        self.gallery_pad = 0.15 if gallery_pad is None else float(gallery_pad)
         self.presence_file = presence_file or '/var/lib/hls-livecam/notify_presence_pause'
         self.presence_hold_sec = (60.0 if presence_hold_sec is None
                                   else float(presence_hold_sec))
@@ -281,8 +290,12 @@ class Notifier:
         slot = int(t / self._slot_sec)
         best = win['slots'].get(slot)
         if best is None or score > best['score']:
+            # The box travels with the frame. Without it the gallery would
+            # have to re-detect to find the subject in a picture the detector
+            # had already located.
             win['slots'][slot] = {'score': score, 't': t, 'conf': conf,
-                                  'sharp': sharp, 'frame': frame.copy()}
+                                  'sharp': sharp, 'frame': frame.copy(),
+                                  'box': tuple(track.box)}
 
     def _close_expired(self, now):
         """Caller holds the lock. Closes every window past its end."""
@@ -347,6 +360,10 @@ class Notifier:
                 self._q.task_done()
 
     def _send(self, item):
+        # FIRST, and outside the try below: the gallery is independent of
+        # whether this alert sends. A Telegram outage must not also stop the
+        # record of what was seen.
+        self._gallery_keep(item)
         text = item.get('text') or f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
         # Read BEFORE the encode, not before the send. Encoding the stills is
@@ -428,6 +445,81 @@ class Notifier:
                     os.unlink(path)
                 except Exception:
                     pass
+
+    def _gallery_keep(self, item):
+        """Save the sharpest crop of this visit, for labelling later.
+
+        Runs on the WORKER thread, not under the notifier lock: _close_expired
+        holds that lock while on_promotion is calling in at the detection
+        rate, and a JPEG encode plus a disk write there would stall detection
+        for every viewer.
+
+        Best-effort throughout. A gallery that fails is a feature that did not
+        happen; an alert that fails is the product not working. Nothing here
+        may take the alert down with it.
+
+        The crop's pixel size goes in the FILENAME on purpose. Whether
+        recognition is possible at all is a question about how many pixels a
+        cat actually occupies crossing this room, and that is measurable from
+        a directory listing rather than from anyone's estimate.
+        """
+        if not self.gallery_dir:
+            return
+        try:
+            picks = item.get('picks') or []
+            best = max(picks, key=lambda c: c.get('score', 0.0), default=None)
+            if best is None or best.get('box') is None:
+                return
+            frame = best['frame']
+            fh, fw = frame.shape[:2]
+            bx, by, bw, bh = (int(v) for v in best['box'])
+            # Context around the subject: a crop cut exactly to the box loses
+            # the ear tips and tail that distinguish one cat from another.
+            px, py = int(bw * self.gallery_pad), int(bh * self.gallery_pad)
+            x0, y0 = max(0, bx - px), max(0, by - py)
+            x1, y1 = min(fw, bx + bw + px), min(fh, by + bh + py)
+            if x1 - x0 < 8 or y1 - y0 < 8:
+                return
+            crop = frame[y0:y1, x0:x1]
+            bgr = cv2.cvtColor(crop, cv2.COLOR_RGB2BGR)
+            ok, buf = cv2.imencode('.jpg', bgr,
+                                   [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+            if not ok:
+                return
+            unl = os.path.join(self.gallery_dir, 'unlabelled')
+            os.makedirs(unl, exist_ok=True)
+            name = '%s-%d-%s-%dx%d.jpg' % (item.get('cls', 'thing'),
+                                           int(item.get('when', time.time())),
+                                           item.get('track_id', 0),
+                                           x1 - x0, y1 - y0)
+            with open(os.path.join(unl, name), 'wb') as f:
+                f.write(buf.tobytes())
+            self._gallery_prune(unl)
+        except Exception as exc:
+            self._log('gallery: could not keep a crop: %s: %s'
+                      % (type(exc).__name__, exc))
+
+    def _gallery_prune(self, unl):
+        """Oldest-first, and only the UNLABELLED pile.
+
+        A labelled picture is something the operator chose to keep; deleting
+        it on a count would silently undo their work. Only the unsorted
+        backlog is bounded, so the directory cannot grow without limit on a
+        disk that also holds six hours of rolling recording.
+        """
+        try:
+            files = [os.path.join(unl, f) for f in os.listdir(unl)
+                     if f.endswith('.jpg')]
+            if len(files) <= self.gallery_keep:
+                return
+            files.sort(key=lambda f: os.path.getmtime(f))
+            for f in files[:len(files) - self.gallery_keep]:
+                try:
+                    os.unlink(f)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     def _roi(self):
         """The operator's detection region as (x, y, w, h) fractions, or None.
@@ -830,6 +922,10 @@ def make_notifier(denv, log=None):
                     clip_max=_num('NOTIFY_CLIP_MAX', 120.0),
                     roi_file=_get('DETECT_ROI_FILE', '')
                         or '/var/lib/hls-livecam/detect_roi',
+                    gallery_dir=_get('GALLERY_DIR', '')
+                        or '/var/lib/hls-livecam/gallery',
+                    gallery_keep=_num('GALLERY_KEEP', 400),
+                    gallery_pad=_num('GALLERY_PAD', 0.15),
                     classes_file=_get('NOTIFY_CLASSES_FILE', '')
                         or '/var/lib/hls-livecam/notify_classes',
                     presence_file=_get('NOTIFY_PRESENCE_FILE', '')

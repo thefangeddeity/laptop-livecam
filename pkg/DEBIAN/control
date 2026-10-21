@@ -1,5 +1,5 @@
 Package: laptop-livecam
-Version: 7.0.33
+Version: 7.0.34
 Section: video
 Priority: optional
 Replaces: hls-livecam-server

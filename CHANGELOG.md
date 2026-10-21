@@ -4,6 +4,33 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.34
+
+- **The gallery, phase one: collect and name, no machine learning.** One crop
+  kept per visit so individuals can be named later -- and, first, so the
+  question that decides whether recognition is possible at all gets a measured
+  answer: how many pixels a cat actually occupies crossing this room. Every
+  thumbnail carries its dimensions and every filename ends in `WxH`.
+- Hooked in `_send`, on the worker thread, first and outside its `try`. Not
+  `_close_expired`, which holds the notifier lock while `on_promotion` calls
+  in at the detection rate -- a JPEG encode and disk write there would stall
+  detection for every viewer. First, so a Telegram outage cannot also stop the
+  record of what was seen.
+- Its own directory and retention (`/var/lib/hls-livecam/gallery`): a named
+  picture of a household member must not inherit the recording's six-hour
+  lifetime by accident. Pruning bounds the **unsorted** pile only -- a named
+  picture is something the operator chose to keep.
+- Every id reaching these endpoints is a filename from a browser. `_gal_safe`
+  checks twice: the name must look like a plain filename **and** the resolved
+  path must still be inside the gallery. 13 assertions, including a symlink
+  planted inside the gallery pointing out of it -- which the pattern passes
+  and `realpath` catches.
+- **Settings impact: one row.** "Forget everyone", destructive and confirmed.
+  The roster is its own surface, hidden until there is something in it,
+  because a collection in a settings panel is how settings panels die. No
+  threshold or sensitivity is exposed: a confidence dial is uncalibratable and
+  its failure mode is confident mislabelling.
+
 ## 7.0.33
 
 - **The clip stopped waiting for a subject that had already left.** 7.0.22

@@ -1574,6 +1574,20 @@
        LIST; this one sits between a lamp row and the buttons it captions, so
        it wants to be close to them and clear of the row above. */
     .roi-cap { margin: 6px 0 3px; padding-left: 2px; }
+    .roster-strip { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 4px; }
+    .roster-thumb { position: relative; width: 60px; height: 60px; padding: 0;
+                    border: 1px solid var(--border-strong); border-radius: 5px;
+                    background: #000; overflow: hidden; cursor: pointer; }
+    .roster-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    /* The pixel size of the crop, on the crop. This is the measurement phase
+       one exists to produce, so it is on the face of every picture rather
+       than hidden in a tooltip. */
+    .roster-size { position: absolute; left: 0; right: 0; bottom: 0;
+                   font: 7.5px/1.5 var(--mono); letter-spacing: .04em;
+                   color: #cfe9e3; background: rgba(0,0,0,.72); text-align: center; }
+    .roster-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+    .roster-name { flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--text); }
+    .roster-count { font: 9px/1 var(--mono); color: var(--text-muted); }
     .roi-h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px;
              background: var(--roi-line); border: 1px solid rgba(0,0,0,.55);
              border-radius: 2px; pointer-events: none; }
@@ -2494,6 +2508,17 @@
             <span class="eng rstlab">Record while people are home</span>
           </div>
         <div class="setgrp eng">This device</div>
+        <!-- The single Settings row the gallery earns. A named set of
+             household faces is the most sensitive thing this node keeps, and
+             it lands on the same disk as six hours of rolling recording, so
+             destroying it must be possible from here rather than from a
+             shell. Styled as the destructive control it is, and confirmed,
+             because there is no undo. -->
+        <div class="pinrow" id="forgetAllRow" hidden>
+          <button type="button" class="pbtn guarded" id="forgetAllBtn"
+                  onclick="forgetEveryone()"
+                  title="Delete every picture the gallery holds, named and unnamed. There is no undo.">Forget everyone</button>
+        </div>
         <div class="pinrow">
           <button class="pinled" id="muteBuzzBtn" onclick="toggleMute()"
                   aria-pressed="false" aria-label="Disable buzz"
@@ -2572,6 +2597,27 @@
             <input type="text" id="combNote" placeholder="why (e.g. speaker whine)" style="flex:1 1 auto; min-width:0; font-size:10.5px; background:rgba(0,0,0,.18); color:var(--text-dim); border:1px solid var(--border-strong); border-radius:5px; padding:3px 6px;">
             <button type="button" class="pbtn" style="flex:0 0 auto; padding:4px 8px; font-size:10.5px;" onclick="addNotch()">Add</button>
           </div>
+        </div>
+      </div>
+      <!-- WHO'S WHO: the gallery. A roster is a COLLECTION, not a setting --
+           it grows, each entry has its own state, and it needs add, rename
+           and delete. That is why it is a panel of its own rather than more
+           rows in Settings, and why it is hidden until there is something in
+           it: a node that has never seen anything should not carry an empty
+           filing cabinet.
+
+           Phase one is deliberately no machine learning. It collects crops
+           and lets them be named, which is what answers the only question
+           that matters first: are the pictures of this room big enough for
+           recognition to be possible at all. The size on each thumbnail is
+           that answer, measured rather than estimated. -->
+      <div class="panel" id="rosterPanel" hidden style="margin-top:6px;">
+        <div class="panel-title eng">Who's who</div>
+        <div id="rosterList"></div>
+        <div class="setgrp eng" id="rosterUnlabelledHead" hidden>Not yet named</div>
+        <div id="rosterUnlabelled" class="roster-strip"></div>
+        <div class="pinrow" id="rosterEmpty">
+          <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
         </div>
       </div>
       <!-- No separate Reconnect button (matches Ariana): the pinhole Reload and the
@@ -6040,6 +6086,110 @@
     post('/api/notify-video', videoOn ? 'false' : 'true',
          function(v) { videoOn = v.trim() === 'true'; });
   }
+  // -- The gallery -------------------------------------------------------
+  //
+  // Names are typed by a person and come back from the server, so every one
+  // of them reaches the DOM through textContent and createElement, never an
+  // HTML string. The server validates the label too; this is the second of
+  // the two checks, not the only one.
+  function galImg(folder, id) { return '/api/gallery/img/' + encodeURIComponent(folder) + '/' + encodeURIComponent(id); }
+
+  function renderGallery(g) {
+    var panel = document.getElementById('rosterPanel');
+    var list = document.getElementById('rosterList');
+    var strip = document.getElementById('rosterUnlabelled');
+    var head = document.getElementById('rosterUnlabelledHead');
+    var empty = document.getElementById('rosterEmpty');
+    var row = document.getElementById('forgetAllRow');
+    if (!panel || !list || !strip) return;
+    var labels = (g && g.labels) || [], unl = (g && g.unlabelled) || [];
+    var anything = labels.length > 0 || unl.length > 0;
+    panel.hidden = !anything;
+    if (row) row.hidden = !anything;
+    if (empty) empty.hidden = anything;
+    list.textContent = ''; strip.textContent = '';
+    if (head) head.hidden = unl.length === 0;
+
+    labels.forEach(function (L) {
+      var r = document.createElement('div'); r.className = 'roster-row';
+      if (L.cover) {
+        var t = document.createElement('span'); t.className = 'roster-thumb';
+        t.style.width = '34px'; t.style.height = '34px'; t.style.cursor = 'default';
+        var im = document.createElement('img');
+        im.src = galImg(L.name, L.cover); im.alt = '';
+        t.appendChild(im); r.appendChild(t);
+      }
+      var nm = document.createElement('span'); nm.className = 'eng roster-name';
+      nm.textContent = L.name; r.appendChild(nm);
+      var ct = document.createElement('span'); ct.className = 'roster-count';
+      ct.textContent = L.count + (L.count === 1 ? ' picture' : ' pictures');
+      r.appendChild(ct);
+      var fg = document.createElement('button');
+      fg.type = 'button'; fg.className = 'pbtn';
+      fg.style.padding = '3px 7px'; fg.style.fontSize = '9px';
+      fg.textContent = 'Forget';
+      fg.setAttribute('aria-label', 'Forget ' + L.name);
+      fg.onclick = function () { forgetLabel(L.name, L.count); };
+      r.appendChild(fg);
+      list.appendChild(r);
+    });
+
+    unl.forEach(function (u) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'roster-thumb';
+      b.title = 'Name this ' + (u.cls || 'picture');
+      b.setAttribute('aria-label', 'Name this ' + (u.cls || 'picture') + ', ' + (u.size || ''));
+      var im = document.createElement('img'); im.src = galImg('unlabelled', u.id); im.alt = '';
+      b.appendChild(im);
+      if (u.size) {
+        var sz = document.createElement('span'); sz.className = 'roster-size';
+        sz.textContent = u.size; b.appendChild(sz);
+      }
+      b.onclick = function () { labelPicture(u.id, u.cls); };
+      strip.appendChild(b);
+    });
+  }
+
+  function pollGallery() {
+    fetch('/api/gallery', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (g) { if (g) renderGallery(g); });
+  }
+
+  function labelPicture(id, cls) {
+    var who = window.prompt('Who is this ' + (cls || 'picture') + '?');
+    if (who === null) return;
+    who = who.trim();
+    if (!who) return;
+    fetch('/api/gallery/label', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: id, from: 'unlabelled', label: who })
+    }).then(function (r) {
+      if (!r.ok) window.alert('That name was refused. Letters, numbers, spaces, - and _ only.');
+      pollGallery();
+    }).catch(function () {});
+  }
+
+  function forgetLabel(name, count) {
+    // No undo, so the count is in the question: "Forget Mochi?" and
+    // "delete 14 pictures" are different decisions.
+    if (!window.confirm('Forget ' + name + ' and delete ' + count +
+                        (count === 1 ? ' picture' : ' pictures') + '? This cannot be undone.')) return;
+    fetch('/api/gallery/forget', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: name })
+    }).then(pollGallery).catch(function () {});
+  }
+
+  function forgetEveryone() {
+    if (!window.confirm('Delete EVERY picture in the gallery, named and unnamed? This cannot be undone.')) return;
+    fetch('/api/gallery/forget', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ all: true })
+    }).then(pollGallery).catch(function () {});
+  }
+
   function toggleMaskStyle() {
     post('/api/mask-style', maskPixel ? 'black' : 'pixel',
          function(v) { maskPixel = v.trim() === 'pixel'; });
@@ -6088,6 +6238,10 @@
   }
   pollAlerts();
   pollEvery(pollAlerts, 5000);
+  // Slow: the gallery changes when an animal walks past, not continuously,
+  // and each tick lists a directory.
+  pollEvery(pollGallery, 15000);
+  pollGallery();
 
 </script>
 </body>
