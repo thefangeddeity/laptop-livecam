@@ -1515,7 +1515,12 @@
        says so by being unlit and unresponsive rather than by doing nothing
        when pressed. */
     .pinled.na { opacity: .4; cursor: default; }
-    .roi-layer { position: absolute; inset: 0; z-index: 6; cursor: crosshair;
+    /* NOT crosshair: that is the Windows snipping-tool cursor, and a thin
+       plus hovering over a live camera feed reads as "you are about to take
+       a screenshot". `cell` is the spreadsheet range-selection cursor -- a
+       heavier hollow plus, the same MEANING (drag out a region) without the
+       collision. JS overrides it per zone; this is the fallback. */
+    .roi-layer { position: absolute; inset: 0; z-index: 6; cursor: cell;
                  background: rgba(0,0,0,.35); }
     .roi-layer[hidden] { display: none; }
     .roi-box { position: absolute; border: 1px solid var(--phos);
@@ -5690,6 +5695,20 @@
       }
       return 'new';
     }
+    // The grab zone was invisible. Handles you can see but cannot feel are
+    // worse than no handles: you aim at the dot, land outside the window,
+    // and get a new box instead. The cursor now reports which gesture a
+    // press would start, so the zone has an edge you can find.
+    var CURSOR = { nw: 'nwse-resize', se: 'nwse-resize',
+                   ne: 'nesw-resize', sw: 'nesw-resize',
+                   n: 'ns-resize', s: 'ns-resize',
+                   w: 'ew-resize', e: 'ew-resize',
+                   move: 'grab', 'new': 'cell' };
+    function hover(e) {
+      if (!roiArmed || roiDrag) return;      // mid-drag the cursor is locked
+      var p = pt(e);
+      layer.style.cursor = CURSOR[zoneAt(p, videoRect())] || 'cell';
+    }
     function begin(e) {
       if (!roiArmed) return;
       e.preventDefault();
@@ -5697,6 +5716,9 @@
       roiDrag = { x0: p.x, y0: p.y, r: r, mode: zoneAt(p, r),
                   from: roiCur ? { x: roiCur.x, y: roiCur.y,
                                    w: roiCur.w, h: roiCur.h } : null };
+      // Held for the whole drag, including when the pointer leaves the box.
+      layer.style.cursor = roiDrag.mode === 'move'
+        ? 'grabbing' : (CURSOR[roiDrag.mode] || 'cell');
     }
     function move(e) {
       if (!roiDrag) return;
@@ -5741,6 +5763,7 @@
     function end(e) {
       if (!roiDrag) return;
       roiDrag = null;
+      layer.style.cursor = 'cell';
       // Nothing is sent here. The drag only updates the preview; Set is what
       // writes it, so a drag can be redone until it is right. A stray tap
       // that produced a sliver is discarded rather than kept as the draft.
@@ -5750,6 +5773,7 @@
       }
       paintRoi();
     }
+    layer.addEventListener('mousemove', hover);
     layer.addEventListener('mousedown', begin);
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', end);

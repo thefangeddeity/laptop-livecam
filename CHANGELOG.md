@@ -4,6 +4,26 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.20
+
+- **The cursor now says which gesture a press would start.** The handles
+  worked; nothing on screen said so. A handle you can see but cannot feel is
+  worse than no handle -- you aim at the dot, and a press landing outside the
+  window silently gives you a *new* box, which snaps back on release and reads
+  as the handle refusing to be grabbed. Corners show `nwse-resize` /
+  `nesw-resize`, edges `ns-resize` / `ew-resize`, inside the box `grab`
+  (becoming `grabbing` for the duration of the drag), outside `cell`. The
+  cursor is held for the whole drag, including when the pointer leaves the
+  box, so a resize does not flicker back the moment you cross an edge.
+- **The draw cursor is no longer `crosshair`.** A thin plus hovering over a
+  live camera feed is the Windows snipping-tool cursor and reads as "you are
+  about to take a screenshot" -- the wrong promise on a page whose subject is
+  a camera. `cell` is the spreadsheet range-selection cursor: heavier hollow
+  plus, same meaning, no collision.
+- The 9px grab window is unchanged. It was briefly widened to 14 on the
+  assumption that handles were hard to hit; they are not, and widening it
+  would have made drawing a new box near an existing edge harder.
+
 ## 7.0.19
 
 - **The detection box had one gesture, and it was the destructive one.**
