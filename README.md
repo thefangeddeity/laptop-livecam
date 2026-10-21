@@ -304,6 +304,26 @@ If `camdash` reports `REALLOC > 500` in the DISK/SMART panel, your drive has sig
 
 ---
 
+## Editing the visible area when masking is on
+
+The mask is applied **server-side, at the camera**, before anything is
+encoded -- which is what makes it a privacy control rather than a costume:
+the stream, the recording, the clips and the detector all receive the same
+already-masked frame, so none of them can disagree with the switch.
+
+It also means you cannot see what you are about to include. Everything
+outside the area is genuinely not in the picture that reaches your browser,
+so dragging a new region while the mask is on is guessing at geometry you
+have no way to see.
+
+**To re-draw the area, switch "Hide the rest" off first**, set the new
+region, then switch it back on.
+
+The exception is **"Pixelate instead"**: a mosaic still carries enough
+structure to aim by, so you can re-draw without turning the mask off. That
+is also the trade -- a mosaic is weaker than black, because what lets you
+aim is the same coarse structure it leaves behind.
+
 ## License
 
 GPL-3.0 — see [LICENSE](LICENSE)

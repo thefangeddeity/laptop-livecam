@@ -4,6 +4,28 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.38
+
+- **"Stretch to fill" flipped between stretched and not, once a second.**
+  `videoRect()` measured `video.getBoundingClientRect()`, and `applyFitRoi`
+  writes a transform onto that same element -- and `getBoundingClientRect()`
+  returns the *transformed* rect. Each tick measured an already-scaled box and
+  computed a fresh scale from it: 2.00, 1.00, 2.00. `paintAll` runs on the 1s
+  poll, hence the once-a-second alternation. It now measures the **wrap**,
+  which is never transformed and is the video's untransformed box anyway
+  (`width/height: 100%`, no padding or border). The transform write is
+  idempotent too.
+- **No alert when there is nothing to show.** With photos and video both
+  switched off, alerts still arrived naming what was seen with no way to see
+  it. Skipped entirely now -- but deliberately *not* the same as evidence
+  being withheld by "Never film people", where the text still goes: off is a
+  choice already made, withheld is one being made now, and a silent camera is
+  indistinguishable from a broken one. The gallery still gets its crop.
+- README documents the trap the mask creates for its own editing: masking
+  happens at the camera, so you cannot see what you are about to include --
+  re-drawing means switching "Hide the rest" off first. "Pixelate instead" is
+  the exception, and that is also its trade.
+
 ## 7.0.37
 
 - **The gallery listing degrades instead of 500ing.** `/api/gallery` guarded
