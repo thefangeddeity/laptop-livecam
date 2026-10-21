@@ -4,6 +4,16 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.37
+
+- **The gallery listing degrades instead of 500ing.** `/api/gallery` guarded
+  its `os.listdir` with `os.path.isdir` only, which covers "missing" and not
+  "there but unreadable" -- a permissions problem on the unlabelled directory
+  would have raised and taken the whole listing with it, including the named
+  roster, which is readable and unrelated to the failure. The macOS side was
+  already written with `try/except`; found by combing the lineages against
+  each other rather than reading either alone.
+
 ## 7.0.36
 
 - **"Never film people"** -- the honest name for the mechanism. "Detect
