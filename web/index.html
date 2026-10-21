@@ -1821,7 +1821,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-166-g37e2018-dirty · dev · 37e2018"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-167-g4147ef5-dirty · dev · 4147ef5"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -2671,6 +2671,15 @@
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
     var build = info.version || 'mac-v1.8.0';
+    // ONE format across the fleet. The hostname beside this already says
+    // which machine you are looking at, so a platform prefix said it twice:
+    // "mac-v1.8.0 @ariana" against "7.0.31 @tanzania" -- the same field,
+    // formatted two ways, because the two lineages tag differently
+    // (mac-v1.8.0, win-v1.0.0) and only one of them fed this label a raw
+    // version. Strip a platform prefix and a leading v, so every node reads
+    // the same way and a future platform needs no new rule here.
+    // The full tag, prefix and all, stays in the hover title.
+    build = String(build).replace(/^[a-z]+-/, '').replace(/^v/, '');
     var bl = document.getElementById('buildLabel');
     if (bl) bl.textContent = (build ? build + ' ' : '') + '@' + host;
     // The tab has to identify the node without the page being visible: with
