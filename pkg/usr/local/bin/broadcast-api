@@ -1284,6 +1284,31 @@ def _start_cam_reader(denv):
     return subprocess.Popen(cmd, stdout=subprocess.PIPE,
                             stderr=subprocess.DEVNULL, env=_pulse_env(denv))
 
+def _read_detect_roi_raw():
+    """The stored region including its on/off state, or None if never set.
+
+    The box and whether it is APPLIED are separate facts. A region you spent
+    time choosing should survive being switched off -- otherwise "off" means
+    "draw it again", and nobody toggles something that costs them that.
+    """
+    try:
+        with open(DETECT_ROI_FILE) as f:
+            raw = f.read().strip()
+        if not raw:
+            return None
+        d = _json.loads(raw)
+        box = {k: float(d[k]) for k in ('x', 'y', 'w', 'h')}
+        if box['w'] <= 0 or box['h'] <= 0:
+            return None
+        box['on'] = bool(d.get('on', True))
+        return box
+    except Exception:
+        # Every failure here widens to the full frame. A region is an optional
+        # narrowing, and a corrupt file that silently cropped every alert to a
+        # corner would be far worse than one that is ignored.
+        return None
+
+
 # -- The privacy mask ------------------------------------------------------
 #
 # Defined HERE, above _drain_loop, because that is where it is called and
@@ -2480,31 +2505,6 @@ def detect_always_get():
 #
 # Read per frame by the writer loop and per event by the notifier, so setting
 # one takes effect on the next frame rather than at the next restart.
-def _read_detect_roi_raw():
-    """The stored region including its on/off state, or None if never set.
-
-    The box and whether it is APPLIED are separate facts. A region you spent
-    time choosing should survive being switched off -- otherwise "off" means
-    "draw it again", and nobody toggles something that costs them that.
-    """
-    try:
-        with open(DETECT_ROI_FILE) as f:
-            raw = f.read().strip()
-        if not raw:
-            return None
-        d = _json.loads(raw)
-        box = {k: float(d[k]) for k in ('x', 'y', 'w', 'h')}
-        if box['w'] <= 0 or box['h'] <= 0:
-            return None
-        box['on'] = bool(d.get('on', True))
-        return box
-    except Exception:
-        # Every failure here widens to the full frame. A region is an optional
-        # narrowing, and a corrupt file that silently cropped every alert to a
-        # corner would be far worse than one that is ignored.
-        return None
-
-
 def _read_detect_roi():
     """What the DETECTOR should use: the box only while it is switched on."""
     r = _read_detect_roi_raw()

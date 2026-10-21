@@ -4,6 +4,22 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.25
+
+- `_privacy_mask_box` called `_read_detect_roi_raw`, defined 1100 lines below
+  it. Name resolution happens at call time so this works once the module has
+  loaded, but the drain thread starts before the module finishes executing --
+  so with the mask on at boot the first frames would raise `NameError`, be
+  caught, and fail closed to black. Fail-closed is the right outcome and the
+  window is brief, so nothing visible broke; it was an accident rather than a
+  decision, and it is the same hazard 7.0.24 fixed for `_apply_privacy_mask`
+  and missed for its dependency. The reader now sits above both.
+- Verified the mask end to end: bright content in a completed evidence
+  segment is bounded by x 0.05..0.40, y 0.05..0.40 for a region of exactly
+  that, with 12.2% of pixels non-black against an expected 12.25%. The
+  recorder leg inherits the mask, which was the point of applying it at the
+  single write to `_cam_frame`.
+
 ## 7.0.24
 
 - **The privacy mask.** Everything outside the detection region is blacked out
