@@ -57,6 +57,7 @@ NOTIFY_SHOTS_FILE   = os.path.join(STATE_DIR, "notify_shots")
 NOTIFY_PRESENCE_FILE = os.path.join(STATE_DIR, "notify_presence_pause")
 DETECT_ROI_FILE     = os.path.join(STATE_DIR, "detect_roi")
 PRIVACY_MASK_FILE   = os.path.join(STATE_DIR, "privacy_mask")
+MASK_STYLE_FILE     = os.path.join(STATE_DIR, "mask_style")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
 GOL_COLS       = 80
@@ -754,6 +755,63 @@ def _privacy_mask_box():
     return _mask_cache['box']
 
 
+# This lineage has no standalone blur: its mosaic lives inside CVProcessor
+# (block_art.render_cloak_vec) and operates on the render, not on the raw
+# frame the mask works from. So the mask carries its own, which is two
+# resizes -- downscale with area averaging, upscale with nearest neighbour.
+# Imported here rather than lazily at call time: a mask that discovers at
+# frame 1 that it cannot pixelate should fall back to black immediately, not
+# raise inside the capture thread.
+try:
+    import cv2 as _mask_cv2
+except Exception:
+    _mask_cv2 = None
+
+_MASK_BLOCK = None
+
+
+def _mask_block():
+    try:
+        return max(4, int(_cfg.get('BLUR_BLOCK', 24)))
+    except Exception:
+        return 24
+
+
+def _mask_style():
+    """'pixel' or 'black'. Black is the default and the stronger of the two.
+
+    A mosaic is NOT equivalent to blacking out. It leaves coarse structure --
+    how many people, where they are, when they move -- and block size is a
+    judgement about how much of that is acceptable, not a guarantee. It is
+    offered because a pixelated room still reads as a room while a black one
+    reads as a fault, which is a real reason to want it; not as equal privacy.
+    """
+    try:
+        with open(MASK_STYLE_FILE) as f:
+            return 'pixel' if f.read().strip() == 'pixel' else 'black'
+    except Exception:
+        return 'black'
+
+
+def _mask_mosaic(arr):
+    """The mosaic, or None. None means the caller must fall back to BLACK --
+    never to the clear picture."""
+    global _MASK_BLOCK
+    if _mask_cv2 is None:
+        return None
+    if _MASK_BLOCK is None:
+        _MASK_BLOCK = _mask_block()
+    try:
+        h, w = arr.shape[:2]
+        sw, sh = max(1, w // _MASK_BLOCK), max(1, h // _MASK_BLOCK)
+        small = _mask_cv2.resize(arr, (sw, sh), interpolation=_mask_cv2.INTER_AREA)
+        return _mask_cv2.resize(small, (w, h), interpolation=_mask_cv2.INTER_NEAREST)
+    except Exception as exc:
+        print('broadcast-api: mask mosaic failed, blacking instead: '
+              f'{type(exc).__name__}: {exc}', file=sys.stderr, flush=True)
+        return None
+
+
 def _apply_privacy_mask(raw):
     """Black out everything outside the region, on the frame everything else
     is derived from.
@@ -786,7 +844,15 @@ def _apply_privacy_mask(raw):
         y = max(0, min(FRAME_H - 1, int(round(fy * FRAME_H))))
         w = max(1, min(FRAME_W - x, int(round(fw * FRAME_W))))
         h = max(1, min(FRAME_H - y, int(round(fh * FRAME_H))))
-        out = np.zeros((FRAME_H, FRAME_W, 3), np.uint8)
+        out = None
+        if _mask_style() == 'pixel':
+            out = _mask_mosaic(arr)
+            if out is not None:
+                out = np.ascontiguousarray(out)
+        if out is None:
+            # Either black was asked for, or the mosaic failed. Both end here:
+            # the one thing this must never do is fall back to the clear room.
+            out = np.zeros((FRAME_H, FRAME_W, 3), np.uint8)
         out[y:y + h, x:x + w] = arr[y:y + h, x:x + w]
         return out.tobytes()
     except Exception as exc:
@@ -2659,6 +2725,25 @@ def detect_roi_post():
     except Exception:
         abort(500)
     return json.dumps(box), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/mask-style', methods=['GET'])
+def mask_style_get():
+    return _mask_style(), 200
+
+
+@app.route('/api/mask-style', methods=['POST'])
+def mask_style_post():
+    val = (request.get_data(as_text=True) or '').strip().lower()
+    if val not in ('pixel', 'black'):
+        abort(400)
+    try:
+        os.makedirs(os.path.dirname(MASK_STYLE_FILE), exist_ok=True)
+        with open(MASK_STYLE_FILE, 'w') as f:
+            f.write(val)
+    except Exception:
+        abort(500)
+    return _mask_style(), 200
 
 
 @app.route('/api/privacy-mask', methods=['GET'])
