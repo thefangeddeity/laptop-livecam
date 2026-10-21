@@ -4,6 +4,22 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.23
+
+- **The region line is bright in both themes.** It used `var(--phos)`, which
+  is `#3fe8cd` in dark theme and `#1d332e` in light -- because `--phos` is the
+  colour of *text on a near-white housing*. The region line is not on the
+  housing; it is drawn over video, and video is dark in both themes. Against
+  the powered-down screen it was sitting on, light theme measured **1.20:1**
+  before the 0.62 locked opacity was applied on top, while dark theme measured
+  12.59:1. Same rule, usable in one theme and invisible in the other.
+  `--roi-line` is now pinned to the bright phosphor and deliberately *not*
+  overridden per theme: 10.4:1 on the light theme's off-screen, 12.6:1 on the
+  dark one. The 1px black outline already underneath carries it against a
+  bright scene.
+- Locked opacity .62 -> .85, plus a faint glow. Locked should be dimmer than
+  editing, not dim in absolute terms.
+
 ## 7.0.22
 
 - **The alert clip follows the subject instead of a stopwatch.** It was a
