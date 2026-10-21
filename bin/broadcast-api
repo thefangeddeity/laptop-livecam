@@ -259,14 +259,16 @@ def _read_detect_always():
         return True
 
 def _write_detect_always(enabled):
-    try:
-        os.makedirs(os.path.dirname(DETECT_ALWAYS_FILE), exist_ok=True)
-        with open(DETECT_ALWAYS_FILE, 'w') as f:
-            f.write('true' if enabled else 'false')
-    except Exception:
-        pass
+    """Raises on failure.
 
-_detect_always = _read_detect_always()
+    This used to swallow. That shape is how notify_shots on the other
+    lineage went releases persisting nothing while the panel showed the
+    lamp move -- a permission error turned into a successful-looking
+    click by `except: pass`. The caller turns this into a 500.
+    """
+    os.makedirs(os.path.dirname(DETECT_ALWAYS_FILE), exist_ok=True)
+    with open(DETECT_ALWAYS_FILE, 'w') as f:
+        f.write('true' if enabled else 'false')
 
 def _detect_always_on():
     return _detect_always
@@ -2869,7 +2871,13 @@ def detect_always_post():
         # Which publisher Show spawns depends on this, so the writer loop has
         # to rebuild -- same reason Blur bumps it and Foveal does not.
         _mode_generation += 1
-    _write_detect_always(_detect_always)
+    try:
+
+        _write_detect_always(_detect_always)
+
+    except Exception:
+
+        abort(500)
     # Hide does not dim the picture here, it CLOSES the camera and publishes
     # generated black (indicator light out, mic shut). Nothing can be detected
     # through that, so switching detection on while hidden would be a control
