@@ -4,6 +4,35 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.29
+
+- **The settings say what they now do.** "Where to watch" named one of the
+  three controls under it; the rectangle is shared and what differs is the
+  question asked of it -- the detector's scope (`_read_detect_roi()`), what
+  viewers and recordings may see (`_read_detect_roi_raw()`, which ignores the
+  first), and how the rest is hidden. The group is **"What the camera sees"**,
+  and since two of the three work with Detection switched off entirely, the
+  heading is no longer `.detdep`; only the detector's own row dims with it.
+- **"Black out the rest" became false the moment pixelation shipped** -- with
+  pixel selected the label described the one thing it was not doing. Now
+  "Hide the rest", with the style row beneath saying which.
+- "Detection area" named the rectangle back when it had one user. The row is
+  the detector's use of it, so it reads **"Detect only here"**, and its off
+  state is **"Detect everywhere"** -- off never meant the detector stops, only
+  that it stops being narrowed.
+- **Three writers stopped swallowing.** `_write_detect_always`,
+  `_write_notify_shots` and `_write_notify_video` each ended in
+  `except Exception: pass` -- precisely how `notify_shots` went three releases
+  persisting nothing while the panel showed the lamp move. 7.0.14 fixed the
+  root-owned directory; the shape that hid it survived, and the next full disk
+  would be just as quiet. They raise now and their endpoints return 500.
+  macOS had the same bug in `_write_detect_always`.
+- **The switch gets a round knob.** `.reset`'s pin is a 20x9 capsule in a
+  30x16 track -- nearly as wide as its housing, so sliding it read as the
+  whole face shifting rather than a knob travelling. 12px round, the height of
+  the track, +/-7px of travel in 28px of interior. The push buttons keep the
+  capsule; they do not travel.
+
 ## 7.0.28
 
 - **The light switch is visible in the mobile header again.**
