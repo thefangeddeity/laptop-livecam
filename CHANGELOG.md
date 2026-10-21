@@ -4,6 +4,24 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.31
+
+- **A drop shadow on the visible-area box in dark mode.** Over static the box
+  stopped reading as an edge: a 1px line and a phosphor glow both sit inside
+  the noise's own frequency range, so the eye has nothing to separate them by.
+  Foliage and a patterned rug do the same thing; static is just the worst
+  case. A soft dark shadow is the one cue grain cannot imitate -- it is
+  low-frequency and directional, so it survives a busy picture that defeats a
+  hairline.
+  Dark *grey*, not black: pure black against the dark housing reads as a hole
+  cut into the picture, and this has to look like the box sits above it.
+- Scoped with `html:not([data-theme="light"])` rather than as a new base
+  rule. Every other themed rule in the sheet states *light* and lets dark be
+  the default, so a bare `.roi-box.locked` would also apply to any third
+  theme that ever arrives.
+- The editing box is untouched -- it already casts `0 0 12px` black alongside
+  its spotlight, which does the same job.
+
 ## 7.0.30
 
 - **"Stretch visible area for display".** With the mask on, the kept area sits
