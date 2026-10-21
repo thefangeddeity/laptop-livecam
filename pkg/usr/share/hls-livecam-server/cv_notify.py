@@ -119,7 +119,7 @@ class Notifier:
                  min_fg=0.0, name=None,
                  video_flag_file='/var/lib/hls-livecam/notify_video',
                  shots_flag_file='/var/lib/hls-livecam/notify_shots',
-                 rec_dir=None, clip_pre=None, clip_post=None,
+                 rec_dir=None, clip_pre=None, clip_post=None, clip_max=None,
                  roi_file=None, classes_file=None,
                  presence_file=None, presence_hold_sec=None):
         self.enabled = bool(enabled) and bool(urls) and (
@@ -153,6 +153,13 @@ class Notifier:
         # still walking -- see _schedule_clip.
         self.clip_pre = 5.0 if clip_pre is None else float(clip_pre)
         self.clip_post = 20.0 if clip_post is None else float(clip_post)
+        # The ceiling on a clip that keeps extending. A cat that settles in
+        # and sleeps in frame must not produce an unbounded file on a disk
+        # that also holds six hours of rolling recording.
+        self.clip_max = 120.0 if clip_max is None else float(clip_max)
+        # track_id -> wall time it was last seen. The clip's END follows this,
+        # not the moment of first detection.
+        self._track_seen = {}
         self.cooldown_sec = float(cooldown_sec)
         self.shots = max(1, int(shots))
         self.window_sec = max(0.0, float(window_sec))
@@ -209,6 +216,11 @@ class Notifier:
             self._human_seen = now
         if cls not in self._wanted_classes():
             return False
+        # Stamped on EVERY cycle this track is still promoted, not only the
+        # first -- the early returns below (cooldown, already-notified) are
+        # exactly the path a subject that stays takes, so stamping after them
+        # would record one sighting and never update.
+        self._track_seen[track.track_id] = time.time()
         with self._lock:
             win = self._collecting.get(track.track_id)
             if win is not None:
@@ -292,6 +304,7 @@ class Notifier:
             return False
 
     def forget_track(self, track_id):
+        self._track_seen.pop(track_id, None)
         with self._lock:
             self._notified_tracks.discard(track_id)
 
@@ -605,10 +618,22 @@ class Notifier:
         how many can ever be in flight.
         """
         when = item['when']
-        wait = max(0.0, (when + self.clip_post) - time.time())
+        tid = item.get('track_id')
+
+        def _visit_over():
+            # Gone = not seen for a whole post-roll. The cap is the other way
+            # out, so a subject that never leaves still produces a clip.
+            last = self._track_seen.get(tid, when)
+            return (time.time() >= last + self.clip_post
+                    or time.time() >= when + self.clip_max)
 
         def _cut_and_send():
-            clip = self._cut_clip(when)
+            last = self._track_seen.get(tid, when)
+            # End at the last sighting plus the tail, capped. Never shorter
+            # than the old fixed window, so this can only lengthen a clip.
+            post = min(max(self.clip_post, (last - when) + self.clip_post),
+                       self.clip_max)
+            clip = self._cut_clip(when, post=post)
             if not clip:
                 return
             try:
@@ -637,7 +662,18 @@ class Notifier:
                 except Exception:
                     pass
 
-        t = threading.Timer(wait, _cut_and_send)
+        def _tick():
+            if not _visit_over():
+                nt = threading.Timer(1.0, _tick)
+                nt.daemon = True
+                nt.start()
+                return
+            _cut_and_send()
+
+        # One second, not the full post-roll: the wait has to be re-evaluated
+        # while the subject is still in frame. Still a timer rather than a
+        # sleep in the worker, which drains a queue and must not be held.
+        t = threading.Timer(min(1.0, self.clip_post), _tick)
         t.daemon = True
         t.start()
 
@@ -776,6 +812,7 @@ def make_notifier(denv, log=None):
                     rec_dir=_get('NOTIFY_REC_DIR', '') or None,
                     clip_pre=_num('NOTIFY_CLIP_PRE', 5.0),
                     clip_post=_num('NOTIFY_CLIP_POST', 20.0),
+                    clip_max=_num('NOTIFY_CLIP_MAX', 120.0),
                     roi_file=_get('DETECT_ROI_FILE', '')
                         or '/var/lib/hls-livecam/detect_roi',
                     classes_file=_get('NOTIFY_CLASSES_FILE', '')
