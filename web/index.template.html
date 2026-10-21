@@ -1530,6 +1530,42 @@
                box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
                background: transparent; pointer-events: none; }
     .roi-box[hidden] { display: none; }
+    /* Eight handles: four corners resize both axes, four edges resize one.
+       They are the AFFORDANCE -- without them nothing on the box says it can
+       be grabbed, and every touch reads as "draw a new one". Visual size
+       stays small so they do not cover the picture; the hit zone is widened
+       in JS instead, because a 9px dot is not thumb-reachable. */
+    .roi-h { position: absolute; width: 9px; height: 9px; margin: -5px 0 0 -5px;
+             background: var(--phos); border: 1px solid rgba(0,0,0,.55);
+             border-radius: 2px; pointer-events: none; }
+    /* The header's global toggles. Right-aligned beside the status pill so
+       the brand keeps the left edge, and wrapping on a narrow screen rather
+       than squeezing the live indicator. */
+    .hdr-tog { display: inline-flex; align-items: center; gap: 6px; }
+    /* A .reset had no pressed state, because its only user until now was
+       #combToggle -- a MENU control, which reports open/closed through
+       aria-expanded and deliberately stays unmodified. A global on/off
+       switch has to show its position, so the pin slides and lights, the
+       way a rocker does. */
+    .reset .pin { transition: transform .12s ease, background .12s ease; }
+    .reset:not(.pressed) .pin { transform: translateX(-4px); }
+    .reset.pressed .pin { transform: translateX(4px);
+      background: linear-gradient(180deg,#6fe08f 0%,#49a862 52%,#3f8f52 100%);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.35), 0 0 6px var(--led-glow); }
+    /* The menu toggle keeps the old centred, unlit pin. */
+    #combToggle .pin { transform: none; }
+    .status-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+                  justify-content: flex-end; }
+    .roi-h.nw { left: 0;    top: 0; }
+    .roi-h.n  { left: 50%;  top: 0; }
+    .roi-h.ne { left: 100%; top: 0; }
+    .roi-h.w  { left: 0;    top: 50%; }
+    .roi-h.e  { left: 100%; top: 50%; }
+    .roi-h.sw { left: 0;    top: 100%; }
+    .roi-h.s  { left: 50%;  top: 100%; }
+    .roi-h.se { left: 100%; top: 100%; }
+    /* Locked is a marker, not a control: no grab points on it. */
+    .roi-box.locked .roi-h { display: none; }
     /* LOCKED: the region stays drawn on the picture after Set, so the watched
        area is visible without opening the panel. Bright while editing, dim
        once locked -- the editing box is a thing you are working on and should
@@ -1711,6 +1747,15 @@
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
+    <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
+         a third control shape for a global toggle would be one more thing to
+         learn for no gain. -->
+    <div class="hdr-tog">
+      <button type="button" class="reset" id="themeBtn" onclick="toggleTheme()"
+              aria-pressed="false" aria-label="Light theme"
+              title="Light theme"><span class="pin"></span></button>
+      <span class="eng rstlab">Light</span>
+    </div>
   </div>
 </header>
 
@@ -2005,7 +2050,11 @@
          things in your head at once. Hidden until armed, so it costs the
          ordinary viewer nothing. -->
     <div class="roi-layer" id="roiLayer" hidden>
-      <div class="roi-box" id="roiBox" hidden></div>
+      <div class="roi-box" id="roiBox" hidden
+           ><i class="roi-h nw"></i><i class="roi-h n"></i><i class="roi-h ne"></i
+           ><i class="roi-h w"></i><i class="roi-h e"></i
+           ><i class="roi-h sw"></i><i class="roi-h s"></i><i class="roi-h se"></i
+      ></div>
       <div class="roi-hint" id="roiHint">Drag on the picture to choose the area the detector watches</div>
     </div>
   </div>
@@ -2337,14 +2386,7 @@
           </button>
           <span class="eng rstlab">Disable buzz</span>
         </div>
-        <div class="pinrow">
-          <button class="pinled" id="themeBtn" onclick="toggleTheme()"
-                  aria-pressed="false" aria-label="Light theme"
-                  title="Toggle the light theme">
-            <span class="bulb" id="themeLamp"></span>
-          </button>
-          <span class="eng rstlab">Light theme</span>
-        </div>
+        
         <!-- TEST-ONLY: mute the server's physical speaker/headset while a
              call is live, without touching anything else in the pipeline
              (mic capture, roomaudio, RTC signaling all keep running) -- lets
@@ -2493,7 +2535,12 @@
     // Platform-prefixed so a screenshot from any fleet member identifies
     // itself without anyone having to recognise the layout.
     var host = (info.hostname || window.location.hostname || '').split('.')[0];
-    var build = '@VERSION@';   // macOS: stamped by livecam-setup / the DMG build
+    // Prefer what the running service reports; fall back to the value
+    // stamped at build time, because this lineage's /api/info does not carry
+    // a version yet. A rendered copy of THIS file was once pasted into the
+    // Linux tree, where the stamped literal became a lie that outlived many
+    // releases -- preferring the live value is what stops that recurring.
+    var build = info.version || '@VERSION@';
     var bl = document.getElementById('buildLabel');
     if (bl) bl.textContent = (build ? build + ' ' : '') + '@' + host;
     // The tab has to identify the node without the page being visible: with
@@ -5625,40 +5672,101 @@
   (function wireRoi() {
     var layer = document.getElementById('roiLayer');
     if (!layer) return;
+    var MIN = 0.05;
     function pt(e) {
       var t = (e.touches && e.touches[0]) || e;
       return { x: t.clientX, y: t.clientY };
+    }
+    function boxPx(r) {
+      if (!roiCur) return null;
+      return { l: r.left + roiCur.x * r.width, t: r.top + roiCur.y * r.height,
+               w: roiCur.w * r.width, h: roiCur.h * r.height };
+    }
+    // A thumb needs far more room than the handle it is aiming at. The HIG
+    // asks for a 44px target; the dot stays 9px so it does not cover the
+    // picture, and only the GRAB radius grows on a coarse pointer.
+    function grab() {
+      return (window.matchMedia &&
+              window.matchMedia('(pointer: coarse)').matches) ? 22 : 9;
+    }
+    // Which of the three gestures this press means. Outside the box is the
+    // only one that destroys the current region, which is the whole point:
+    // touching the box you just drew must never throw it away.
+    function zoneAt(p, r) {
+      var b = boxPx(r);
+      if (!b) return 'new';
+      var g = grab();
+      var L = Math.abs(p.x - b.l) <= g, R = Math.abs(p.x - (b.l + b.w)) <= g;
+      var T = Math.abs(p.y - b.t) <= g, B = Math.abs(p.y - (b.t + b.h)) <= g;
+      if (p.x >= b.l - g && p.x <= b.l + b.w + g &&
+          p.y >= b.t - g && p.y <= b.t + b.h + g) {
+        if (L && T) return 'nw';
+        if (R && T) return 'ne';
+        if (L && B) return 'sw';
+        if (R && B) return 'se';
+        if (L) return 'w';
+        if (R) return 'e';
+        if (T) return 'n';
+        if (B) return 's';
+        return 'move';
+      }
+      return 'new';
     }
     function begin(e) {
       if (!roiArmed) return;
       e.preventDefault();
       var r = videoRect(), p = pt(e);
-      roiDrag = { x0: p.x, y0: p.y, r: r };
+      roiDrag = { x0: p.x, y0: p.y, r: r, mode: zoneAt(p, r),
+                  from: roiCur ? { x: roiCur.x, y: roiCur.y,
+                                   w: roiCur.w, h: roiCur.h } : null };
     }
     function move(e) {
       if (!roiDrag) return;
       e.preventDefault();
-      var p = pt(e), r = roiDrag.r;
-      // Clamped to the picture: a drag that leaves the video must not produce
-      // a region outside the frame, and the server would only clamp it again.
-      var x1 = Math.min(Math.max(roiDrag.x0, r.left), r.left + r.width);
-      var x2 = Math.min(Math.max(p.x, r.left), r.left + r.width);
-      var y1 = Math.min(Math.max(roiDrag.y0, r.top), r.top + r.height);
-      var y2 = Math.min(Math.max(p.y, r.top), r.top + r.height);
-      roiCur = { x: (Math.min(x1, x2) - r.left) / r.width,
-                 y: (Math.min(y1, y2) - r.top) / r.height,
-                 w: Math.abs(x2 - x1) / r.width,
-                 h: Math.abs(y2 - y1) / r.height };
+      var p = pt(e), r = roiDrag.r, m = roiDrag.mode, f = roiDrag.from;
+      if (m === 'new') {
+        // Clamped to the picture: a drag that leaves the video must not
+        // produce a region outside the frame.
+        var x1 = Math.min(Math.max(roiDrag.x0, r.left), r.left + r.width);
+        var x2 = Math.min(Math.max(p.x, r.left), r.left + r.width);
+        var y1 = Math.min(Math.max(roiDrag.y0, r.top), r.top + r.height);
+        var y2 = Math.min(Math.max(p.y, r.top), r.top + r.height);
+        roiCur = { x: (Math.min(x1, x2) - r.left) / r.width,
+                   y: (Math.min(y1, y2) - r.top) / r.height,
+                   w: Math.abs(x2 - x1) / r.width,
+                   h: Math.abs(y2 - y1) / r.height };
+      } else if (f) {
+        var dx = (p.x - roiDrag.x0) / r.width;
+        var dy = (p.y - roiDrag.y0) / r.height;
+        var x = f.x, y = f.y, w = f.w, h = f.h;
+        if (m === 'move') {
+          // The SHAPE survives the edge: a move that reaches the frame stops
+          // there rather than squashing the box against it.
+          x = Math.min(Math.max(0, f.x + dx), 1 - f.w);
+          y = Math.min(Math.max(0, f.y + dy), 1 - f.h);
+        } else {
+          if (m.indexOf('w') >= 0) {
+            var nx = Math.min(Math.max(0, f.x + dx), f.x + f.w - MIN);
+            w = f.w + (f.x - nx); x = nx;
+          }
+          if (m.indexOf('e') >= 0) { w = Math.min(Math.max(MIN, f.w + dx), 1 - f.x); }
+          if (m.indexOf('n') >= 0) {
+            var ny = Math.min(Math.max(0, f.y + dy), f.y + f.h - MIN);
+            h = f.h + (f.y - ny); y = ny;
+          }
+          if (m.indexOf('s') >= 0) { h = Math.min(Math.max(MIN, f.h + dy), 1 - f.y); }
+        }
+        roiCur = { x: x, y: y, w: w, h: h };
+      }
       paintRoi();
     }
     function end(e) {
       if (!roiDrag) return;
       roiDrag = null;
-      // Nothing is sent here. The drag only updates the preview; locking the
-      // area is what writes it, so a drag can be redone until it is right.
-      // A stray click that produced a sliver is discarded rather than kept
-      // as the draft, so the previous outline stays on screen.
-      if (!roiCur || roiCur.w < 0.05 || roiCur.h < 0.05) {
+      // Nothing is sent here. The drag only updates the preview; Set is what
+      // writes it, so a drag can be redone until it is right. A stray tap
+      // that produced a sliver is discarded rather than kept as the draft.
+      if (!roiCur || roiCur.w < MIN || roiCur.h < MIN) {
         roiCur = roiOrig ? { x: roiOrig.x, y: roiOrig.y,
                              w: roiOrig.w, h: roiOrig.h } : null;
       }
