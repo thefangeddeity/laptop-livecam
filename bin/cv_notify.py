@@ -117,7 +117,8 @@ class Notifier:
                  video_flag_file='/dev/null',
                  shots_flag_file='/dev/null',
                  rec_dir=None, clip_pre=None, clip_post=None, clip_max=None,
-                 roi_file=None,
+                 roi_file=None, gallery_dir=None, gallery_keep=None,
+                 gallery_pad=None,
                  presence_file=None, presence_hold_sec=None,
                  name=None):
         self.enabled = bool(enabled) and bool(urls) and (
@@ -133,6 +134,13 @@ class Notifier:
         # not 'human' is an alerting class: not wanting to be TOLD about
         # yourself is the ordinary setup, and is a different question from not
         # wanting to be RECORDED.
+        # THE GALLERY. One crop per visit, kept so an individual can be named
+        # later. Its own directory and its own retention on purpose: a named
+        # picture of a household member is a different kind of thing from a
+        # motion clip and must not inherit the recording's lifetime.
+        self.gallery_dir = gallery_dir or ''
+        self.gallery_keep = 400 if gallery_keep is None else int(gallery_keep)
+        self.gallery_pad = 0.15 if gallery_pad is None else float(gallery_pad)
         self.presence_file = presence_file or '/dev/null'
         self.presence_hold_sec = (60.0 if presence_hold_sec is None
                                   else float(presence_hold_sec))
@@ -323,8 +331,11 @@ class Notifier:
         slot = int(t / self._slot_sec)
         best = win['slots'].get(slot)
         if best is None or score > best['score']:
+            # The box travels with the frame: without it the gallery would
+            # have to re-detect to find a subject the detector had located.
             win['slots'][slot] = {'score': score, 't': t, 'conf': conf,
-                                  'sharp': sharp, 'frame': frame.copy()}
+                                  'sharp': sharp, 'frame': frame.copy(),
+                                  'box': tuple(track.box)}
 
     def _close_expired(self, now):
         """Caller holds the lock. Closes every window past its end."""
@@ -777,7 +788,84 @@ class Notifier:
             pass          # a missing stamp must never cost the alert
         return bgr
 
+    def _gallery_keep(self, item):
+        """Save the sharpest crop of this visit, for naming later.
+
+        Runs on the WORKER thread. Not at window close, which holds the
+        notifier lock while on_promotion calls in at the detection rate -- a
+        JPEG encode and a disk write there would stall detection for every
+        viewer.
+
+        Best-effort throughout: a gallery that fails is a feature that did not
+        happen, while an alert that fails is the product not working. Nothing
+        here may take the alert down with it.
+
+        The crop's pixel size goes in the FILENAME deliberately. Whether
+        recognition is possible at all is a question about how many pixels a
+        cat actually occupies crossing this room, and that is answerable from
+        a directory listing rather than from an estimate.
+        """
+        if not self.gallery_dir:
+            return
+        try:
+            picks = item.get('picks') or []
+            best = max(picks, key=lambda c: c.get('score', 0.0), default=None)
+            if best is None or best.get('box') is None:
+                return
+            frame = best['frame']
+            fh, fw = frame.shape[:2]
+            bx, by, bw, bh = (int(v) for v in best['box'])
+            # Context around the subject: cut exactly to the box, a cat loses
+            # the ear tips and tail that tell it from the other one.
+            px, py = int(bw * self.gallery_pad), int(bh * self.gallery_pad)
+            x0, y0 = max(0, bx - px), max(0, by - py)
+            x1, y1 = min(fw, bx + bw + px), min(fh, by + bh + py)
+            if x1 - x0 < 8 or y1 - y0 < 8:
+                return
+            bgr = cv2.cvtColor(frame[y0:y1, x0:x1], cv2.COLOR_RGB2BGR)
+            ok, buf = cv2.imencode('.jpg', bgr,
+                                   [int(cv2.IMWRITE_JPEG_QUALITY), 92])
+            if not ok:
+                return
+            unl = os.path.join(self.gallery_dir, 'unlabelled')
+            os.makedirs(unl, exist_ok=True)
+            name = '%s-%d-%s-%dx%d.jpg' % (item.get('cls', 'thing'),
+                                           int(item.get('when', time.time())),
+                                           item.get('track_id', 0),
+                                           x1 - x0, y1 - y0)
+            with open(os.path.join(unl, name), 'wb') as f:
+                f.write(buf.tobytes())
+            self._gallery_prune(unl)
+        except Exception as exc:
+            self._log('gallery: could not keep a crop: %s: %s'
+                      % (type(exc).__name__, exc))
+
+    def _gallery_prune(self, unl):
+        """Oldest-first, and only the UNLABELLED pile.
+
+        A named picture is something the operator chose to keep; deleting it
+        on a count would silently undo their work. Only the unsorted backlog
+        is bounded.
+        """
+        try:
+            files = [os.path.join(unl, f) for f in os.listdir(unl)
+                     if f.endswith('.jpg')]
+            if len(files) <= self.gallery_keep:
+                return
+            files.sort(key=lambda f: os.path.getmtime(f))
+            for f in files[:len(files) - self.gallery_keep]:
+                try:
+                    os.unlink(f)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     def _send(self, item):
+        # FIRST, and outside the try below: the gallery is independent of
+        # whether this alert sends. A Telegram outage must not also stop the
+        # record of what was seen.
+        self._gallery_keep(item)
         text = item.get('text') or f"{self.name}: {_label(item['cls'])} detected"
         paths, jpegs = [], []
         # Encoding the stills is the expensive half of an alert, so the switch
@@ -925,6 +1013,19 @@ class Notifier:
             return False
 
 
+def _gallery_default(denv):
+    """The gallery lives beside the other state, or nowhere.
+
+    Derived from DETECT_ROI_FILE's directory because that is a path this
+    module is already given and is per-node. Returning '' disables the
+    gallery, which is the right failure: inventing a directory to write
+    pictures of people into is worse than not keeping them.
+    """
+    roi = (denv or {}).get('DETECT_ROI_FILE') or ''
+    d = os.path.dirname(str(roi).strip())
+    return os.path.join(d, 'gallery') if d and os.path.isdir(d) else ''
+
+
 def make_notifier(denv, log=None):
     """Build from device.env, or a disabled Notifier if not configured."""
     denv = denv or {}
@@ -966,6 +1067,15 @@ def make_notifier(denv, log=None):
                     window_sec=_num('NOTIFY_WINDOW_SEC', 6.0),
                     spacing_sec=_num('NOTIFY_SPACING_SEC', 1.5),
                     min_fg=_num('NOTIFY_MIN_FG', 0.05),
+                    # Derived from the state directory the notifier already
+                    # knows, rather than a constant imported from the API
+                    # module: cv_notify has no STATE_DIR and should not grow a
+                    # dependency on one. Unset and underivable means OFF --
+                    # the gallery is the one feature that should never invent
+                    # a location to write pictures of people to.
+                    gallery_dir=_get('GALLERY_DIR', '') or _gallery_default(denv),
+                    gallery_keep=_num('GALLERY_KEEP', 400),
+                    gallery_pad=_num('GALLERY_PAD', 0.15),
                     classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null',
                     presence_file=_get('NOTIFY_PRESENCE_FILE', '') or '/dev/null',
                     presence_hold_sec=_num('NOTIFY_PRESENCE_HOLD_SEC', 60.0),

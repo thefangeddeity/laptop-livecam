@@ -58,6 +58,7 @@ NOTIFY_PRESENCE_FILE = os.path.join(STATE_DIR, "notify_presence_pause")
 DETECT_ROI_FILE     = os.path.join(STATE_DIR, "detect_roi")
 PRIVACY_MASK_FILE   = os.path.join(STATE_DIR, "privacy_mask")
 MASK_STYLE_FILE     = os.path.join(STATE_DIR, "mask_style")
+GALLERY_DIR         = os.path.join(STATE_DIR, "gallery")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
 GOL_COLS       = 80
@@ -2735,6 +2736,151 @@ def detect_roi_post():
     except Exception:
         abort(500)
     return json.dumps(box), 200, {'Content-Type': 'application/json'}
+
+
+# -- The gallery -----------------------------------------------------------
+#
+# Crops kept one per visit so an individual can be named later. Phase one is
+# deliberately no machine learning: collect, name, and find out from real
+# pictures of this room whether the crops are even large enough for
+# recognition to be possible. A directory listing answers that; an estimate
+# does not.
+#
+# Every id arriving here is a FILENAME FROM A BROWSER. _gal_safe is the only
+# way one becomes a path.
+
+_GAL_ID = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.jpg$')
+_GAL_LABEL = re.compile(r'^[A-Za-z0-9][A-Za-z0-9 _-]{0,31}$')
+
+
+def _gal_safe(folder, name):
+    """A path inside the gallery, or None.
+
+    Two independent checks, because one is a pattern and the other is a fact:
+    the name must look like a plain filename, AND the resolved path must still
+    be inside the directory it claims to be in. The pattern alone trusts
+    itself about what traversal and symlinks do -- a symlink planted inside
+    the gallery passes the regex and is caught only by realpath.
+    """
+    if folder != 'unlabelled' and not _GAL_LABEL.match(folder or ''):
+        return None
+    if not _GAL_ID.match(name or ''):
+        return None
+    base = os.path.realpath(GALLERY_DIR)
+    full = os.path.realpath(os.path.join(base, folder, name))
+    if full != os.path.join(base, folder, name):
+        return None
+    if not full.startswith(base + os.sep):
+        return None
+    return full
+
+
+def _gal_folders():
+    try:
+        return sorted(d for d in os.listdir(GALLERY_DIR)
+                      if os.path.isdir(os.path.join(GALLERY_DIR, d)))
+    except Exception:
+        return []
+
+
+@app.route('/api/gallery', methods=['GET'])
+def gallery_get():
+    out = {'labels': [], 'unlabelled': [], 'dir': GALLERY_DIR}
+    for d in _gal_folders():
+        try:
+            files = sorted((f for f in os.listdir(os.path.join(GALLERY_DIR, d))
+                            if f.lower().endswith('.jpg')), reverse=True)
+        except Exception:
+            continue
+        if d == 'unlabelled':
+            for f in files[:200]:
+                bits = f[:-4].rsplit('-', 3)
+                out['unlabelled'].append({
+                    'id': f, 'cls': bits[0] if bits else '',
+                    'size': bits[-1] if len(bits) == 4 else ''})
+        else:
+            out['labels'].append({'name': d, 'count': len(files),
+                                  'cover': files[0] if files else None})
+    unl = os.path.join(GALLERY_DIR, 'unlabelled')
+    try:
+        out['unlabelled_total'] = len([f for f in os.listdir(unl)
+                                       if f.lower().endswith('.jpg')])
+    except Exception:
+        out['unlabelled_total'] = 0
+    return json.dumps(out), 200, {'Content-Type': 'application/json'}
+
+
+@app.route('/api/gallery/img/<path:ref>', methods=['GET'])
+def gallery_img(ref):
+    folder, _, name = ref.rpartition('/')
+    full = _gal_safe(folder or 'unlabelled', name)
+    if not full or not os.path.isfile(full):
+        abort(404)
+    # Read the bytes rather than handing Flask a directory: the path has
+    # already been proved to be inside the gallery, and send_from_directory
+    # would re-derive it from the same untrusted name.
+    try:
+        with open(full, 'rb') as f:
+            data = f.read()
+    except Exception:
+        abort(404)
+    return Response(data, mimetype='image/jpeg',
+                    headers={'Cache-Control': 'no-store'})
+
+
+@app.route('/api/gallery/label', methods=['POST'])
+def gallery_label():
+    try:
+        body = json.loads(request.get_data(as_text=True) or '{}')
+    except Exception:
+        abort(400)
+    src = _gal_safe(str(body.get('from') or 'unlabelled'),
+                    str(body.get('id') or ''))
+    label = str(body.get('label') or '').strip()
+    if not src or not _GAL_LABEL.match(label):
+        abort(400)
+    if not os.path.isfile(src):
+        abort(404)
+    try:
+        os.makedirs(os.path.join(GALLERY_DIR, label), exist_ok=True)
+        os.replace(src, os.path.join(GALLERY_DIR, label, os.path.basename(src)))
+    except Exception:
+        abort(500)
+    return 'ok', 200
+
+
+@app.route('/api/gallery/forget', methods=['POST'])
+def gallery_forget():
+    """Delete one name's pictures, or -- with {"all": true} -- everything.
+
+    Destructive and meant to be. A named set of household faces is the most
+    sensitive thing this node keeps, and destroying it must be possible from
+    the panel rather than from a shell. 'unlabelled' is refused as a name so a
+    mistyped label cannot wipe the backlog; that is what "all" is for.
+    """
+    try:
+        body = json.loads(request.get_data(as_text=True) or '{}')
+    except Exception:
+        abort(400)
+    if body.get('all') is True:
+        try:
+            shutil.rmtree(GALLERY_DIR, ignore_errors=True)
+            os.makedirs(os.path.join(GALLERY_DIR, 'unlabelled'), exist_ok=True)
+        except Exception:
+            abort(500)
+        return 'ok', 200
+    label = str(body.get('label') or '').strip()
+    if not _GAL_LABEL.match(label) or label == 'unlabelled':
+        abort(400)
+    target = os.path.realpath(os.path.join(GALLERY_DIR, label))
+    base = os.path.realpath(GALLERY_DIR)
+    if not target.startswith(base + os.sep) or not os.path.isdir(target):
+        abort(404)
+    try:
+        shutil.rmtree(target)
+    except Exception:
+        abort(500)
+    return 'ok', 200
 
 
 @app.route('/api/mask-style', methods=['GET'])
