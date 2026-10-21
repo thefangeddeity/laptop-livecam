@@ -1143,8 +1143,23 @@
        segment and the HLS lamp go on tracking the player on mobile exactly
        as on desktop. Removing the element instead silently stops both, and
        the symptom -- a dark HLS lamp on phones only -- reads as a pipeline
-       fault rather than a layout change. */
-    header .status-bar { display: none; }
+       fault rather than a layout change.
+
+       SINCE THE THEME SWITCH MOVED HERE, hiding the container hides that
+       too -- and unlike the pill it has no duplicate anywhere: it left
+       Settings, so the container rule took the only control for it away on
+       phones entirely. So the PILL is hidden now rather than the bar around
+       it. Same outcome for the pill, same reasoning, and textContent stays
+       readable and writable while hidden, so paintLamps() and setStatus()
+       are unaffected exactly as before.
+
+       The switch keeps its position and drops its word. The header still has
+       only ~390px for brand, version strip and this, and a rocker that has
+       slid to one end is legible without being labelled -- the label is what
+       would push the product name onto two lines again. */
+    header .status-bar { display: flex; }
+    header .status-bar .hdr-vfd { display: none; }
+    .hdr-tog .rstlab { display: none; }
     .desktop-only { display: none !important; }
     textarea.msg-box {
     min-height: 150px; min-height: 80px; flex: none; width: 100%; max-width: 100%; -webkit-appearance: none; transform: translateZ(0); }
