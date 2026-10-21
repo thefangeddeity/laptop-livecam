@@ -216,11 +216,26 @@ class Notifier:
             self._human_seen = now
         if cls not in self._wanted_classes():
             return False
-        # Stamped on EVERY cycle this track is still promoted, not only the
-        # first -- the early returns below (cooldown, already-notified) are
-        # exactly the path a subject that stays takes, so stamping after them
-        # would record one sighting and never update.
-        self._track_seen[track.track_id] = time.time()
+        # LAST MATCHED, not last promoted. The tracker already records this
+        # and I had been ignoring it: on_promotion fires for every PROMOTED
+        # track each cycle, and a track stays promoted while its evidence
+        # decays past the threshold -- 0.88 per miss from a peak of
+        # confidence/(1-decay), which at 1.5Hz is about sixteen seconds of
+        # coasting after the animal has gone. Stamping time.time() here made
+        # every one of those a fresh sighting, so the post-roll was measured
+        # from sixteen seconds too late and the clip ran ~36s past the exit
+        # instead of the configured 20.
+        #
+        # tr.last_seen is set in Tracker.update() on a MATCH only, from
+        # det.timestamp, which is time.time() -- the same clock as item['when']
+        # below, so the two are directly comparable.
+        seen = getattr(track, 'last_seen', None)
+        try:
+            self._track_seen[track.track_id] = float(seen)
+        except (TypeError, ValueError):
+            # A tracker that does not carry it falls back to now, which is the
+            # old behaviour: a longer clip, never a shorter one.
+            self._track_seen[track.track_id] = time.time()
         with self._lock:
             win = self._collecting.get(track.track_id)
             if win is not None:

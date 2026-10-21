@@ -4,6 +4,36 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.33
+
+- **The clip stopped waiting for a subject that had already left.** 7.0.22
+  stamped `_track_seen` on every `on_promotion` call -- but that fires for
+  every *promoted* track each cycle, not every *detected* one. A track stays
+  promoted while its evidence decays (`*= 0.88` per miss from a peak of
+  `confidence/(1-decay)`), which from a steady 0.86 detection is ~25 passes,
+  or **about sixteen seconds** of coasting at `CV_DETECT_HZ` 1.5. Each of
+  those counted as a fresh sighting, so the 20s post-roll was measured from
+  sixteen seconds too late and the clip ran ~36s past the exit.
+  `Track.last_seen` already held the right value -- set in `Tracker.update()`
+  on a **match** only, from `det.timestamp`, which is `time.time()`, the same
+  clock as `item['when']`. The tail is now exactly the configured post-roll.
+  Falls back to `time.time()` if a tracker lacks the field, which restores the
+  old behaviour: a longer clip, never a shorter one.
+- **Lamp polarity is consistent.** Three of ten lamps meant the opposite of
+  the other seven, so "lit" had to be read per row rather than learned.
+  "Disable buzz" lit meant buzz was *dead*. Now **Buzz**, **Server speaker**
+  and **Record while people are home** -- every lamp lit means the thing is
+  on. Labels and lamps only; stored state and APIs untouched.
+- **"Edit visible area"** was an imperative on a switch whose lamp confines
+  the *detector* -- one label over two controls, describing neither. It is now
+  a caption on the buttons it describes, and the lamp states what it does:
+  *Detect only here* / *Detect everywhere* / *No area set*.
+- **"Stretch to fill"** moved out a level and is marked *(your view)*. Nested
+  beside "Pixelate instead" it told the reader that a personal display
+  preference and a privacy control were the same kind of thing.
+- "Mute server speaker/headset in RTC" -> **"Server speaker"**: it was the
+  longest label in the panel and its only user-facing use of that acronym.
+
 ## 7.0.32
 
 - **One version format across the fleet.** The header read
