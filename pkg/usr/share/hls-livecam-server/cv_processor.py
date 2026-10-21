@@ -635,6 +635,26 @@ def _highlight_rolloff_lut(threshold, ceiling, gamma):
     return np.clip(y, 0, 255).astype(np.uint8)
 
 
+def _intersect_box(a, b):
+    """Overlap of two (x, y, w, h) boxes, or None if they do not meet.
+
+    None for either input means "no constraint from that side", so the other
+    one wins -- which is what lets a caller intersect an optional foveal box
+    with an optional region without four branches at the call site.
+    """
+    if a is None:
+        return b
+    if b is None:
+        return a
+    ax, ay, aw, ah = a
+    bx, by, bw, bh = b
+    x1, y1 = max(ax, bx), max(ay, by)
+    x2, y2 = min(ax + aw, bx + bw), min(ay + ah, by + bh)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2 - x1, y2 - y1)
+
+
 class CVProcessor:
     """Stateful temporal enhancer. process(frame) -> (frame, metadata).
 
@@ -753,6 +773,8 @@ class CVProcessor:
         # take this lock. Everything else the detection thread touches
         # (_accum_*) is private to that one thread and needs no lock.
         self._tracker_lock = threading.Lock()
+        self._roi = None                # operator's detection region, as
+                                        # (x, y, w, h) fractions, or None
         self._accum_box = None          # fixed crop rect for the in-progress
                                          # accumulation window -- every
                                          # sample crops to THIS rect, not its
@@ -1043,6 +1065,46 @@ class CVProcessor:
                 'energy': st['energy'], 'asleep': st['asleep'], 'receptors': st['receptors'],
                 'champion': {'host': ch.get('host'), 'generation': ch.get('generation')} if ch else None}
 
+    def set_roi(self, box):
+        """The DETECTION REGION: a fixed rectangle the detector is confined to.
+
+        `box` is (x, y, w, h) as FRACTIONS of the frame, or None for the whole
+        picture. Fractions rather than pixels so the region survives a
+        resolution change -- a box stored as 640x360 pixels means something
+        different the day the capture size changes, and nothing would say so.
+
+        This is not the Foveal Layer. Foveal is derived per frame from where
+        motion actually is; this is chosen once by a person and does not move.
+        When both are on, detection gets their INTERSECTION: foveal still
+        picks the interesting part, but it can only pick inside here.
+
+        Live, like every other switch in this class -- set per writer-loop
+        iteration, so changing the region takes effect on the next frame
+        rather than at the next restart.
+        """
+        self._roi = box
+
+    def _roi_box(self, frame_shape):
+        """The operator's region in full-frame pixels, or None.
+
+        Fractions in, pixels out, clamped to the frame: a stored region is
+        only meaningful relative to a picture, and the picture's size is not
+        this object's to assume.
+        """
+        r = self._roi
+        if not r:
+            return None
+        try:
+            fx, fy, fw, fh = (float(v) for v in r)
+        except Exception:
+            return None
+        h, w = frame_shape[:2]
+        x = max(0, min(w - 1, int(round(fx * w))))
+        y = max(0, min(h - 1, int(round(fy * h))))
+        bw = max(1, min(w - x, int(round(fw * w))))
+        bh = max(1, min(h - y, int(round(fh * h))))
+        return (x, y, bw, bh)
+
     def set_foveal(self, enabled):
         """Live toggle for the Foveal Layer, called every writer-loop
         iteration with the checkbox's current state -- same pattern as feed
@@ -1130,9 +1192,38 @@ class CVProcessor:
         # Runs regardless of edge style: the detection thread must not care
         # whether the display path is about to take the sharpie early return
         # below.
+        # THE DETECTION REGION, applied here because this is the one place
+        # that decides what the detector is shown.
+        #
+        # Two things have to happen, and doing only the first is the trap:
+        #
+        #   1. crop_box confines the detector's LOOK. With a region set it is
+        #      never None, so the full-frame fallback in _detection_step --
+        #      which exists for "foveal found nothing" -- cannot quietly
+        #      re-widen the search to the whole room.
+        #   2. the motion mask is cleared outside the region. fg_mask drives
+        #      the foveal box AND the notifier's motion gate, so motion
+        #      outside a region that is supposed to be ignored would still
+        #      raise the alert that the region exists to prevent. Confining
+        #      the look without confining the motion would have LOOKED like
+        #      it worked, because the picture would be right and only the
+        #      triggering would be wrong.
+        roi_px = self._roi_box(frame.shape)
+        if roi_px is not None and self._fg_mask is not None:
+            rx, ry, rw, rh = roi_px
+            outside = np.ones_like(self._fg_mask)
+            outside[ry:ry + rh, rx:rx + rw] = 0
+            self._fg_mask[outside.astype(bool)] = 0
+
         crop_box = (self._foveal_crop_box(frame.shape)
                     if self._foveal_enabled and self._fg_mask is not None
                     else None)
+        if roi_px is not None:
+            # Foveal still picks the interesting part; it just cannot pick
+            # outside the region. No overlap means nothing of interest is in
+            # there, so fall back to the region itself rather than to the
+            # whole frame.
+            crop_box = _intersect_box(crop_box, roi_px) or roi_px
         with self._detect_slot_lock:
             if crop_box is not None:
                 self._crop_at = time.time()

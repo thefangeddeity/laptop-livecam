@@ -1483,7 +1483,37 @@
        and when the header was refactored to .ele-top that selector stopped
        matching, so the hostname inherited 16px sans from <body>. One element
        60% larger than its neighbours and the only non-mono thing in the row. */
-    .ele-col { display: flex; flex-direction: column; gap: 4px;
+    /* ── DETECTION REGION ───────────────────────────────────────────
+       The layer sits over the video and only exists while arming. Everything
+       is in PERCENT, because the box is stored as fractions of the frame and
+       the element it is drawn on is whatever size the window happens to be --
+       converting once at the edge keeps the two from drifting. */
+    /* Reset rides on the same row as the lamp. auto margin pushes it to the
+       far edge so it lines up with the panel, not with the label. */
+    /* The two actions share a row under the lamp, indented to the lamp's
+       label so they read as belonging to it rather than as new settings. */
+    .roi-actions { gap: 6px; padding-left: 26px; }
+    .roi-actions .pbtn { flex: 1 1 0; padding: 3px 6px; font-size: 9px;
+                         letter-spacing: .08em; }
+    /* A region that has never been drawn cannot be switched on, and the lamp
+       says so by being unlit and unresponsive rather than by doing nothing
+       when pressed. */
+    .pinled.na { opacity: .4; cursor: default; }
+    .roi-layer { position: absolute; inset: 0; z-index: 6; cursor: crosshair;
+                 background: rgba(0,0,0,.35); }
+    .roi-layer[hidden] { display: none; }
+    .roi-box { position: absolute; border: 1px solid var(--phos);
+               box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
+               background: transparent; pointer-events: none; }
+    .roi-box[hidden] { display: none; }
+    .roi-hint { position: absolute; left: 50%; bottom: 14px;
+                transform: translateX(-50%); pointer-events: none;
+                font: 600 10px/1.4 var(--mono); letter-spacing: .09em;
+                text-transform: uppercase; color: var(--phos);
+                background: rgba(0,0,0,.65); border: 1px solid #040809;
+                border-radius: 4px; padding: 5px 10px; white-space: nowrap; }
+    @media (max-width: 720px) { .roi-hint { font-size: 9px; white-space: normal;
+                max-width: 80%; text-align: center; } }    .ele-col { display: flex; flex-direction: column; gap: 4px;
                min-width: 0; }
     /* A readout, not a caption, so it gets a readout's housing: the same
        inset screen the header's build badge sits in, borrowed by name from
@@ -1890,7 +1920,14 @@
       <div class="hide-title">No video signal</div>
       <div class="hide-sub">The camera is switched off</div>
     </div>
-  </div>
+    <!-- DETECTION REGION. Drawn ON the picture, because a region is a
+         statement about the picture and anywhere else makes you hold two
+         things in your head at once. Hidden until armed, so it costs the
+         ordinary viewer nothing. -->
+    <div class="roi-layer" id="roiLayer" hidden>
+      <div class="roi-box" id="roiBox" hidden></div>
+      <div class="roi-hint" id="roiHint">Drag on the picture to choose the area the detector watches</div>
+    </div>  </div>
 
   <aside class="sidebar side-right" id="sidebar">
     <div class="sidebar-scroll">
@@ -2143,7 +2180,31 @@
           <!-- Content of an alert, not a trigger for one -- hence its own
                rule rather than another row in the list above. -->
           <div class="pdiv"></div>
+          <!-- Two controls, because they answer different questions. The
+               lamp is WHETHER the region applies; the button is WHAT it is.
+               One control doing both means switching the region off throws
+               away the box, and the next "on" costs you a drag -- nobody
+               toggles something that expensive. -->
           <div class="pinrow">
+            <button class="pinled" id="roiBtn" onclick="toggleRoi()"
+                    aria-pressed="false" aria-label="Limit detection to the chosen area"
+                    title="Apply the chosen area. Off watches the whole picture; the area is remembered either way">
+              <span class="bulb" id="roiLamp"></span>
+            </button>
+            <span class="eng rstlab" id="roiLabel">Detection area</span>
+          </div>
+          <!-- EDIT and SET are exclusive: exactly one is live at a time, so
+               the pair itself says which mode you are in. A single button
+               that changes its own label makes you read it to find out. -->
+          <div class="pinrow roi-actions">
+            <button class="pbtn" id="roiEditBtn" onclick="armRoi()"
+                    title="Drag a box on the picture to choose the area">Edit</button>
+            <button class="pbtn" id="roiSetBtn" onclick="commitRoi()"
+                    title="Keep the area you drew and stop editing">Set</button>
+            <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
+                    title="Forget the area and watch the whole picture">Reset</button>
+          </div>
+          <div class="pdiv"></div>          <div class="pinrow">
             <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
                     aria-pressed="false" aria-label="Include photos in alerts"
                     title="Attach stills. Off with video off, the alert is text only">
@@ -5315,7 +5376,186 @@
     post('/api/detect-always', detectOn ? 'false' : 'true',
          function(v) { detectOn = v.trim() === 'true'; });
   }
-  function toggleAlertShots() {
+  // ── DETECTION REGION ──────────────────────────────────────────────────
+  // The box is stored as FRACTIONS of the frame and drawn on an element whose
+  // size is whatever the window happens to be, so every read converts at the
+  // edge and nothing downstream has to know about pixels.
+  //
+  // The video is object-fit:contain on mobile, which means the picture does
+  // NOT fill its container -- there are letterbox bars, and a fraction taken
+  // against the container would be wrong by the height of them. videoRect()
+  // returns the rectangle the PICTURE occupies, not the element's.
+  // roiCur is the stored box (or null if never drawn); roiOn is whether it
+  // APPLIES; roiArmed is whether we are currently drawing one. Three facts,
+  // because collapsing them is what made switching off cost a redraw.
+  var roiArmed = false, roiDrag = null, roiCur = null, roiOn = false;
+  // What the box was when editing began. Kept so leaving edit mode without
+  // having moved anything is a no-op rather than a pointless write, and so a
+  // drag can be adjusted repeatedly before any of it is committed.
+  var roiOrig = null;
+
+  function videoRect() {
+    var v = document.getElementById('video');
+    var box = v.getBoundingClientRect();
+    var vw = v.videoWidth, vh = v.videoHeight;
+    if (!vw || !vh) return box;          // no metadata yet: the element will do
+    var scale = Math.min(box.width / vw, box.height / vh);
+    var w = vw * scale, h = vh * scale;
+    return { left: box.left + (box.width - w) / 2,
+             top: box.top + (box.height - h) / 2,
+             width: w, height: h };
+  }
+
+  function paintRoi() {
+    var layer = document.getElementById('roiLayer');
+    var box = document.getElementById('roiBox');
+    if (!layer || !box) return;
+    layer.hidden = !roiArmed;
+    paintLed('roi', roiOn);
+    var btn = document.getElementById('roiBtn');
+    // Unlit AND unresponsive when there is nothing to apply, rather than a
+    // switch that silently does nothing.
+    if (btn) btn.classList.toggle('na', !roiCur);
+    var lab = document.getElementById('roiLabel');
+    if (lab) lab.textContent = roiCur
+      ? (roiOn ? 'Detection area' : 'Detection area (off)')
+      : 'Detection area (not set)';
+    var rst = document.getElementById('roiResetBtn');
+    if (rst) rst.disabled = !roiCur;
+    // Exclusive pair: Edit is lit while drawing, Set is only live then.
+    // Each button is dead in the mode where pressing it would mean nothing,
+    // so the pair shows the mode without being read.
+    var eb = document.getElementById('roiEditBtn');
+    if (eb) {
+      eb.classList.toggle('pressed', roiArmed);
+      eb.setAttribute('aria-pressed', roiArmed ? 'true' : 'false');
+      eb.disabled = roiArmed;
+    }
+    var setb = document.getElementById('roiSetBtn');
+    if (setb) setb.disabled = !roiArmed;
+    var hint = document.getElementById('roiHint');
+    if (hint) hint.textContent = roiCur
+      ? 'Drag to adjust \u2014 press Set when it is right'
+      : 'Drag on the picture, then press Set';
+    // The box stays visible while armed even when switched off, so you can
+    // see what you are about to replace.
+    if (!roiCur || !(roiOn || roiArmed)) { box.hidden = true; return; }
+    var r = videoRect(), host = layer.getBoundingClientRect();
+    box.hidden = false;
+    box.style.left   = (r.left - host.left + roiCur.x * r.width) + 'px';
+    box.style.top    = (r.top - host.top + roiCur.y * r.height) + 'px';
+    box.style.width  = (roiCur.w * r.width) + 'px';
+    box.style.height = (roiCur.h * r.height) + 'px';
+  }
+
+  function toggleRoi() {
+    // Flips whether the region applies. Sends only {on:...} so the server
+    // keeps the box -- that separation is the reason this is cheap.
+    if (!roiCur) return;
+    post('/api/detect-roi', JSON.stringify({ on: !roiOn }), function() { loadRoi(); });
+  }
+
+  function armRoi() {
+    // EDIT. Enters drawing mode and remembers what was there, so adjusting
+    // repeatedly is free and leaving without changing anything writes
+    // nothing. Nothing is committed by dragging -- saving on drag-release
+    // meant the first sloppy drag was already the answer, and the only way
+    // to correct it was another drag.
+    if (roiArmed) return;              // exclusive: Edit does not un-edit
+    roiArmed = true;
+    roiOrig = roiCur ? { x: roiCur.x, y: roiCur.y, w: roiCur.w, h: roiCur.h } : null;
+    paintRoi();
+  }
+
+  function commitRoi() {
+    // SET. Keeps what is drawn and leaves drawing mode. Only Set writes.
+    if (!roiArmed) return;             // exclusive: Set is dead unless editing
+    roiArmed = false;
+    var same = (!roiCur && !roiOrig) || (roiCur && roiOrig
+                 && roiCur.x === roiOrig.x && roiCur.y === roiOrig.y
+                 && roiCur.w === roiOrig.w && roiCur.h === roiOrig.h);
+    if (same) { paintRoi(); return; }  // nothing moved; no pointless write
+    if (!roiCur || roiCur.w < 0.05 || roiCur.h < 0.05) { loadRoi(); return; }
+    // Setting an area turns it on: you drew it in order to use it.
+    post('/api/detect-roi', JSON.stringify({
+      x: roiCur.x, y: roiCur.y, w: roiCur.w, h: roiCur.h, on: true
+    }), function() { loadRoi(); });
+  }
+
+  function resetRoi() {
+    // Empty body is Reset, server-side. Clearing locally first so the box
+    // disappears on the press rather than on the reply.
+    roiCur = null; roiOn = false; roiArmed = false; roiOrig = null; paintRoi();
+    post('/api/detect-roi', '', function() { loadRoi(); });
+  }
+
+  function loadRoi() {
+    fetch('/api/detect-roi', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : ''; }).catch(function() { return ''; })
+      .then(function(t) {
+        try {
+          var d = JSON.parse(t);
+          roiCur = (d && d.w > 0) ? d : null;
+          roiOn = !!(roiCur && d.on);
+        } catch (e) { roiCur = null; roiOn = false; }
+        paintRoi();
+      });
+  }
+
+  (function wireRoi() {
+    var layer = document.getElementById('roiLayer');
+    if (!layer) return;
+    function pt(e) {
+      var t = (e.touches && e.touches[0]) || e;
+      return { x: t.clientX, y: t.clientY };
+    }
+    function begin(e) {
+      if (!roiArmed) return;
+      e.preventDefault();
+      var r = videoRect(), p = pt(e);
+      roiDrag = { x0: p.x, y0: p.y, r: r };
+    }
+    function move(e) {
+      if (!roiDrag) return;
+      e.preventDefault();
+      var p = pt(e), r = roiDrag.r;
+      // Clamped to the picture: a drag that leaves the video must not produce
+      // a region outside the frame, and the server would only clamp it again.
+      var x1 = Math.min(Math.max(roiDrag.x0, r.left), r.left + r.width);
+      var x2 = Math.min(Math.max(p.x, r.left), r.left + r.width);
+      var y1 = Math.min(Math.max(roiDrag.y0, r.top), r.top + r.height);
+      var y2 = Math.min(Math.max(p.y, r.top), r.top + r.height);
+      roiCur = { x: (Math.min(x1, x2) - r.left) / r.width,
+                 y: (Math.min(y1, y2) - r.top) / r.height,
+                 w: Math.abs(x2 - x1) / r.width,
+                 h: Math.abs(y2 - y1) / r.height };
+      paintRoi();
+    }
+    function end(e) {
+      if (!roiDrag) return;
+      roiDrag = null;
+      // Nothing is sent here. The drag only updates the preview; locking the
+      // area is what writes it, so a drag can be redone until it is right.
+      // A stray click that produced a sliver is discarded rather than kept
+      // as the draft, so the previous outline stays on screen.
+      if (!roiCur || roiCur.w < 0.05 || roiCur.h < 0.05) {
+        roiCur = roiOrig ? { x: roiOrig.x, y: roiOrig.y,
+                             w: roiOrig.w, h: roiOrig.h } : null;
+      }
+      paintRoi();
+    }
+    layer.addEventListener('mousedown', begin);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', end);
+    layer.addEventListener('touchstart', begin, { passive: false });
+    window.addEventListener('touchmove', move, { passive: false });
+    window.addEventListener('touchend', end);
+    // The box is positioned in pixels derived from the picture's size, so it
+    // has to be recomputed whenever that size can change.
+    window.addEventListener('resize', paintRoi);
+    document.getElementById('video').addEventListener('loadedmetadata', paintRoi);
+    loadRoi();
+  })();  function toggleAlertShots() {
     post('/api/notify-shots', shotsOn ? 'false' : 'true',
          function(v) { shotsOn = v.trim() === 'true'; });
   }
