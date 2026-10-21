@@ -4,6 +4,29 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.18
+
+- **The panel edge was still invisible on mobile, and the two previous
+  releases had barely moved it.** `.panel` used `var(--border-soft)` -- the
+  one of the three raised least in 7.0.16 -- and `--border-soft` has exactly
+  one consumer in the whole stylesheet: that rule. It was raised
+  conservatively because of its name, without checking that its only user is
+  the most visible element on the page.
+  It is worse on mobile than on desktop. At `<=720px` the sidebar gives up
+  its own border, shadow and radius, so the panel stops being a box inside a
+  frame and becomes the only structure there is, sitting on the *page*
+  background rather than on the sidebar. Against that background the edge went
+  1.08:1 -> 1.40:1 across 7.0.16 and 7.0.17, which is not a perceptible
+  change. `.panel` now takes `--border` (1.98:1 there), and at mobile width
+  `--border-strong` (2.47:1) with a heavier shadow, since a phone is read in
+  more light than a desktop and the contact shadow washes out first.
+- **Focusing the message field zoomed the whole page on iOS.** Safari zooms
+  when a focused input's `font-size` is under 16px and does not zoom back on
+  blur, so the layout stayed scaled until pinched out by hand. Every text
+  field was 11px: `.ele-in`, `.msg2` and the six `.setnum` inputs. All go to
+  16px at `<=720px` -- a threshold, not a preference -- and `.setnum` widens
+  70px -> 88px so the larger text still fits.
+
 ## 7.0.17
 
 - **Light theme edges get depth, not just a darker line.** 7.0.16 darkened

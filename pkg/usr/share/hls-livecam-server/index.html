@@ -588,7 +588,7 @@
   }
   .panel {
     background: linear-gradient(180deg,#1f1f22 0%,var(--housing) 34%,var(--housing-lo) 100%);
-    border: 1px solid var(--border-soft); border-radius: 11px; padding: 13px 14px 14px;
+    border: 1px solid var(--border); border-radius: 11px; padding: 13px 14px 14px;
     box-shadow: inset 0 1px 0 var(--housing-hi), 0 1px 2px rgba(0,0,0,.4);
   }
   .eng { color: var(--emboss); text-shadow: 0 1px 0 rgba(255,255,255,.055), 0 -1px 0 rgba(0,0,0,.55); }
@@ -1640,6 +1640,31 @@
     .ele-err { color: #e8a9a0; font: 10px/1.4 ui-monospace, Menlo, monospace;
                margin-top: 4px; }
     .ele-err[hidden] { display: none; }
+
+    @media (max-width: 720px) {
+      /* The sidebar gives up its own border and shadow at this width, so the
+         panel stops being a box inside a frame and becomes the only structure
+         on the page -- sitting directly on the page background rather than on
+         the sidebar. It needs the strong edge, not the panel-on-panel one,
+         and a heavier shadow: a phone is usually read in more light than a
+         desktop, and the contact shadow is the first thing that washes out. */
+      html[data-theme="light"] .panel {
+        border-color: var(--border-strong);
+        box-shadow: inset 0 1px 0 rgba(255,255,255,.95),
+                    inset 0 -1px 0 rgba(88,110,117,.14),
+                    0 1px 2px rgba(88,110,117,.30),
+                    0 4px 10px rgba(88,110,117,.15);
+      }
+
+      /* iOS Safari zooms the WHOLE PAGE when a focused input's font-size is
+         under 16px, and it does not zoom back out when the field is blurred
+         -- the layout is left scaled until the reader pinches out by hand.
+         Every text field here was 11px, so focusing the message box broke the
+         page. 16px is the threshold, not a preference; the fields get wider
+         to match rather than the text getting smaller again. */
+      .ele-in, .msg2, .setnum { font-size: 16px; }
+      .setnum { width: 88px; }
+    }
   </style>
 <script>
   // On the livecam itself, video only: /api/is-host, host.html. ?full opts out.
