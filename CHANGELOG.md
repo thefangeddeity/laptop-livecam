@@ -4,6 +4,28 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.17
+
+- **Light theme edges get depth, not just a darker line.** 7.0.16 darkened
+  the border colours, which helped, but a light-theme edge reads as a
+  *bevel* -- lit along the top, shadowed underneath -- and the shadow half
+  was missing. `.panel` carried `0 1px 2px rgba(88,110,117,.14)` against dark
+  theme's `0 1px 2px rgba(0,0,0,.40)`: about a third the weight, on the
+  largest surface in the UI, and 0.14 at 2px is ambient only. The white inset
+  highlight was already at .85, so panels were lit along the top with nothing
+  underneath -- they floated, and the flat border was left carrying the whole
+  edge. Every other light-theme component sits at .18-.28; the panel was the
+  outlier. Now four layers: the top catching the light, the inside of the far
+  wall, a tight contact shadow saying where the panel meets the page, and a
+  soft ambient one lifting it.
+- Buttons were second-weakest at .16, and hardcoded `border-color: #dbd9cf`
+  (1.37:1) -- another faint literal the variables never reached. Now
+  `#b4b2a5`, 2.06:1.
+- `.pdiv` is an engraved groove: a dark line with a lit edge beneath it. The
+  highlight was there and correct; the line it was meant to sit under was
+  `#e4e2d8` at 1.25:1, so there was no groove to catch it. Now `#cfcdc0`,
+  1.54:1.
+
 ## 7.0.16
 
 - **Light theme borders were barely visible.** `--border` sat at 1.35:1
