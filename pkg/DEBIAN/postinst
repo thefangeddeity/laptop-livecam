@@ -23,8 +23,19 @@ mkdir -p /etc/hls-livecam
 chmod 755 /etc/hls-livecam
 
 # --- State directory --------------------------------------------
-mkdir -p /var/lib/hls-livecam
-chmod 755 /var/lib/hls-livecam
+# root:www-data 2775, not root:root 755.
+#
+# The service runs as www-data and writes its switches here. At 755 it could
+# write a file that already existed and could NOT create one, so every new
+# state file failed on first use and only on first use: detect_roi in 7.0.11,
+# notify_presence_pause in 7.0.13. Both looked like application bugs and
+# neither was. setgid so new files inherit the group instead of depending on
+# the umask of whichever process got there first.
+install -d -o root -g www-data -m 2775 /var/lib/hls-livecam
+# Files created before this rule kept root:root and are not writable by the
+# service; hand them over without touching anything already correct.
+find /var/lib/hls-livecam -maxdepth 1 -type f ! -group www-data \
+     -exec chgrp www-data {} + -exec chmod g+rw {} + 2>/dev/null || true
 
 # --- Web root ---------------------------------------------------
 mkdir -p /var/www/hls-livecam
