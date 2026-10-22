@@ -65,6 +65,25 @@ if [ -f "$SHARE_VIEWER" ]; then
     chown root:www-data "$WEB_VIEWER"
     chmod 0644 "$WEB_VIEWER"
 fi
+# --- Install the served AGGREGATOR from the packaged copy ---------
+# Same bug as the viewer above, one directory across, and it outlived the
+# fix: cams.html existed BOTH as deb payload under pkg/var/www and as the
+# source under /usr/share, and only the /usr/share one was ever edited. The
+# payload copy stopped at v5.0.15 in May; the maintained one reached v5.2.2
+# in July. dpkg shipped the payload, so every upgrade -- including the one
+# that installed this release -- overwrote the current aggregator with the
+# May build, and tina has been serving a five-month-old page at /cams/ ever
+# since. The payload copy is gone; /usr/share is the single source, and this
+# puts it where nginx serves it on install and on upgrade both.
+SHARE_CAMS=/usr/share/hls-livecam-server/cams/cams.html
+WEB_CAMS=/var/www/hls-livecam/cams/cams.html
+if [ -f "$SHARE_CAMS" ]; then
+    mkdir -p /var/www/hls-livecam/cams
+    cp "$SHARE_CAMS" "$WEB_CAMS"
+    chown root:www-data "$WEB_CAMS" 2>/dev/null || true
+    chmod 0644 "$WEB_CAMS"
+fi
+
 # The viewer asks for /brand.png in its header. Nothing ever copied it into
 # the web root, so it worked only on nodes where someone had done it by hand.
 if [ -f /usr/share/hls-livecam-server/brand.png ]; then
