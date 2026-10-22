@@ -1641,7 +1641,7 @@
                     flex-wrap: wrap; }
     /* 11px and a real hit box: these are the only controls on the overlay and
        on a phone they are the whole interaction. */
-    .galprev-acts .pbtn { font-size: 11px; padding: 8px 14px; }
+    .galprev-acts .pbtn { font-size: 11px; padding: 8px 16px; white-space: nowrap; }
     .roster-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
     .roster-name { flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--text); }
     .roster-count { font: 9px/1 var(--mono); color: var(--text-muted); }
@@ -2715,8 +2715,9 @@
     <img class="galprev-img" id="galPrevImg" alt="">
     <div class="galprev-cap" id="galPrevCap"></div>
     <div class="galprev-acts">
-      <button type="button" class="pbtn" id="galPrevName">Name this one</button>
+      <button type="button" class="pbtn" id="galPrevName">Name</button>
       <button type="button" class="pbtn" id="galPrevClose">Close</button>
+      <button type="button" class="pbtn guarded" id="galPrevDel">Delete</button>
     </div>
   </div>
 </div>
@@ -6256,7 +6257,9 @@
         t.onclick = function () {
           openGalPreview(galImg(L.name, L.cover),
                          L.name + ' \u00b7 ' + L.count +
-                         (L.count === 1 ? ' picture' : ' pictures'), null);
+                         (L.count === 1 ? ' picture' : ' pictures'),
+                         { folder: L.name, id: L.cover, cls: null,
+                           nameable: false });
         };
         r.appendChild(t);
       }
@@ -6290,7 +6293,8 @@
       b.onclick = function () {
         openGalPreview(galImg('unlabelled', u.id),
                        (u.cls || 'picture') + (u.size ? ' \u00b7 ' + u.size : ''),
-                       { id: u.id, cls: u.cls });
+                       { folder: 'unlabelled', id: u.id, cls: u.cls,
+                         nameable: true });
       };
       strip.appendChild(b);
     });
@@ -6306,7 +6310,9 @@
   // ── GALLERY PREVIEW ──
   // What the strip could not do: show you the picture. Opening this is now
   // what a tap does; naming is a button inside it.
-  var galPrevTarget = null;     // {id, cls} when the picture can be named
+  // {folder, id, cls, nameable}. folder+id are carried for every picture,
+  // named or not, because Delete applies to both -- only Name is special.
+  var galPrevTarget = null;
   var galPrevLastFocus = null;
 
   function openGalPreview(src, caption, target) {
@@ -6322,10 +6328,14 @@
     if (cap) cap.textContent = caption || '';
     // Already-named pictures have nothing to name, so the button goes rather
     // than sitting there disabled -- there is no second state to explain.
-    if (nameBtn) nameBtn.hidden = !galPrevTarget;
+    // Delete stays, because every picture can be thrown away.
+    if (nameBtn) nameBtn.hidden = !(galPrevTarget && galPrevTarget.nameable);
+    var delBtn = document.getElementById('galPrevDel');
+    if (delBtn) delBtn.hidden = !galPrevTarget;
     box.hidden = false;
     box.classList.add('on');
-    var first = galPrevTarget ? nameBtn : document.getElementById('galPrevClose');
+    var first = (galPrevTarget && galPrevTarget.nameable)
+                ? nameBtn : document.getElementById('galPrevClose');
     if (first) { try { first.focus(); } catch (e) {} }
   }
 
@@ -6350,6 +6360,19 @@
       var t = galPrevTarget;
       closeGalPreview();                  // the prompt is modal; get out first
       if (t) labelPicture(t.id, t.cls);
+    };
+    var delBtn = document.getElementById('galPrevDel');
+    if (delBtn) delBtn.onclick = function () {
+      var t = galPrevTarget;
+      if (!t) return;
+      // No undo, same as Forget. The question names what goes, and it is
+      // asked while the picture is still on screen behind it.
+      if (!window.confirm('Delete this picture? This cannot be undone.')) return;
+      closeGalPreview();
+      fetch('/api/gallery/forget', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: t.folder, id: t.id })
+      }).then(pollGallery).catch(function () {});
     };
     if (box) box.addEventListener('click', function (e) {
       // Backdrop only. A tap on the picture or the buttons must not close it,
