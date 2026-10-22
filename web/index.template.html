@@ -348,19 +348,48 @@
      because this row's job is "an in-progress call", a different MODE of the
      panel, not another instrument reading. Colour carries meaning the same way
      those products use it: neutral grey = idle toggle, red = the exit action. */
-  .callctl-row { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 10px 0 2px; }
-  .callctl { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  /* One row: CALL + the three in-call circles as one left-aligned group,
+     then BUZZ alone at the far right. flex-start rather than center, because
+     the right edge is a position BUZZ is meant to hold -- centring would let
+     it drift inward as the row's contents change.
+     36px circles and a 46px key floor are what buy the free space that
+     separates BUZZ: at the stock 40px/54px the five controls fill ~260px of
+     usable card and there is no gap left to mean anything. */
+  .callctl-row { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 10px 2px 2px; }
+  .callctl-row .modem { min-width: 46px; }
+  .callctl-row #buzzBtn { margin-left: auto; }
+  .callctl { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
     cursor: pointer; flex: 0 0 auto; border: 1px solid #34343a;
     background: linear-gradient(180deg,#2c2c30,#232326);
     box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 1px 1px rgba(0,0,0,.35); transition: all .15s; }
-  .callctl svg { width: 18px; height: 18px; stroke: #d6d6da; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .callctl svg { width: 17px; height: 17px; stroke: #d6d6da; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
   .callctl.pressed { background: linear-gradient(180deg,#3a1414,#2a0f0f); border-color: #5a2020; }
   .callctl.pressed svg { stroke: #ff8a8a; }
-  .callctl.end { background: linear-gradient(180deg,#b3392c,#8f2c22); border-color: #6e211a; }
-  .callctl.end svg { stroke: #fff; }
+  /* END keeps its red, wired or not. It used to grey out with the other two
+     when disabled, which made the one control on the row whose meaning is
+     universally legible look like dead metal -- and this housing does not do
+     that to its other unwired coloured key: CALL sits three places to the
+     left, disabled, still green. Hue says WHAT a control is; brightness and
+     the not-allowed cursor say whether you may press it yet.
+     The palette is .pbtn.guarded's -- the Silence key two panels up -- rather
+     than a second red invented here, so the one page has one red. */
+  .callctl.end { border-color: #551410;
+    background: linear-gradient(180deg,#a63a2d 0%,#87251c 54%,#6f1a13 100%); }
+  .callctl.end svg { stroke: #ffe9e4; }
   .callctl:disabled { cursor: not-allowed; opacity: .4; }
-  .callctl:disabled.end { background: linear-gradient(180deg,#2c2c30,#232326); border-color: #34343a; }
-  .callctl:disabled.end svg { stroke: #d6d6da; }
+  /* Lifting the blanket .4 deliberately: at that opacity the red washes to
+     the same grey this rule exists to avoid. Held back by a darker face
+     instead -- .pbtn.guarded.pressed's tone, the page's existing "red, but
+     not now". */
+  .callctl:disabled.end { opacity: 1; border-color: #4a110d;
+    background: linear-gradient(180deg,#6f1d15 0%,#58140e 100%); }
+  .callctl:disabled.end svg { stroke: #e3bdb6; }
+  html[data-theme="light"] .callctl.end { border-color: #7a1e15;
+    background: linear-gradient(180deg,#c04231 0%,#a02f22 54%,#8c2419 100%); }
+  html[data-theme="light"] .callctl.end svg { stroke: #fff3ef; }
+  html[data-theme="light"] .callctl:disabled.end { border-color: #7a1e15;
+    background: linear-gradient(180deg,#a8382a 0%,#8c2419 100%); }
+  html[data-theme="light"] .callctl:disabled.end svg { stroke: #f6ded8; }
   .setsubtoggle { font-size: 8.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--phos-label); padding: 4px 2px 2px; text-align: left; }
   /* #combToggle is a PLAIN, UNMODIFIED .reset -- a clone of Reload (requirement: "you're
      thrashing; remove button altogether and clone Reload button, no LED").
@@ -1485,8 +1514,10 @@
     #avPanel .vlab, #avPanel .vval { line-height: 17px; }
     #avPanel .vval { height: 17px; }
     #avPanel .vind { margin-top: 4px; padding-top: 4px; }
-    #avPanel .modemrow { padding: 2px 4px !important; }
-    #avPanel .callctl-row { gap: 10px; padding: 6px 0 0; }
+    /* The row is full width here, so it has room the 300px rail never
+       had -- but the circles stay small for the same reason as before:
+       they do not do anything yet. */
+    #avPanel .callctl-row { gap: 8px; padding: 6px 0 0; }
     #avPanel .callctl { width: 30px; height: 30px; }
     #avPanel .callctl svg { width: 15px; height: 15px; }
 
@@ -2183,32 +2214,44 @@
         </div>
 
         <div class="pdiv"></div>
-        <!-- CALL and BUZZ: the same gesture at two volumes -- BUZZ shakes a
-             viewer already watching, CALL summons one who is not. CALL is the
-             future home of the video call (camera + self-view PiP); disabled
-             until wired. Disable-buzz now lives in Settings.
-             .modem-group's margin-left:auto is for sharing a row with a
-             Reload+label pair to its left (see AUDIO's own reload row) --
-             nothing shares THIS row, so that same rule left it hugging the
-             right edge with all the empty space stacked on one side (dev).
-             Centred here instead, scoped to this one instance. -->
-        <div class="modemrow" style="padding: 4px 6px;">
-          <div class="modem-group" style="margin: 0 auto;">
-            <button class="modem calling" id="callBtn" disabled
-                    title="Call the server -- not wired yet">
-              <span class="cap2">CALL SERVER</span>
-            </button>
-            <button class="modem alerting" id="buzzBtn" onclick="sendBuzz()"
-                    title="Shake and sound every viewer's screen">
-              <span class="cap2">BUZZ</span>
-            </button>
-          </div>
-        </div>
+        <!-- ONE call row, read left to right: start the thing, then manage
+             the thing. CALL and BUZZ are the same gesture at two volumes --
+             BUZZ shakes a viewer already watching, CALL summons one who is
+             not -- and the three circles are what you reach for only once a
+             call exists. Disable-buzz lives in Settings.
 
-        <!-- IN-CALL controls: present and disabled (the FOVEAL/CALL precedent
-             elsewhere on this page), not wired to nothing -- lights up once
-             the video call (task: wire CALL) makes a real call to control. -->
+             These were two rows. They are one because CALL and the circles
+             are mutually exclusive IN TIME, not in space: idle, CALL is live
+             and the circles are dead; in a call, CALL is dead and the circles
+             are live. Two rows implied two independent banks and gave the card
+             a second centre of gravity; one row says they are one conversation
+             at two stages, read left to right.
+
+             BUZZ is NOT part of that lifecycle -- it works in either state and
+             needs no call to exist -- so it is pushed to the far right by its
+             own auto margin, outside the group it does not belong to. The gap
+             is the separator; an earlier draft put a drawn seam there too, and
+             with the distance already doing the work it was one mark too many.
+
+             IN-CALL controls stay present-and-disabled rather than hidden,
+             the FOVEAL/CALL precedent elsewhere on this page: the row must
+             not change width when a call starts.
+
+             The cap reads CALL, not CALL SERVER: five controls do not fit
+             260px of usable card at a readable target size, and the
+             11-character cap was the widest thing competing for it. The card
+             is titled AV and the readout directly above says Call / Peer, so
+             the target was already stated twice; the title attribute keeps
+             the long form for anyone who hovers.
+
+             The .modem-group wrapper is gone: it exists to keep a cluster of
+             keys together against a Reload+label pair (see AUDIO's own reload
+             row), and these two keys are deliberately NOT together any more. -->
         <div class="callctl-row">
+          <button class="modem calling" id="callBtn" disabled
+                  title="Call the server -- not wired yet">
+            <span class="cap2">CALL</span>
+          </button>
           <button type="button" class="callctl" id="callMicBtn" disabled
                   aria-pressed="false" aria-label="Mute mic (in call)"
                   title="Mute your mic for this call -- not wired yet">
@@ -2222,6 +2265,10 @@
           <button type="button" class="callctl end" id="callEndBtn" disabled
                   aria-label="End call" title="End the call -- not wired yet">
             <svg viewBox="0 0 24 24"><path d="M4 14c4-3 12-3 16 0v3a1 1 0 0 1-1.2 1c-1.6-.3-3-.9-4-1.6-.5-.4-.6-1-.3-1.6l.6-1.1c-2-1-4.2-1-6.2 0l.6 1.1c.3.6.2 1.2-.3 1.6-1 .7-2.4 1.3-4 1.6A1 1 0 0 1 4 17Z"/></svg>
+          </button>
+          <button class="modem alerting" id="buzzBtn" onclick="sendBuzz()"
+                  title="Shake and sound every viewer's screen">
+            <span class="cap2">BUZZ</span>
           </button>
         </div>
       </div>
