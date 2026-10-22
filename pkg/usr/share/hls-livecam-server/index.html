@@ -2031,24 +2031,13 @@
              that way -- the same "key alone in different metal reads as
              independent" problem this row's own comment used to describe
              for CV, just inverted: here a key IN the row implied exclusivity
-             that didn't exist underneath it.
-
-             Night takes Blur's old slot rather than a new one -- amira has
-             a working CV-enhanced low-light pipeline (spatial pixel
-             binning + temporal accumulation, since this camera class has
-             no exposure/gain control to fall back on) that hasn't been
-             ported here yet. Placeholder, not wired: pending like Foveal
-             used to be before it had a backend, present as a name so the
-             row's final shape is settled ahead of the port rather than
-             reshuffled again once it lands. -->
+             that didn't exist underneath it. -->
         <div class="btnrow">
           <button class="pbtn" id="showBtn" onclick="setPicture('show')">Show</button>
           <button class="pbtn guarded" id="hideBtn" onclick="setPicture('hide')"
                   title="Switch the camera off -- publishes nothing but the notice">Hide</button>
           <button class="pbtn" id="cvBtn" onclick="setPicture('cv')"
                   title="Computer-vision render -- the room redrawn, not photographed">CV</button>
-          <button class="pbtn" id="nightBtn" onclick="setPicture('night')"
-                  title="Denoise and an aggressive tone curve tuned for a dark room">Night</button>
         </div>
         <!-- Diagnosis beside the remedy: the trace is what tells you the
              feed has stopped, and the key that fixes it is immediately to
@@ -2141,7 +2130,7 @@
         </div>
 
         <div class="pdiv"></div>
-        <!-- FOUR KEYS, ONE BANK -- the same shape as Show/Hide/CV/Night
+        <!-- THREE KEYS, ONE BANK -- the same shape as Show/Hide/CV
              upstairs, because they are the same KIND of thing: one exclusive
              selection of what the audio path is doing. Play and Stop are not
              a transport separate from Talk; Stop means neither direction is
@@ -2853,7 +2842,7 @@
   var hls = null;
   var recovering = false, retryTimer = null;
   var liveAt = null, uptimeInterval = null;
-  var feedMode = 'show'; // 'show'|'cv'|'hide'|'night' -- pre-poll placeholder only; video mode is server-authoritative, so the /api/feed-mode poll paints the real persisted mode on load (no forced-Hide flash)
+  var feedMode = 'show'; // 'show'|'cv'|'hide' -- pre-poll placeholder only; video mode is server-authoritative, so the /api/feed-mode poll paints the real persisted mode on load (no forced-Hide flash)
   var fadeInTimer = null;
 
   var protoEl = document.getElementById('protoVal');
@@ -3607,8 +3596,6 @@
     hideBtn.className = 'pbtn guarded' + (feedMode === 'hide' ? ' pressed' : '');
     cvBtn.className   = 'pbtn' + (feedMode === 'cv'   ? ' pressed' : '');
     applyCvCapability();
-    var nightBtn = document.getElementById('nightBtn');
-    if (nightBtn) nightBtn.className = 'pbtn' + (feedMode === 'night' ? ' pressed' : '');
     var iCv = document.getElementById('indCv');
     if (iCv) iCv.className = (feedMode === 'cv') ? 'on' : '';
     // Hide publishes static, which on its own is indistinguishable from a
@@ -3922,9 +3909,7 @@
        what the press meant. */
     if (mode === feedMode) { reloadStream(); return; }
     coverFor(mode);
-    var nightBtn = document.getElementById('nightBtn');
     showBtn.disabled = true; cvBtn.disabled = true; hideBtn.disabled = true;
-    if (nightBtn) nightBtn.disabled = true;
     fetch('/api/feed-mode', {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
@@ -3940,7 +3925,6 @@
       }
       showBtn.disabled = false; hideBtn.disabled = false;
       cvBtn.disabled = !cvAllowed();   // never re-enable a key hardware cannot afford
-      if (nightBtn) nightBtn.disabled = false;
     });
   }
 
@@ -4308,7 +4292,7 @@
   function togglePlay() { setAudioMode(audioMode === 'play' ? 'stop' : 'play'); }
 
   // Pressed-in is the whole state display for the bank -- no lamps, exactly
-  // like Show/Hide/CV/Night, whose keys these are copies of.
+  // like Show/Hide/CV, whose keys these are copies of.
   function paintAudioModes() {
     var keys = { play: 'audioPlayBtn', stop: 'audioStopBtn', 'two-way': 'twoWayBtn' };
     for (var m in keys) {
