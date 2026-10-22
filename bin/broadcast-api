@@ -3821,6 +3821,28 @@ def pipeline():
     return data
 
 
+def _os_short():
+    """'arch' | 'ubuntu' | 'macos' | 'windows' | '' -- for the tab title.
+
+    The DISTRO, not the kernel: the fleet's two Linux nodes are an Arch and
+    an Ubuntu and they behave differently enough (service user http vs
+    www-data, /bin vs /usr/bin systemctl, card index 1 vs 0) that "linux"
+    would hide the thing you actually want to know from a tab strip.
+    """
+    try:
+        if sys.platform == 'darwin':
+            return 'macos'
+        if sys.platform.startswith('win'):
+            return 'windows'
+        with open('/etc/os-release') as fh:
+            for line in fh:
+                if line.startswith('ID='):
+                    return line.split('=', 1)[1].strip().strip('"\'').lower()
+    except Exception:
+        pass
+    return ''
+
+
 @app.route('/api/info', methods=['GET'])
 def info():
     hostname = socket.gethostname()
@@ -3847,6 +3869,7 @@ def info():
         'tailscale':     tailscale,
         'msg_max_len':   MAX_LEN,
         'product':       _cfg.get('PRODUCT_NAME',   'HLS Livecam'),
+        'os': _os_short(),
         'product_short': _cfg.get('PRODUCT_SHORT',  'HLSLS'),
     }
 

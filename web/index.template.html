@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HLS Livecam</title>
+<title>LLC</title>
 <!-- The browser-tab art, same brand mark the header already uses --
      Tanzania never had a favicon link at all (requirement: "you forgot to add the
      browser tab art... on Tanzania"), so tabs fell back to the browser's
@@ -2852,14 +2852,24 @@
     var sl = document.getElementById('srcLink');
     if (sl && info.source) sl.href = info.source;
     var Host = host ? host.charAt(0).toUpperCase() + host.slice(1) : '';
-    document.title = (Host ? Host + ' | ' : '')
-      + (info.product_short || 'HLSLS') + (build ? ' ' + build : '');
+    // ONE name across the fleet: LLC. product_short was served per node and
+    // the nodes disagreed -- a tab strip read "Tanzania | HLSLS 7.0.41" next
+    // to "Tina | LightCV 7.0.41", which looks like two different products
+    // rather than one fleet. The product name still lives in the footer and
+    // the masthead, where there is room to say it properly.
+    // The OS is the DISTRO, in parentheses after the version: the two Linux
+    // nodes are an Arch and an Ubuntu and they differ in ways worth knowing
+    // at a glance. Version first because that is what truncates last in a
+    // narrow tab.
+    document.title = (Host ? Host + ' | ' : '') + 'LLC'
+      + (build ? ' ' + build : '')
+      + (info.os ? ' (' + info.os + ')' : '');
   }).catch(function(){
     // /api/info unreachable: name the node from the URL and say nothing
     // about a build we cannot read. A wrong version in a tab is worse than
     // no version.
     var h = (window.location.hostname || '').split('.')[0];
-    document.title = (h ? h.charAt(0).toUpperCase() + h.slice(1) + ' | ' : '') + 'HLSLS';
+    document.title = (h ? h.charAt(0).toUpperCase() + h.slice(1) + ' | ' : '') + 'LLC';
   });
   /* window.Hls, not Hls: if the script tag above failed to load, a bare
      identifier here throws ReferenceError and takes the REST OF THE PAGE'S
