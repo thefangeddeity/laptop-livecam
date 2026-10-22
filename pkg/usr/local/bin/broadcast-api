@@ -86,7 +86,7 @@ ROOM_PATH       = "roomaudio"  # room audio as Opus for the two-way WHEP receive
 # the window before any viewer has connected, e.g. a restart with no state).
 # 'show' is never assumed; CV would still expose the room's shape.
 SAFE_FEED_MODE  = 'hide'
-VALID_MODES     = ('show', 'cv', 'hide', 'night')
+VALID_MODES     = ('show', 'cv', 'hide')
 # CV Mode pivot (SPEC fleet contract): 'cloak' was the pre-pivot name for
 # this mode. Every node in the fleet talks to every other node's endpoints
 # and will not ship the pivot on the same day, so this alias is accepted on
@@ -591,7 +591,7 @@ _blur_lock    = threading.Lock()
 #
 # Detection, and the notifier hanging off it, used to run only when the feed
 # mode happened to be CV: the writer loop called cv_proc.process() for
-# cv/night and skipped it outright for show/hide. So whether the camera was
+# cv and skipped it outright for show/hide. So whether the camera was
 # watching the room depended on which picture a viewer had selected -- and the
 # notifier exists precisely for when nobody is looking at the picture at all.
 # Snapshots are conditioned on detection, full stop; what the feed displays is
@@ -1219,8 +1219,8 @@ def _single_session(denv):
             not in ('', '0', 'false', 'no'))
 
 def _v4l2_apply(denv, key):
-    """Set the camera's own controls from device.env: NIGHT_V4L2_CTRLS on the
-    way into Night, DAY_V4L2_CTRLS on the way out (and at start). Comma-
+    """Set the camera's own controls from device.env: DAY_V4L2_CTRLS, at
+    start. Comma-
     separated name=value, applied one by one in order, so auto_exposure=1
     can come before exposure_time_absolute. Gain applied in the sensor, before
     compression, is far cleaner than any boost applied to the picture after."""
@@ -1282,14 +1282,6 @@ def _start_cam_reader(denv):
     fr     = int(denv.get('FRAMERATE', 15))
     fmt    = denv.get('V4L2_INPUT_FMT', '-input_format mjpeg').split()[-1]
     size   = f'{FRAME_W}x{FRAME_H}'
-    # Night may read the camera differently (NIGHT_V4L2_INPUT_FMT,
-    # NIGHT_VIDEO_SIZE): uncompressed frames keep the dark detail MJPEG throws
-    # away, at a size the camera allows uncompressed, scaled back up here.
-    with _mode_lock:
-        night = (_mode == 'night')
-    if night and str(denv.get('NIGHT_V4L2_INPUT_FMT', '')).strip():
-        fmt  = str(denv['NIGHT_V4L2_INPUT_FMT']).split()[-1]
-        size = str(denv.get('NIGHT_VIDEO_SIZE', '') or size).strip()
     scale = [] if size == f'{FRAME_W}x{FRAME_H}' else ['-vf', f'scale={FRAME_W}:{FRAME_H}']
     a_on, a_dev, a_backend, a_kbps, a_rate, a_ch = _audio_conf(denv)
 
@@ -1532,9 +1524,7 @@ def _write_privacy_mask(enabled):
 #
 # Feed mode is ONE global for the whole node: /var/lib/hls-livecam/feed_mode,
 # set by whichever viewer clicked last. Four people in four countries share it
-# -- one picks CV, one picks Night, one picks Show -- and the last click wins
-# for everybody. Night does more than repaint: it runs _v4l2_apply() and, with
-# NIGHT_V4L2_INPUT_FMT set, terminates the camera reader outright.
+# -- one picks CV, one picks Show -- and the last click wins for everybody.
 #
 # So anything riding the display pipeline is at the mercy of a stranger's
 # checkbox. Detection must not be. Alerting is not a view: it answers to the
@@ -1542,9 +1532,9 @@ def _write_privacy_mask(enabled):
 #
 # This thread is detection's own tap. It reads the raw camera frame straight
 # from the drain loop's cache and hands it to a CVProcessor that NOTHING in
-# the display path touches -- no set_foveal(), no set_night(), no mode branch.
+# the display path touches -- no set_foveal(), no mode branch.
 # The only thing still shared is the physical sensor, because there is one
-# camera and a viewer who forces a Night exposure really does change what the
+# camera, and a viewer who changes the mode really does change what the
 # lens sees. Everything above that is now independent.
 #
 # 5Hz: the detector itself runs at CV_DETECT_HZ (1.5), so this is ample, and
@@ -1812,16 +1802,14 @@ def _writer_loop():
         # rebuilding CVProcessor reloads the ONNX weights AND drops the stale
         # accumulated state (MOG2 history, evidence tracks, scene reference)
         # that made detection go stale with no update button to clear it.
-        if ctrl_mode is None or (mode == 'night') != (ctrl_mode == 'night'):
-            # Into or out of Night: the camera's own gain and exposure, and,
-            # when Night reads the camera differently, a fresh reader (the
-            # drain loop reopens it, in the right format for the mode).
-            _v4l2_apply(denv, 'NIGHT_V4L2_CTRLS' if mode == 'night' else 'DAY_V4L2_CTRLS')
-            if ctrl_mode is not None and str(denv.get('NIGHT_V4L2_INPUT_FMT', '')).strip():
-                try:
-                    cam_holder[0].terminate()
-                except Exception:
-                    pass
+        # The camera's own gain and exposure, once, at start. This also used
+        # to fire on every transition into or out of Night and -- when Night
+        # read the camera in a different format -- terminate the reader so the
+        # drain loop reopened it. With Night gone there is no second control
+        # set and no second format, so the only transition left is the first
+        # one, which is what DAY_V4L2_CTRLS always was.
+        if ctrl_mode is None:
+            _v4l2_apply(denv, 'DAY_V4L2_CTRLS')
             ctrl_mode = mode
 
         if _cv_reset_evt.is_set():
@@ -1855,7 +1843,7 @@ def _writer_loop():
         # NO video mode change restarts the publisher any more -- audio must
         # never blip when the picture changes (A/V fully independent). Every
         # mode is just different frames written into the v4l2 loopback below:
-        # show/cv/night render the scene, hide renders static; the publisher
+        # show/cv render the scene, hide renders static; the publisher
         # reads the loopback continuously and never notices the swap (the same
         # way show<->cv always worked). The old hide-boundary restart existed
         # ONLY to close the mic on hide -- but the mic is decoupled now (audio
@@ -1884,7 +1872,7 @@ def _writer_loop():
 
             if mode == 'show':
                 frame_arr = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
-            elif mode in ('cv', 'night'):
+            elif mode == 'cv':
                 # Stays in NumPy/OpenCV array form throughout -- no PNG/PIL
                 # round trip. That cycle is what the old cloak render did,
                 # and it measured ~190ms/frame here against a 66.7ms budget.
@@ -1894,15 +1882,6 @@ def _writer_loop():
                 _r = _read_detect_roi()
                 cv_proc.set_roi(
                     (_r['x'], _r['y'], _r['w'], _r['h']) if _r else None)
-                # Night mode reuses CVProcessor's own denoise/tone-correct
-                # machinery, just tuned harder and stopped before edges --
-                # see cv_proc.process()'s _night_enabled branch. No separate
-                # capture path: unlike macOS, the camera reader here runs
-                # continuously at one fixed framerate regardless of mode
-                # (see _start_cam_reader's docstring on why), so this is the
-                # digital half of Night mode only, not the optical
-                # long-exposure half ariana also gets from a slower capture.
-                cv_proc.set_night(mode == 'night')
                 _t_cv = time.perf_counter()
                 frame_arr, _cv_meta = cv_proc.process(raw_arr)
                 _cv_obs_record((time.perf_counter() - _t_cv) * 1000.0)

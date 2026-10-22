@@ -113,27 +113,6 @@ _DEFAULTS = {
                                       # the bright end.
     'CV_SHADOW_RANGE':        110,   # L value below which the lift applies
 
-    # --- Night mode: denoise + tone-correct only, no edges/detection ------
-    # Same LUT/CLAHE machinery CV mode already runs (_tone_correct), tuned
-    # far more aggressively and pointed at a plain enhanced photo instead of
-    # a redrawn one. No new model, no GPU: a trained low-light network
-    # (Zero-DCE-style) buys nothing on hardware that measured 2-5 FPS on a
-    # CPU *better* than any node in this fleet has. Ported from ariana.
-    'NIGHT_CLAHE_CLIP':       4.5,   # vs CV mode's 2.0 -- a dark room needs far
-                                      # more local contrast pulled out of it
-    'NIGHT_CLAHE_TILES':      8,
-    'NIGHT_STACK':            1,     # Night: frames in the running average of still
-                                     # areas (1 = off); noise falls ~ sqrt(N)
-    'NIGHT_GAIN':             1.6,   # flat linear-light multiply before the
-                                      # curve; real signal, not a curve trick
-    'NIGHT_HIGHLIGHT_THRESHOLD': 235,  # a dark room rarely blows out, so the
-                                      # rolloff barely engages -- headroom is
-                                      # not the scarce resource here
-    'NIGHT_HIGHLIGHT_CEILING':   255,
-    'NIGHT_HIGHLIGHT_GAMMA':     1.0,
-    'NIGHT_SHADOW_LIFT':      2.4,   # aggressive; this curve is the whole point
-    'NIGHT_SHADOW_RANGE':     190,   # wider than CV's 110 -- most of a dark
-                                      # room's histogram sits low
 
     # Adaptive edge mode. Below a sharpness threshold, enhancement stops
     # helping -- CLAHE on mush is still mush -- so the pipeline switches to
@@ -946,23 +925,6 @@ class CVProcessor:
             _read_float(denv, 'CV_SHADOW_LIFT'),
             _read_int(denv, 'CV_SHADOW_RANGE'))
 
-        # Night mode: its own LUT/CLAHE/gain, independent of CV mode's --
-        # tuned for a dark room rather than for detection accuracy in
-        # daylight, so the two must not share instances.
-        self._night_enabled = False
-        self._night_gain = _read_float(denv, 'NIGHT_GAIN')
-        self._night_stack = max(1, int(_read_float(denv, 'NIGHT_STACK')))
-        self._night_acc = None
-        self._night_meter_at = 0.0
-        self._night_lut = _tone_curve_lut(
-            _read_int(denv, 'NIGHT_HIGHLIGHT_THRESHOLD'),
-            _read_int(denv, 'NIGHT_HIGHLIGHT_CEILING'),
-            _read_float(denv, 'NIGHT_HIGHLIGHT_GAMMA'),
-            _read_float(denv, 'NIGHT_SHADOW_LIFT'),
-            _read_int(denv, 'NIGHT_SHADOW_RANGE'))
-        self._night_clahe = cv2.createCLAHE(
-            clipLimit=_read_float(denv, 'NIGHT_CLAHE_CLIP'),
-            tileGridSize=(_read_int(denv, 'NIGHT_CLAHE_TILES'),) * 2)
 
         # cambrian-perception's organism (off unless CV_CAMBRIAN=1).
         self._cambrian = None
@@ -1128,32 +1090,13 @@ class CVProcessor:
         learned background."""
         self._foveal_enabled = bool(enabled)
 
-    def set_night(self, enabled):
-        """Live toggle for Night mode, same pattern as set_foveal()."""
-        self._night_enabled = bool(enabled)
-        if not enabled:
-            self._night_acc = None
-
-    def _night_correct(self, frame):
-        """Denoise's output, brightened and locally contrast-stretched for a
-        dark room: flat linear-light gain, then the same highlight/shadow
-        LUT + CLAHE shape _tone_correct uses, with its own far more
-        aggressive night-tuned instances."""
-        boosted = cv2.convertScaleAbs(frame, alpha=self._night_gain, beta=0)
-        lab = cv2.cvtColor(boosted, cv2.COLOR_RGB2LAB)
-        l, a, b = cv2.split(lab)
-        self._last_luma = l
-        l = cv2.LUT(l, self._night_lut)
-        l2 = self._night_clahe.apply(l)
-        return cv2.cvtColor(cv2.merge((l2, a, b)), cv2.COLOR_LAB2RGB)
-
     def _observe_prefix(self, frame, t=None):
         """Everything up to the detection handoff: correction, MOG2, foveal
         crop, and publishing the frame to the detection thread.
 
         Split out of process() so detection can run WITHOUT rendering. It used
         to run only when the display asked for it -- process() was called for
-        cv/night and skipped for show and hide -- which tied an alerting path
+        cv and skipped for show and hide -- which tied an alerting path
         to a viewing preference: the camera stopped watching the room because
         somebody picked a different picture, and the snapshots exist precisely
         for when nobody is watching the picture.
@@ -1298,7 +1241,7 @@ class CVProcessor:
         # t and t0 come back from the prefix because the render half below
         # still records into them. Splitting observe() out of process() left
         # them behind in the prefix's scope, so every process() call raised
-        # NameError on t0 -- CV and Night rendered nothing at all, while
+        # NameError on t0 -- CV rendered nothing at all, while
         # observe() (which needs neither) kept working and hid it.
         frame, t, t0 = self._observe_prefix(frame)
 
@@ -1356,53 +1299,6 @@ class CVProcessor:
         denoised = self._temporal_denoise(frame, moving_mask)
         t['denoise'] = time.perf_counter() - t2
 
-        # Night mode stops here: a plain enhanced photo, not a redrawn one.
-        # No sharpen -- unsharp amplifies noise, and noise is the one thing
-        # a dark room already has too much of. No detection/HUD -- YOLO on a
-        # near-black frame is a guess, and this mode is for a human's eyes,
-        # not a claim about what was found in the dark.
-        if self._night_enabled:
-            t3 = time.perf_counter()
-            # A longer average than the 3-frame denoise, for STILL areas only:
-            # where the flow says something moves, the current frame wins, so
-            # a walking cat stays a cat and not a smear.
-            if self._night_stack > 1:
-                f32 = denoised.astype(np.float32)
-                if self._night_acc is None or self._night_acc.shape != f32.shape:
-                    self._night_acc = f32
-                else:
-                    a = 1.0 / self._night_stack
-                    acc = self._night_acc * (1.0 - a) + f32 * a
-                    if moving_mask is not None:
-                        m = moving_mask > 0
-                        acc[m] = f32[m]
-                    self._night_acc = acc
-                denoised = np.clip(self._night_acc, 0, 255).astype(np.uint8)
-            # NIGHT METER: what the camera delivers, every ~10 s, so settings
-            # can be compared on real dark nights (noise: frame-to-frame
-            # difference of the downscaled luma / sqrt 2; includes any motion).
-            if time.time() - self._night_meter_at > 10 and self._gray_small:
-                self._night_meter_at = time.time()
-                d = small_gray.astype(np.float32) - self._gray_small[-1].astype(np.float32)
-                print(f"NIGHT METER: luma={float(small_gray.mean()):.1f} "
-                      f"noise={float(d.std()) / 1.4142:.2f} stack={self._night_stack}",
-                      flush=True)
-            night = self._night_correct(denoised)
-            t['night'] = time.perf_counter() - t3
-            sharpness = self._measure_sharpness(self._last_luma)
-            self._frames.append(frame)
-            self._gray_small.append(small_gray)
-            t['total'] = time.perf_counter() - t0
-            return night, {
-                'motion': motion_mean,
-                'sharpness': round(sharpness, 2),
-                'tracks': 0,
-                'edge_weight': 0.0,
-                'artifact_mask': False,
-                'artifact_learning': False,
-                'timings_ms': {k: round(v * 1000, 3) for k, v in t.items()},
-                'history': len(self._frames),
-            }
 
         t3 = time.perf_counter()
         toned = self._tone_correct(denoised)
