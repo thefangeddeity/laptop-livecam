@@ -43,10 +43,17 @@
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-    height: 100dvh;
+    /* The PAGE scrolls now, not each rail: one scrollbar at the window edge,
+       outside the layout, so the columns can run to the same 16px the header
+       does instead of reserving a gutter inside themselves. */
+    /* Content height, NOT viewport height. min-height:100dvh stretched the
+       page past its content and left the credits floating above a screenful
+       of background; body's own 16px padding is the whole gap under them
+       now. html carries the background so a short page still paints to the
+       bottom of the window. */
     display: flex;
     flex-direction: column;
-    overflow: hidden; padding: 16px;
+    overflow-y: auto; padding: 16px;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -157,17 +164,24 @@
 
   /* ── DESKTOP LAYOUT ── */
   .main {
-    flex: 1;
+    /* DOES NOT GROW. It used to be flex:1, which stretched it to the
+       viewport and left the footer pinned to the bottom of the screen with
+       dead space above it -- measured at 442px between the AV strip and the
+       credits on a 1100px window. `0 1 auto` sizes it to its content and
+       still lets it SHRINK, so when the cards are taller than the screen the
+       rails scroll inside it exactly as before rather than being cut off by
+       body's overflow:hidden. */
+    flex: 0 0 auto;
     display: flex;
     flex-direction: row;
     min-height: 0;
-    /* Horizontal padding matches the header's 20px, so the outer edge of each
-       side column lands on the same line as the brand mark on the left and
-       the status pill on the right. At 16px the columns overhung the header's
-       content by 4px -- not enough to look deliberate, just enough to look
-       like nothing had been aligned. Vertical stays 16px; it is not sharing
-       an edge with anything. Mobile overrides this to 0. */
-    padding: 16px 20px;
+    /* No horizontal padding: the columns' outer edges now land on the
+       header's own edges. This was 20px to match the header's INNER padding,
+       so the columns lined up with the brand mark and the status pill rather
+       than with the bar they sit in -- which reads as a misalignment,
+       because the thing the eye compares is box to box. Vertical stays 16px,
+       which is the gap the header already sets. Mobile overrides this to 0. */
+    padding: 16px 0;
     gap: 16px;
   }
 
@@ -180,7 +194,9 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    /* 16, the same gap the header leaves above the first card. One spacing
+       unit on this page. */
+    gap: 16px;
     min-width: 0; min-height: 0;
   }
   .avstrip {
@@ -544,7 +560,10 @@
     align-items: center;
     justify-content: center;
     gap: 4px 10px;
-    padding: 14px 16px 20px;
+    /* .main leaves 16px above these credits and body's padding leaves 16px
+       below them, so the footer contributes no vertical padding of its own --
+       otherwise each gap is two numbers added together. */
+    padding: 0 16px;
     font-size: 11px;
     color: var(--text-muted);
     letter-spacing: 0.02em;
@@ -1112,9 +1131,15 @@
     flex: 1;
     justify-content: flex-start;
     min-height: 0;
+    /* In flow. Taking this out of flow (absolute, inset:0) to stop the rails
+       setting the row's height left them with no height of their own, and
+       with overflow:hidden on the rail they disappeared outright -- the
+       measurements still read 16px because a clipped card still reports a
+       position. Looked at, not just measured, the page had no panels.
+       The 8px padding-right and the reserved gutter stay gone: those were
+       the actual cause of the right column sitting inside the header edge. */
     overflow-y: auto;
-    scrollbar-gutter: stable;
-    padding-right: 8px;
+    scrollbar-width: thin;
   }
 
   /* ── BUTTONS ── */
@@ -1229,6 +1254,15 @@
     body { overflow: auto; height: auto; min-height: 100dvh; }
     header { padding: 10px 16px; }
     .main { flex-direction: column; padding: 0; gap: 0; flex: none; }
+    /* .stage-col stops being a box here and lets its children sit directly
+       in .main's stack. The display's `order:-1` and sticky positioning
+       below are written against .main -- wrapping the display in a column
+       for the desktop AV strip put a box between them, so the display
+       stopped being first and the page led with the Video panel instead.
+       display:contents removes the box without moving anything: on desktop
+       the column still owns the layout, and here the display is a direct
+       child again, first, with the strip following it. */
+    .stage-col { display: contents; }
     /* order:-1 keeps the video FIRST on mobile now that panels flank it on
        desktop -- the column stack is video, then the left column's panels
        (Audio, Video), then the right column's (AV, Message, Settings).
@@ -2003,16 +2037,19 @@
     <span class="hdr-vfd" title="@BUILD_LABEL@"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
-    <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
          a third control shape for a global toggle would be one more thing to
-         learn for no gain. -->
+         learn for no gain.
+         It sits LEFT of the state pill: the pill is what you glance at, and
+         a glance goes to the end of the row, so the thing you read lands on
+         the outside edge and the thing you operate sits inboard of it. -->
     <div class="hdr-tog">
       <button type="button" class="reset tog" id="themeBtn" onclick="toggleTheme()"
               aria-pressed="false" aria-label="Light theme"
               title="Light theme"><span class="pin"></span></button>
       <span class="eng rstlab">Light</span>
     </div>
+    <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
   </div>
 </header>
 
