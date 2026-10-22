@@ -260,6 +260,48 @@ The viewer keeps a "camera is switched off" notice on top of the snow. Static
 on its own is exactly what a dead feed looks like — that notice is the only
 thing separating deliberate from broken.
 
+### BUZZ out loud
+
+BUZZ has two halves. One shakes every viewer's screen. The other plays a tone
+on the speakers of the machine the camera is attached to, for reaching
+somebody in *that* room — who by definition is not looking at a browser.
+
+It goes through the sound card, not the PC speaker. `pcspkr` is present on
+these nodes but it is a one-bit beeper with no volume control and nothing to
+shape.
+
+The tone alternates **1400 Hz and 2100 Hz**, 110 ms each, three bursts, about
+2.3 seconds. Those numbers were measured, not guessed: tones were played on
+tanzania's speaker and recorded through tanzania's own microphone, and a
+swept sine gave the response of speaker + room + mic.
+
+| finding | consequence |
+|---|---|
+| peaks near 950, 1400 and 2600 Hz; everything above ~3200 Hz is 20+ dB down | nothing above 3 kHz, however sensitive the ear is there — a 3800 Hz tone measured 22.9 dB below a 2000 Hz one |
+| a square wave's harmonics land where the speaker is dead | sine, not square. Square candidates lost to plain sines, the opposite of what equal-peak RMS predicts |
+| the response is spiky, so one frequency can be loud at the laptop and quiet across the room | two alternating tones. Costs 1.1 dB against the best single tone — under what a listener notices — and cannot be cancelled at both frequencies by one null |
+
+**The volume matters more than the tone.** tanzania's master sat at
+-23.25 dB, so the player raises it for the duration and puts it back; that is
+worth 25–30 dB, against about 7 dB across every usable tone. The restore runs
+in a `finally`, because the failure that matters is leaving somebody's
+speakers at maximum.
+
+Repeats are rate limited to one every 3 seconds, so a held button or several
+viewers at once cannot stack tones on top of each other.
+
+Keys in `/etc/hls-livecam/device.env`:
+
+| key | default | meaning |
+|---|---|---|
+| `BUZZ_TONE` | `true` | set `false` for the screen-shake only, no sound |
+| `BUZZ_TONE_MAX_VOLUME` | `true` | set `false` to play at whatever the volume already is |
+| `BUZZ_TONE_DEVICE` | auto | an ALSA device, e.g. `plughw:CARD=PCH,DEV=0`. Auto skips the virtual Loopback and HDMI and takes the first real card — by NAME, because the analogue card is index 1 on tanzania and 0 on tina |
+
+The service user needs the `audio` group, the same requirement room audio
+has. PulseAudio is not used: it belongs to the desktop user's session and
+`http`/`www-data` cannot see that socket, so this talks to ALSA directly.
+
 ### Room audio
 
 Off by default. Set `AUDIO_ENABLED=1` in `/etc/hls-livecam/device.env` along
