@@ -227,6 +227,31 @@
   .avstrip.idle .callctl:not(.avs-keep) { display: none; }
   .avstrip.incall #callBtn { display: none; }
   html[data-theme="light"] .avs-lamp .bulb { background: #c8c5b6; border-color: #aeab9d; }
+  /* The strip was carrying dark-theme furniture into the light theme: a
+     near-black 1px border round the readout and scanlines at .55, over a
+     warm base3 glass. It read as a sticker on the page rather than an
+     instrument in the same housing as everything else.
+     These are not new values -- they are .panel's metal and .vfd's glass,
+     copied so the strip belongs to the same light theme instead of
+     approximating it. */
+  html[data-theme="light"] .avstrip {
+    background: linear-gradient(180deg,#fffefb 0%,var(--housing) 34%,var(--housing-lo) 100%);
+    border-color: var(--border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.95),
+                inset 0 -1px 0 rgba(88,110,117,.12),
+                0 1px 1px rgba(88,110,117,.26),
+                0 3px 8px rgba(88,110,117,.13);
+  }
+  html[data-theme="light"] .avstrip-vfd {
+    border-color: #c9c0a6;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.85),
+                inset 0 0 18px rgba(101,123,131,.16),
+                0 1px 2px rgba(0,0,0,.10);
+  }
+  /* .55 is a dark-theme number: on base3 it is visible banding, not a hint
+     of a scanline. Same .14 the real VFD uses. */
+  html[data-theme="light"] .avstrip-vfd::after { opacity: .14; }
+  html[data-theme="light"] .avstrip-lamps { color: #6b7b80; }
   @media (max-width: 720px) {
     /* One column here, so the strip is just another stacked card. Wrapping
        rather than scrolling: five controls at phone width do not fit a line. */
@@ -1266,7 +1291,10 @@
        would push the product name onto two lines again. */
     header .status-bar { display: flex; }
     header .status-bar .hdr-vfd { display: none; }
-    .hdr-tog .rstlab { display: none; }
+    /* The label stays. It was dropped here for header width, but the switch
+       is a bare pill with no icon and no caption -- on a phone it was a
+       control that did not say what it did, which is worse than a header
+       that is 30px busier. */
     .desktop-only { display: none !important; }
     textarea.msg-box {
     min-height: 150px; min-height: 80px; flex: none; width: 100%; max-width: 100%; -webkit-appearance: none; transform: translateZ(0); }
