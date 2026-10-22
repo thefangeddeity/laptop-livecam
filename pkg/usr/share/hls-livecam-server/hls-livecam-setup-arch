@@ -510,12 +510,21 @@ EOF
   echo -e "  ${GREEN}Sudoers entries written for $SUDO_USER_NAME.${NC}"
 fi
 
-# -- Studio sudoers: http can mask/unmask ffmpeg-cam ----------
+# -- Studio sudoers: the service user drives its own units ------
+# The `restart broadcast-api` line is what makes the viewer's Repair feed
+# button real. Without it /api/reset answers 202 {"restarting": true} and
+# then silently does nothing: sudo -n is denied, the detached child dies,
+# and the browser has already been told the restart is under way.
+#
+# Deliberately `restart <one unit>` and not `systemctl *`: this grants the
+# web service the right to bounce ITSELF, which is what the endpoint does,
+# and nothing else.
 cat > /etc/sudoers.d/hls-livecam-studio << 'SUDOEOF'
 http ALL=(ALL) NOPASSWD: /bin/systemctl stop ffmpeg-cam
 http ALL=(ALL) NOPASSWD: /bin/systemctl start ffmpeg-cam
 http ALL=(ALL) NOPASSWD: /bin/systemctl mask ffmpeg-cam
 http ALL=(ALL) NOPASSWD: /bin/systemctl unmask ffmpeg-cam
+http ALL=(ALL) NOPASSWD: /bin/systemctl restart broadcast-api
 SUDOEOF
 chown root:root /etc/sudoers.d/hls-livecam-studio
 chmod 440 /etc/sudoers.d/hls-livecam-studio
