@@ -319,10 +319,18 @@ have no way to see.
 **To re-draw the area, switch "Hide the rest" off first**, set the new
 region, then switch it back on.
 
-The exception is **"Pixelate instead"**: a mosaic still carries enough
+The exception is **"Pixelate instead"**: the cloak still carries enough
 structure to aim by, so you can re-draw without turning the mask off. That
-is also the trade -- a mosaic is weaker than black, because what lets you
-aim is the same coarse structure it leaves behind.
+is also the trade -- it is weaker than black, because what lets you aim is
+the same coarse structure it leaves behind.
+
+What that setting renders is the block-art cloak, the same picture CV Mode's
+Blur button makes, rather than the plain mosaic it used to be. A mosaic
+leaves every block at its own average brightness, so shape *and* shading
+survive and a subject stays recognisable at any block size coarse enough to
+still look like a room. The cloak rescales the picture against its own
+light and dark anchors, which throws the shading away and leaves structure
+only -- measurably less legible while using *smaller* blocks.
 
 ## License
 
