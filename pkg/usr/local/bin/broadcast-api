@@ -3610,8 +3610,35 @@ def _normalize_notify_classes():
               file=sys.stderr, flush=True)
 
 
+def _quiet_access_log():
+    """Stop logging one line per HTTP request.
+
+    The viewer polls: feed mode, gallery, alerts, buzz.txt, broadcast.txt and
+    more, every few seconds, per open tab. Measured on tanzania with one
+    viewer open, werkzeug was writing 414 lines in two minutes -- 3.5/sec,
+    and 57% of everything this service logged. Every one is a journald write.
+
+    It tells you nothing in steady state: that the browser is polling is not
+    news, and when it stops polling the symptom is visible in the UI long
+    before anyone reads a log. Errors still log -- this raises the floor to
+    WARNING, it does not silence the logger -- so a 500 still lands.
+
+    Set BROADCAST_ACCESS_LOG=1 in device.env to get it back while chasing a
+    request that is not arriving.
+    """
+    try:
+        if str(_read_device_env().get('BROADCAST_ACCESS_LOG', '0')).strip() in ('1', 'true', 'yes'):
+            return
+        import logging
+        logging.getLogger('werkzeug').setLevel(logging.WARNING)
+    except Exception as exc:
+        print(f'broadcast-api: could not quiet the access log: {exc}',
+              file=sys.stderr, flush=True)
+
+
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
     _normalize_notify_classes()
+    _quiet_access_log()
     app.run(host='127.0.0.1', port=5000)

@@ -405,6 +405,19 @@ _DEFAULTS = {
     # raising SNR on a noisy sensor at zero cost to display fps.
     'CV_DETECT_HZ':            1.5,   # target detection-cycle rate, Hz.
                                       # Independent of display fps entirely.
+    # Per-PASS detector logging. Off, because it is not diagnostics in steady
+    # state -- it is a line every detection cycle whether or not anything was
+    # found. Measured on tanzania at 7.3 journald lines/sec with the viewer
+    # open; 452 of those per two minutes came from these three prints. Each
+    # carries flush=True, so each is a write syscall, and each builds its
+    # f-string (including a sort and a list comprehension over the
+    # detections) BEFORE the call -- so the gate has to wrap the statement,
+    # not the output, or the cost stays.
+    #
+    # Turn on per node while diagnosing a detector, not as a default. Errors
+    # and one-shot config dumps are NOT gated by this: a thread dying must
+    # still say so.
+    'CV_DEBUG_DETECT':         0,
     'CV_FOVEAL_ACCUM_FRAMES':  4,     # crop samples averaged before a
                                       # detect() pass. 1 = today's Phase 1
                                       # single-frame behaviour.
@@ -764,6 +777,7 @@ class CVProcessor:
         # latest-wins idiom as broadcast-api's own _cam_frame/_cam_frame_lock,
         # not a queue: a live feed has no use for a detection backlog.
         self._detect_hz = max(0.1, _read_float(denv, 'CV_DETECT_HZ'))
+        self._debug_detect = _read_int(denv, 'CV_DEBUG_DETECT') != 0
         self._accum_frames = max(1, _read_int(denv, 'CV_FOVEAL_ACCUM_FRAMES'))
         self._accum_diff_max = _read_float(denv, 'CV_FOVEAL_ACCUM_DIFF_MAX')
         self._detect_slot = None  # (frame, crop_box, fg_mask) or None
@@ -2165,8 +2179,9 @@ class CVProcessor:
                 self._detect_scale_min,
                 min(self._detect_scale_max,
                     self._acuity_last / self._acuity_divisor))
-            print(f"CV ACUITY: varLap={self._acuity_last:.1f} "
-                  f"-> detect scale {self._detect_scale:.2f}", flush=True)
+            if self._debug_detect:
+                print(f"CV ACUITY: varLap={self._acuity_last:.1f} "
+                      f"-> detect scale {self._detect_scale:.2f}", flush=True)
         self._acuity_n += 1
         return self._detect_scale
 
@@ -2295,22 +2310,23 @@ class CVProcessor:
         # alive -- and the fix is different in each case. This line reports
         # what YOLO actually returned this pass, before association,
         # evidence promotion, or decay touched it.
-        print(
-            "CV RAW DETECT:"
-            f" n={len(dets)}"
-            f" detail={sorted(((d.cls, round(d.confidence, 3)) for d in dets), key=lambda x: -x[1])}",
-            flush=True,
-        )
-        print(
-            "SHAKEY DETECT:"
-            f" detections={len(dets)}"
-            f" tracks={n_tracks}"
-            f" crop={crop_box}"
-            f" accum={len(self._accum_buf)}"
-            f" detail={[f"{d.cls}:{d.confidence:.3f}"
-                        f"/fg={d.fg_consistency:.2f}" for d in dets]}",
-            flush=True,
-        )
+        if self._debug_detect:
+            print(
+                "CV RAW DETECT:"
+                f" n={len(dets)}"
+                f" detail={sorted(((d.cls, round(d.confidence, 3)) for d in dets), key=lambda x: -x[1])}",
+                flush=True,
+            )
+            print(
+                "SHAKEY DETECT:"
+                f" detections={len(dets)}"
+                f" tracks={n_tracks}"
+                f" crop={crop_box}"
+                f" accum={len(self._accum_buf)}"
+                f" detail={[f"{d.cls}:{d.confidence:.3f}"
+                            f"/fg={d.fg_consistency:.2f}" for d in dets]}",
+                flush=True,
+            )
         self._last_detect_end = time.perf_counter()
 
     def _draw_sharpie(self, frame):
