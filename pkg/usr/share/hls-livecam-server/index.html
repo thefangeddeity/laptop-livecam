@@ -1943,7 +1943,7 @@
              for no better reason than that there was room. -->
         <div class="modemrow">
           <button class="reset" id="reloadBtn" onclick="manualReload()"
-                  title="Repair feed -- restarts the stream" aria-label="Repair feed"><span class="pin"></span></button>
+                  title="Repair feed -- restarts the camera server, not just your player. The picture drops for a few seconds." aria-label="Repair feed"><span class="pin"></span></button>
           <span class="eng rstlab">Reload</span>
           <div class="modem-group">
             <button class="modem" id="blurBtn" onclick="toggleBlur()"
@@ -2443,7 +2443,7 @@
           </div>
           <!-- Indented under the mask because it only modifies it: this is
                HOW the outside is hidden, not WHETHER. Pixelation is the
-               weaker of the two and the title says so -- a mosaic keeps
+               weaker of the two and the title says so -- the cloak keeps
                coarse structure (how many people, where, when they move),
                and the block size is a judgement about how much of that is
                acceptable rather than a guarantee. -->
@@ -2451,7 +2451,7 @@
             <button class="pinled" id="maskPixelBtn" onclick="toggleMaskStyle()"
                     aria-pressed="false" aria-label="Pixelate instead of blacking out"
                     data-note="how, not whether"
-                    title="Pixelate the outside instead of blacking it. Weaker: a mosaic still shows how many people are there and when they move. Black hides everything.">
+                    title="Pixelate the outside instead of blacking it. Weaker: the cloak still shows how many people are there and when they move. Black hides everything.">
               <span class="bulb" id="maskPixelLamp"></span>
             </button>
             <span class="eng rstlab">Pixelate instead</span>
@@ -4365,12 +4365,33 @@
 
   var reloadBtn = document.getElementById('reloadBtn');
   function manualReload() {
+    // ESCALATED to the server's own restart. This used to call reloadStream()
+    // only, which rebuilds the player and nothing else -- and a player that is
+    // already connected to a wedged capture chain has nothing to rebuild, so
+    // the button did nothing in exactly the case people press it for. The
+    // title said "restarts the stream" while it restarted a video element.
+    //
+    // /api/reset relaunches the whole stack and answers 202 BEFORE it goes, so
+    // a single reconnect here would fire into a server that is still on its
+    // way down. Poll until it answers again, then reconnect once.
     reloadBtn.classList.add('spinning');
-    setTimeout(function() { reloadBtn.classList.remove('spinning'); }, 600);
-    // Also rebuild the CV model server-side: it goes stale and there is no
-    // separate update button any more, so Reset owns that too.
     fetch('/api/cv-reset', { method: 'POST' }).catch(function () {});
-    reloadStream();
+    fetch('/api/reset', { method: 'POST' }).catch(function () {});
+    var deadline = Date.now() + 45000;
+    function done() { reloadBtn.classList.remove('spinning'); }
+    setTimeout(function wait() {
+      fetch('/api/info', { cache: 'no-store' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('not ready');
+          // Give the capture chain a moment past the API coming up: the
+          // socket answering is not the same as frames flowing.
+          setTimeout(function () { reloadStream(); done(); }, 1200);
+        })
+        .catch(function () {
+          if (Date.now() < deadline) setTimeout(wait, 1500);
+          else { reloadStream(); done(); }   // last resort, never spin forever
+        });
+    }, 2000);
   }
 
   // ── APP-SWITCH / BACKGROUND RECOVERY ──
