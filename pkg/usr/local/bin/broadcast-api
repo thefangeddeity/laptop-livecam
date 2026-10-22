@@ -2244,7 +2244,39 @@ def _cv_capability():
             _brand = _cpu_brand()
             _med, _n = _cv_obs_median()
             _rem = _cv_verdict_load()
-            if _med is not None and _n >= _CV_OBS_MIN:
+            _tier = _cpu_tier(_brand)
+            # THE HARDWARE CLASS DECIDES, which is what _cpu_tier was written
+            # for -- and until now it decided nothing, because nothing called
+            # it. The timing chain below ran unopposed and put tanzania, an
+            # i5-10210U, on the wrong side of the line: a remembered 74ms
+            # median against a 67ms budget, measured once, marked `unfit`.
+            #
+            # That verdict could never be revised, which is the part that
+            # makes it a trap rather than a bad call. `unfit` hides the CV
+            # key -> CV never runs -> no frames are observed -> the remembered
+            # median is the only evidence there will ever be. The node had
+            # observed_n: 0 and no route back.
+            #
+            # Timings stay in the payload as numbers, because they are useful
+            # and because the probe disagreeing with the class is worth
+            # seeing. They just no longer decide. An `unknown` class still
+            # falls through to them, and still keeps the key when they are
+            # silent -- hiding a working control on a guess remains the worse
+            # failure.
+            if _tier in ('ok', 'unfit'):
+                _state = _tier
+                _why = ('%s is %s an i5-equivalent; CV key follows the hardware '
+                        'class, not the stopwatch' %
+                        (_brand or 'this CPU',
+                         'at least' if _tier == 'ok' else 'below'))
+                if _med is not None and _n >= _CV_OBS_MIN:
+                    _why += (' (measured %.0fms over %d frames vs %.0fms budget)'
+                             % (_med, _n, budget))
+                elif _rem and _rem.get('median_ms') is not None:
+                    _why += (' (remembered %.0fms vs %.0fms budget)'
+                             % (_rem['median_ms'], budget))
+                _src = 'cpu-class'
+            elif _med is not None and _n >= _CV_OBS_MIN:
                 _state = 'unfit' if _med > budget else 'ok'
                 _why = ('%.0fms median over %d rendered frames vs %.0fms budget'
                         % (_med, _n, budget))
@@ -2263,6 +2295,7 @@ def _cv_capability():
             out = {'state': _state,
                    'source': _src,
                    'cpu': _brand,
+                   'cpu_tier': _tier,
                    'probe_ms': round(ren, 1),
                    'observed_ms': round(_med, 1) if _med is not None else None,
                    'observed_n': _n,
