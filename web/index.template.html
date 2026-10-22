@@ -1643,6 +1643,18 @@
     .galprev-img { display: block; margin: 0 auto; max-width: 100%;
                    max-height: 68vh; object-fit: contain; background: #000;
                    border: 1px solid var(--border-strong); border-radius: 8px; }
+    .galprev-stage { display: flex; align-items: center; gap: 6px; }
+    /* Outside the picture, not over it: a crop is small and already hard to
+       read, and an arrow floating on top covers the ear or tail that tells
+       one cat from the other. */
+    .galprev-nav { flex: 0 0 auto; width: 34px; height: 56px; padding: 0;
+                   border: 1px solid var(--border-strong); border-radius: 6px;
+                   background: rgba(0,0,0,.45); color: #cfe9e3;
+                   font: 20px/1 var(--mono); cursor: pointer; }
+    .galprev-nav:hover { background: rgba(0,0,0,.7); }
+    .galprev-nav:disabled { opacity: .25; cursor: default; }
+    html[data-theme="light"] .galprev-nav { background: rgba(255,255,255,.6);
+                                            color: #3a4a4f; }
     .galprev-cap { font: 10px/1.6 var(--mono); letter-spacing: .04em;
                    color: #cfe9e3; text-align: center; }
     .galprev-acts { display: flex; gap: 8px; justify-content: center;
@@ -1895,7 +1907,7 @@
 <header>
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
-    <span class="eng brand-name" id="brandName">HLS Livecam</span>
+    <span class="eng brand-name" id="brandName">Laptop LiveCam</span>
     <span class="hdr-vfd" title="@BUILD_LABEL@"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
@@ -2142,78 +2154,6 @@
 
       </div>
 
-    </div>
-  </aside>
-
-  <div class="video-wrap" id="videoContainer">
-    <video id="video" autoplay muted playsinline webkit-playsinline></video>
-    <!-- HUD FRAME (see the CSS block of the same name): the abstract text
-         box's markup. One .hud-line per row -- #hudStatus is row 1/state
-         (e.g. TWO-WAY LIVE / HLS LIVE). #hudError breaks out of the grid
-         entirely (see its own CSS rule) to center over the whole picture
-         instead of sitting in a row -- warnings get the eye, not a corner.
-         Add more .hud-line rows the same way if a future feature needs
-         them. -->
-    <div class="video-hud" id="videoHud" aria-live="polite">
-      <div class="hud-line" id="hudStatus"></div>
-      <div class="hud-line" id="hudError"></div>
-      <!-- Bottom-left, same corner the burned-in server HUD uses (dev:
-           "bottom two lines for CV status") -- #hudCv/#hudCvCap are the
-           SAME words as that banner/capability text (see cv_processor.
-           state()'s text/capability_text, sourced from
-           cv_detect.hud_banner_text so the two can never drift), shown
-           only while feedMode is 'cv'. Its own mini-stack (#hudCvBlock),
-           not part of the top grid -- see its CSS rule for why. -->
-      <div id="hudCvBlock">
-        <div class="hud-line" id="hudCv"></div>
-        <div class="hud-line" id="hudCvCap"></div>
-      </div>
-    </div>
-    <!-- Room audio rides its own element on the audio-only rendition, the
-         way ariana does it. The <video> above stays muted permanently: it
-         carries the same AAC muxed in, and unmuting both plays the room
-         twice, slightly out of step. -->
-    <audio id="roomAudio" preload="none"></audio>
-    <!-- The room during a two-way call, over WebRTC (WHEP /roomaudio) rather
-         than buffered HLS. Separate element on purpose: it must be what the
-         browser rendered through the PeerConnection, both for low latency and
-         so the far-end echo canceller has a reference. -->
-    <audio id="twoWayRx" autoplay playsinline hidden></audio>
-    <div class="dark-overlay" id="darkOverlay">
-      <img src="/dark.png" alt="">
-    </div>
-    <button class="fs-btn" onclick="toggleFullscreen()" title="Fullscreen">
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M1 1h5M1 1v5M17 1h-5M17 1v5M1 17h5M1 17v-5M17 17h-5M17 17v-5" stroke="white" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-    </button>
-    <div class="switch-overlay" id="switchOverlay">
-      <canvas class="switch-static" id="switchStatic"></canvas>
-    </div>
-    <div class="crt-stage" id="crtStage">
-      <canvas id="crtCanvas"></canvas>
-      <div class="crt-beam"></div>
-    </div>
-    <div class="hide-overlay" id="hideOverlay">
-      <div class="hide-title">No video signal</div>
-      <div class="hide-sub">The camera is switched off</div>
-    </div>
-    <!-- DETECTION REGION. Drawn ON the picture, because a region is a
-         statement about the picture and anywhere else makes you hold two
-         things in your head at once. Hidden until armed, so it costs the
-         ordinary viewer nothing. -->
-    <div class="roi-layer" id="roiLayer" hidden>
-      <div class="roi-box" id="roiBox" hidden
-           ><i class="roi-h nw"></i><i class="roi-h n"></i><i class="roi-h ne"></i
-           ><i class="roi-h w"></i><i class="roi-h e"></i
-           ><i class="roi-h sw"></i><i class="roi-h s"></i><i class="roi-h se"></i
-      ></div>
-      <div class="roi-hint" id="roiHint">Drag on the picture to choose the area the detector watches</div>
-    </div>
-  </div>
-
-  <aside class="sidebar side-right" id="sidebar">
-    <div class="sidebar-scroll">
       <!-- ══ AV ══  Cross-cutting "reach the room" controls. Not audio MODES
            (they never belonged in the AUDIO bank, which is a mutually-exclusive
            listen/talk selector), and the eventual home of the video call
@@ -2298,6 +2238,78 @@
           </button>
         </div>
       </div>
+    </div>
+  </aside>
+
+  <div class="video-wrap" id="videoContainer">
+    <video id="video" autoplay muted playsinline webkit-playsinline></video>
+    <!-- HUD FRAME (see the CSS block of the same name): the abstract text
+         box's markup. One .hud-line per row -- #hudStatus is row 1/state
+         (e.g. TWO-WAY LIVE / HLS LIVE). #hudError breaks out of the grid
+         entirely (see its own CSS rule) to center over the whole picture
+         instead of sitting in a row -- warnings get the eye, not a corner.
+         Add more .hud-line rows the same way if a future feature needs
+         them. -->
+    <div class="video-hud" id="videoHud" aria-live="polite">
+      <div class="hud-line" id="hudStatus"></div>
+      <div class="hud-line" id="hudError"></div>
+      <!-- Bottom-left, same corner the burned-in server HUD uses (dev:
+           "bottom two lines for CV status") -- #hudCv/#hudCvCap are the
+           SAME words as that banner/capability text (see cv_processor.
+           state()'s text/capability_text, sourced from
+           cv_detect.hud_banner_text so the two can never drift), shown
+           only while feedMode is 'cv'. Its own mini-stack (#hudCvBlock),
+           not part of the top grid -- see its CSS rule for why. -->
+      <div id="hudCvBlock">
+        <div class="hud-line" id="hudCv"></div>
+        <div class="hud-line" id="hudCvCap"></div>
+      </div>
+    </div>
+    <!-- Room audio rides its own element on the audio-only rendition, the
+         way ariana does it. The <video> above stays muted permanently: it
+         carries the same AAC muxed in, and unmuting both plays the room
+         twice, slightly out of step. -->
+    <audio id="roomAudio" preload="none"></audio>
+    <!-- The room during a two-way call, over WebRTC (WHEP /roomaudio) rather
+         than buffered HLS. Separate element on purpose: it must be what the
+         browser rendered through the PeerConnection, both for low latency and
+         so the far-end echo canceller has a reference. -->
+    <audio id="twoWayRx" autoplay playsinline hidden></audio>
+    <div class="dark-overlay" id="darkOverlay">
+      <img src="/dark.png" alt="">
+    </div>
+    <button class="fs-btn" onclick="toggleFullscreen()" title="Fullscreen">
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M1 1h5M1 1v5M17 1h-5M17 1v5M1 17h5M1 17v-5M17 17h-5M17 17v-5" stroke="white" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <div class="switch-overlay" id="switchOverlay">
+      <canvas class="switch-static" id="switchStatic"></canvas>
+    </div>
+    <div class="crt-stage" id="crtStage">
+      <canvas id="crtCanvas"></canvas>
+      <div class="crt-beam"></div>
+    </div>
+    <div class="hide-overlay" id="hideOverlay">
+      <div class="hide-title">No video signal</div>
+      <div class="hide-sub">The camera is switched off</div>
+    </div>
+    <!-- DETECTION REGION. Drawn ON the picture, because a region is a
+         statement about the picture and anywhere else makes you hold two
+         things in your head at once. Hidden until armed, so it costs the
+         ordinary viewer nothing. -->
+    <div class="roi-layer" id="roiLayer" hidden>
+      <div class="roi-box" id="roiBox" hidden
+           ><i class="roi-h nw"></i><i class="roi-h n"></i><i class="roi-h ne"></i
+           ><i class="roi-h w"></i><i class="roi-h e"></i
+           ><i class="roi-h sw"></i><i class="roi-h s"></i><i class="roi-h se"></i
+      ></div>
+      <div class="roi-hint" id="roiHint">Drag on the picture to choose the area the detector watches</div>
+    </div>
+  </div>
+
+  <aside class="sidebar side-right" id="sidebar">
+    <div class="sidebar-scroll">
 
       <!-- ══ NODE NOTE ══
            One note that lives ON this node: anyone looking at this camera
@@ -2372,6 +2384,15 @@
         </div>
       </div>
 
+      <div class="panel" id="rosterPanel" hidden style="margin-top:6px;">
+        <div class="panel-title eng">Who's who</div>
+        <div id="rosterList"></div>
+        <div class="setgrp eng" id="rosterUnlabelledHead" hidden>Not yet named</div>
+        <div id="rosterUnlabelled" class="roster-strip"></div>
+        <div class="pinrow" id="rosterEmpty">
+          <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
+        </div>
+      </div>
       <!-- Reset (left) + Settings (right) share this row. Settings opens the
            panel below, which holds the controls moved off the main banks. -->
       <div class="modemrow" style="padding:0 2px; display:flex; gap:8px;">
@@ -2718,15 +2739,6 @@
            that matters first: are the pictures of this room big enough for
            recognition to be possible at all. The size on each thumbnail is
            that answer, measured rather than estimated. -->
-      <div class="panel" id="rosterPanel" hidden style="margin-top:6px;">
-        <div class="panel-title eng">Who's who</div>
-        <div id="rosterList"></div>
-        <div class="setgrp eng" id="rosterUnlabelledHead" hidden>Not yet named</div>
-        <div id="rosterUnlabelled" class="roster-strip"></div>
-        <div class="pinrow" id="rosterEmpty">
-          <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
-        </div>
-      </div>
       <!-- No separate Reconnect button (matches Ariana): the pinhole Reload and the
            reconnecting LIVE-pill cover a dropped stream; global Reset restarts the server. -->
 
@@ -2741,7 +2753,13 @@
 <div class="galprev" id="galPrev" role="dialog" aria-modal="true"
      aria-label="Picture preview" hidden>
   <div class="galprev-box" id="galPrevBox">
-    <img class="galprev-img" id="galPrevImg" alt="">
+    <div class="galprev-stage">
+      <button type="button" class="galprev-nav prev" id="galPrevBack"
+              aria-label="Previous picture" title="Previous (left arrow)">&#8249;</button>
+      <img class="galprev-img" id="galPrevImg" alt="">
+      <button type="button" class="galprev-nav next" id="galPrevFwd"
+              aria-label="Next picture" title="Next (right arrow)">&#8250;</button>
+    </div>
     <div class="galprev-cap" id="galPrevCap"></div>
     <div class="galprev-acts">
       <button type="button" class="pbtn" id="galPrevName">Name</button>
@@ -2752,10 +2770,10 @@
 </div>
 
 <footer class="page-foot">
-  <span><span id="prodName">HLS Livecam Server</span> by The Fanged Deity &mdash; free software under the
+  <span><span id="prodName">Laptop LiveCam</span> by The Fanged Deity &mdash; free software under the
     <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU GPL v3</a>
     or later, with NO WARRANTY whatsoever. You get what you get.
-    <a id="srcLink" href="https://github.com/thefangeddeity/hls-livecam-server" target="_blank" rel="noopener">Source</a>.</span>
+    <a id="srcLink" href="https://github.com/thefangeddeity/laptop-livecam" target="_blank" rel="noopener">Source</a>.</span>
   <span id="tsOverlay">--</span>
 </footer>
 
@@ -6289,11 +6307,16 @@
         im.src = galImg(L.name, L.cover); im.alt = '';
         t.appendChild(im);
         t.onclick = function () {
-          openGalPreview(galImg(L.name, L.cover),
-                         L.name + ' \u00b7 ' + L.count +
-                         (L.count === 1 ? ' picture' : ' pictures'),
-                         { folder: L.name, id: L.cover, cls: null,
-                           nameable: false });
+          // Every picture under this name, not just the cover.
+          var pics = (L.pics || []).map(function (x) {
+            return { folder: L.name, id: x.id, cls: null,
+                     size: x.size, nameable: false };
+          });
+          if (!pics.length && L.cover) {
+            pics = [{ folder: L.name, id: L.cover, cls: null,
+                      size: '', nameable: false }];
+          }
+          openGalPreviewList(pics, 0, L.name);
         };
         r.appendChild(t);
       }
@@ -6325,10 +6348,12 @@
         sz.textContent = u.size; b.appendChild(sz);
       }
       b.onclick = function () {
-        openGalPreview(galImg('unlabelled', u.id),
-                       (u.cls || 'picture') + (u.size ? ' \u00b7 ' + u.size : ''),
-                       { folder: 'unlabelled', id: u.id, cls: u.cls,
-                         nameable: true });
+        // The whole unsorted pile, starting where you tapped -- so culling
+        // is one pass with the arrows, not open-close-open.
+        openGalPreviewList(unl.map(function (x) {
+          return { folder: 'unlabelled', id: x.id, cls: x.cls,
+                   size: x.size, nameable: true };
+        }), unl.indexOf(u), u.cls || 'picture');
       };
       strip.appendChild(b);
     });
@@ -6344,34 +6369,57 @@
   // ── GALLERY PREVIEW ──
   // What the strip could not do: show you the picture. Opening this is now
   // what a tap does; naming is a button inside it.
-  // {folder, id, cls, nameable}. folder+id are carried for every picture,
-  // named or not, because Delete applies to both -- only Name is special.
-  var galPrevTarget = null;
+  // A LIST and a position, not one picture. The preview used to be handed a
+  // single image, which is why a name with seven pictures offered a look at
+  // exactly one of them -- the cover -- and no way to reach the rest or to
+  // throw away a bad frame.
+  var galPrevList = [];        // [{folder, id, cls, size, nameable}]
+  var galPrevIdx = 0;
+  var galPrevTitle = '';       // the set's name, for the caption
+  var galPrevTarget = null;    // the current entry, kept for Name/Delete
   var galPrevLastFocus = null;
 
-  function openGalPreview(src, caption, target) {
-    var box = document.getElementById('galPrev');
+  function galPrevShow(i) {
+    if (!galPrevList.length) { closeGalPreview(); return; }
+    galPrevIdx = Math.max(0, Math.min(galPrevList.length - 1, i));
+    var it = galPrevList[galPrevIdx];
+    galPrevTarget = it;
     var im = document.getElementById('galPrevImg');
     var cap = document.getElementById('galPrevCap');
     var nameBtn = document.getElementById('galPrevName');
-    if (!box || !im) return;
-    galPrevLastFocus = document.activeElement;
-    galPrevTarget = target || null;
-    im.src = src;
-    im.alt = caption || 'Gallery picture';
-    if (cap) cap.textContent = caption || '';
-    // Already-named pictures have nothing to name, so the button goes rather
-    // than sitting there disabled -- there is no second state to explain.
-    // Delete stays, because every picture can be thrown away.
-    if (nameBtn) nameBtn.hidden = !(galPrevTarget && galPrevTarget.nameable);
     var delBtn = document.getElementById('galPrevDel');
-    if (delBtn) delBtn.hidden = !galPrevTarget;
+    var back = document.getElementById('galPrevBack');
+    var fwd = document.getElementById('galPrevFwd');
+    if (im) { im.src = galImg(it.folder, it.id); im.alt = galPrevTitle || 'Gallery picture'; }
+    var n = galPrevList.length;
+    var bits = [];
+    if (galPrevTitle) bits.push(galPrevTitle);
+    if (it.size) bits.push(it.size);
+    if (n > 1) bits.push((galPrevIdx + 1) + ' of ' + n);
+    if (cap) cap.textContent = bits.join('  \u00b7  ');
+    if (nameBtn) nameBtn.hidden = !it.nameable;
+    if (delBtn) delBtn.hidden = false;
+    // Hidden rather than disabled when there is nothing to page through: a
+    // single picture is not a one-item carousel.
+    if (back) { back.hidden = n < 2; back.disabled = galPrevIdx === 0; }
+    if (fwd) { fwd.hidden = n < 2; fwd.disabled = galPrevIdx === n - 1; }
+  }
+
+  function galPrevStep(d) { if (galPrevList.length) galPrevShow(galPrevIdx + d); }
+
+  // list: array of entries. idx: where to start. title: the set's name.
+  function openGalPreviewList(list, idx, title) {
+    var box = document.getElementById('galPrev');
+    if (!box || !list || !list.length) return;
+    galPrevLastFocus = document.activeElement;
+    galPrevList = list; galPrevTitle = title || '';
     box.hidden = false;
     box.classList.add('on');
-    var first = (galPrevTarget && galPrevTarget.nameable)
-                ? nameBtn : document.getElementById('galPrevClose');
-    if (first) { try { first.focus(); } catch (e) {} }
+    galPrevShow(idx || 0);
+    var f = document.getElementById('galPrevClose');
+    if (f) { try { f.focus(); } catch (e) {} }
   }
+
 
   function closeGalPreview() {
     var box = document.getElementById('galPrev');
@@ -6380,7 +6428,7 @@
     box.hidden = true;
     var im = document.getElementById('galPrevImg');
     if (im) im.src = '';          // stop holding the decoded bitmap
-    galPrevTarget = null;
+    galPrevTarget = null; galPrevList = []; galPrevIdx = 0; galPrevTitle = '';
     if (galPrevLastFocus) { try { galPrevLastFocus.focus(); } catch (e) {} }
     galPrevLastFocus = null;
   }
@@ -6395,6 +6443,10 @@
       closeGalPreview();                  // the prompt is modal; get out first
       if (t) labelPicture(t.id, t.cls);
     };
+    var back = document.getElementById('galPrevBack');
+    var fwd  = document.getElementById('galPrevFwd');
+    if (back) back.onclick = function () { galPrevStep(-1); };
+    if (fwd)  fwd.onclick  = function () { galPrevStep(1); };
     var delBtn = document.getElementById('galPrevDel');
     if (delBtn) delBtn.onclick = function () {
       var t = galPrevTarget;
@@ -6402,7 +6454,13 @@
       // No undo, same as Forget. The question names what goes, and it is
       // asked while the picture is still on screen behind it.
       if (!window.confirm('Delete this picture? This cannot be undone.')) return;
-      closeGalPreview();
+      // Stay open and move to the next one. Culling a set means looking at
+      // several in a row, and closing after each delete would make you
+      // re-open and re-navigate for every bad frame.
+      var at = galPrevIdx;
+      galPrevList.splice(at, 1);
+      if (galPrevList.length) galPrevShow(Math.min(at, galPrevList.length - 1));
+      else closeGalPreview();
       fetch('/api/gallery/forget', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folder: t.folder, id: t.id })
@@ -6414,7 +6472,14 @@
       if (e.target === box) closeGalPreview();
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && box && !box.hidden) closeGalPreview();
+      if (!box || box.hidden) return;
+      if (e.key === 'Escape') { closeGalPreview(); return; }
+      // Arrows page the set. Not while a text field has focus -- the send
+      // box lives on the same page and its caret wants them.
+      var t = e.target && e.target.tagName;
+      if (t === 'INPUT' || t === 'TEXTAREA') return;
+      if (e.key === 'ArrowLeft')  { e.preventDefault(); galPrevStep(-1); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); galPrevStep(1); }
     });
   })();
 
