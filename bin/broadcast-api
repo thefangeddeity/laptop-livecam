@@ -217,7 +217,7 @@ def _read_mode():
     try:
         with open(MODE_FILE) as f:
             v = f.read().strip()
-        return v if v in ('show', 'cv', 'hide', 'night') else 'hide'
+        return v if v in ('show', 'cv', 'hide') else 'hide'
     except Exception:
         return 'hide'
 
@@ -1188,7 +1188,6 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
             _r = _read_detect_roi()
             proc.set_roi((_r['x'], _r['y'], _r['w'], _r['h']) if _r else None)
             proc.set_foveal(_cv_foveal_mode)  # ditto -- the real gate, not a stub
-            proc.set_night(_mode == 'night')  # ditto
             _t_cv = time.perf_counter()
             out, _meta = proc.process(frame)
             _cv_obs_record((time.perf_counter() - _t_cv) * 1000.0)
@@ -1271,16 +1270,7 @@ def _start_cv_publisher(mode='cv'):
         # referenced anymore. Stop first, unconditionally, so this
         # function can never leak regardless of how it got called twice.
         _stop_cv_publisher()
-    # Night mode captures at a genuinely lower framerate rather than the
-    # normal one -- AVFoundation's own auto-exposure lengthens the exposure
-    # window per frame as the requested rate drops, which is real long
-    # exposure, not a digital simulation of it. The output stays honestly
-    # choppy at that same rate rather than faking smoothness with frame
-    # duplication: an old night-vision device looks like this too.
-    if mode == 'night':
-        fr = int(_cfg.get('NIGHT_FPS', 5))
-    else:
-        fr = int(_cfg.get('FRAMERATE', 15))
+    fr = int(_cfg.get('FRAMERATE', 15))
     video_idx = _resolve_avf_index()
     audio_idx = str(_cfg.get('AUDIO_DEVICE', 'Built-in Microphone')).strip() \
         or 'Built-in Microphone'
@@ -1290,7 +1280,7 @@ def _start_cv_publisher(mode='cv'):
     import cv_processor as _cvp
     # Detection off means off -- in every mode, not just Show. Show already
     # answers to this by spawning the combined publisher instead of the split
-    # pipeline, but CV and Night build a processor regardless, and a processor
+    # pipeline, but CV builds a processor regardless, and a processor
     # with a detector runs one. Build it blind instead, so the switch stops
     # the work rather than only the alerts. Toggling bumps _mode_generation,
     # which rebuilds the publisher, so it takes effect immediately.
@@ -1331,9 +1321,7 @@ def _start_cv_publisher(mode='cv'):
     # This used to be `time.sleep(1.0)`. A sleep is a bet on how long a
     # capture session takes to open on a machine whose load we do not
     # control, and the bet was calibrated against one framerate but taken at
-    # two: night asks for NIGHT_FPS (5) and won it, cv asks for FRAMERATE
     # (15) under a YOLO pass and lost it every time -- which is exactly the
-    # shape the bug had, night working and cv publishing nothing.
     #
     # A's FIRST DELIVERED FRAME is not a bet. A frame came out of the
     # session, so the session is open; there is nothing left to race.
@@ -1464,7 +1452,7 @@ def _stop_cv_publisher():
     _cv_proc_instance = None
     # _kill_hard() waits for the OS process to exit, but CoreAudio's release
     # of the microphone lags a moment behind that -- observed live as the
-    # very next avfoundation open (a mode switch back into cv/night) failing
+    # very next avfoundation open (a mode switch back into cv) failing
     # fast with "Input/output error" on the mic, intermittently, exactly the
     # signature of a device not yet free rather than a real incompatibility.
     # This settle window sits in the one function every teardown path
@@ -2315,7 +2303,7 @@ def _writer_loop():
             # (the only seam with a Python frame stage) while _mode stays
             # 'show'. cv_blur_post() bumps _mode_generation on toggle so
             # this reconsiders it the same way a real mode change does.
-            if spawn_mode in ('cv', 'night') or (
+            if spawn_mode == 'cv' or (
                     spawn_mode in ('show', 'hide')
                     and (_cv_blur_mode or _detect_always_on())):
                 proc = _start_cv_publisher(spawn_mode)
@@ -3126,7 +3114,7 @@ def feed_mode_post():
     # dashboard are ported.
     if new_mode == 'cloak':
         new_mode = 'cv'
-    if new_mode not in ('show', 'cv', 'hide', 'night'):
+    if new_mode not in ('show', 'cv', 'hide'):
         abort(400)
     global _mode_generation
     with _mode_lock:
