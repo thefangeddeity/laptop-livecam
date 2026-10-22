@@ -3448,6 +3448,28 @@ def msg_lock_post():
     except Exception: pass
     return ('true' if _msg_lock else 'false'), 200
 
+def _os_short():
+    """'arch' | 'ubuntu' | 'macos' | 'windows' | '' -- for the tab title.
+
+    The DISTRO, not the kernel: the fleet's two Linux nodes are an Arch and
+    an Ubuntu and they behave differently enough (service user http vs
+    www-data, /bin vs /usr/bin systemctl, card index 1 vs 0) that "linux"
+    would hide the thing you actually want to know from a tab strip.
+    """
+    try:
+        if sys.platform == 'darwin':
+            return 'macos'
+        if sys.platform.startswith('win'):
+            return 'windows'
+        with open('/etc/os-release') as fh:
+            for line in fh:
+                if line.startswith('ID='):
+                    return line.split('=', 1)[1].strip().strip('"\'').lower()
+    except Exception:
+        pass
+    return ''
+
+
 @app.route('/api/info', methods=['GET'])
 def info():
     import socket, subprocess, re
@@ -3494,7 +3516,8 @@ def info():
         if len(_p) > 2: source = _p[2]
         break
     return {'hostname': hostname, 'tailscale': tailscale, 'version': version,
-            'product': product, 'product_short': product_short,
+            'product': product, 'os': _os_short(),
+            'product_short': product_short,
             'source': source}
 
 def _shutdown(signum, frame):
