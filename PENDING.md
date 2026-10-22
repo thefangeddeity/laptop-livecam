@@ -196,6 +196,60 @@ that paces the video**, so one clock governs both, rather than being a second
 input the muxer reconciles afterwards. That is the shape macOS gets for free.
 Nobody should copy our current publisher flags as an example of anything.
 
+## PARKED: the pipeline has no throttle. It should degrade, not stall.
+
+**Ask a CPU-efficiency panel before building this** — Apple Silicon people
+and the team behind the first RISC chip. The question is not "how do we make
+it faster", it is **how a MacBook Air decides to do less work and still feel
+fine**, and then what the equivalent governor looks like here.
+
+Right now every stage runs at its configured rate regardless of what the
+machine can actually deliver, and when the machine cannot keep up the
+failure lands on the viewer as buffering. There is no step between "full
+rate" and "late frames".
+
+**Measured on tanzania, 2026-10-21, while it was visibly buffering:**
+
+| | |
+|---|---|
+| cores / threads | 4 / 8 (i5-10210U) |
+| load average | 6.4 / 8.1 / 8.4 |
+| CPU idle | **36-49%** |
+| I/O wait | 1% |
+| context switches | **~80,000/sec** |
+
+That combination is the whole point: **the machine was not out of CPU.** It
+was thrashing. 18 threads in `broadcast-api` (229% CPU), three ffmpeg
+processes (~111%), and a desktop session watching the node's own stream
+(firefox 43.6% + web content 16.9% + cinnamon/Xorg 23.8%) all competing for
+the same 15fps deadlines. Nothing was starved of cycles; everything was
+starved of *uninterrupted* cycles.
+
+So the lever is probably not "use less CPU". It is **admit a lower rate and
+hold it steadily**, which is what the Air does: it would rather run a
+sustained lower clock than boost, thermally collapse, and stutter.
+
+Things to put to the panel:
+
+- What is the right **controlled variable**? Frame rate, detector Hz,
+  encoder preset, resolution -- or the scheduler itself (thread count,
+  affinity, priority). 80k context switches/sec suggests the last one
+  deserves a look before the first.
+- What is the **signal**? Load average is a poor controller input on a
+  desktop machine. Frame-delivery lateness measured at the single point the
+  pipeline already has -- `_cam_frame`'s age -- is honest and already
+  collected.
+- **Hysteresis.** A governor that oscillates between 15 and 10fps is worse
+  than one that picks 10 and stays. The CV capability verdict already learned
+  this lesson the expensive way (see the `_cpu_tier` note): a measurement
+  that flaps is a measurement that gets ignored.
+- Does anything here want to be **per-node**? tina is an i3-2330M and would
+  spend its life at the floor; tanzania only needs this under contention.
+
+**Do not start by lowering FRAMERATE in device.env.** That is a static
+answer to a dynamic problem and it makes the good case worse to protect the
+bad one, which is exactly the trade an autothrottle exists to avoid.
+
 ### The cover must be the same size as the picture
 
 Ours was not. The video is `object-fit: contain`, so it letterboxes inside
