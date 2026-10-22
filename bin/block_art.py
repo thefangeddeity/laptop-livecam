@@ -321,3 +321,49 @@ if __name__ == "__main__":
         sys.exit(1)
     cols = int(sys.argv[3]) if len(sys.argv) > 3 else COLS
     render(sys.argv[1], sys.argv[2], cols)
+
+
+def render_cloak_mask(arr, cols=COLS, channels='bgr'):
+    """Block-art cloak over a whole frame. Array in, array out, same size.
+
+    This is the privacy mask's 'pixel' style, and it is the same picture the
+    CV Blur button makes: a halfblock grid, contrast-stretched, foreground
+    rows gained. It differs from the render_cloak_* family in two ways that
+    the mask needs and CV Mode did not.
+
+    It stays in NumPy/OpenCV throughout. The font-path renderers go
+    NumPy -> bytes -> PIL -> NumPy, which measured ~190ms/frame on tanzania
+    against a 66.7ms budget -- the reason cv_processor refuses that path.
+
+    It follows the frame's own size and aspect instead of the module's
+    1280x720 constants. _grid_to_canvas() resizes to OUTPUT_W/OUTPUT_H no
+    matter what it was handed, so on tina (640x480) it would return a 720p
+    frame for a 480p camera, and the grid aspect would be computed for 16:9
+    on a 4:3 picture.
+
+    Why this replaces the plain mosaic: a downscale/upscale leaves each
+    block at its original mean luminance, so coarse shape AND tone survive,
+    and at usable block sizes a face still reads as that face. The 5/95
+    contrast stretch plus GAIN is what destroys the tones -- each block is
+    rescaled against the frame's own percentile anchors, so what comes out
+    is structure with the shading thrown away. Block size was never the
+    thing making the cloak illegible.
+
+    channels: 'bgr' for OpenCV-order frames, 'rgb' otherwise. It only
+    affects the luma weights used to pick the stretch anchors, so getting
+    it wrong shifts contrast slightly rather than corrupting colour.
+    """
+    import numpy as np
+    import cv2
+    h, w = arr.shape[:2]
+    rows = max(1, int(cols * (h / w) * 0.5))
+    small = cv2.resize(arr, (cols, rows * 2), interpolation=cv2.INTER_AREA)
+    a = small.astype(np.float32)
+    wts = [0.114, 0.587, 0.299] if channels == 'bgr' else [0.299, 0.587, 0.114]
+    luma = a @ np.array(wts, dtype=np.float32)
+    lo, rng = _stretch_np(luma)
+    cell = np.empty_like(a)
+    cell[0::2] = np.clip((a[0::2] - lo) / rng * GAIN * 255.0, 0, 255)
+    cell[1::2] = np.clip((a[1::2] - lo) / rng * 1.0 * 255.0, 0, 255)
+    return cv2.resize(cell.astype(np.uint8), (w, h),
+                      interpolation=cv2.INTER_NEAREST)
