@@ -616,7 +616,7 @@ class Notifier:
                       % type(exc).__name__)
             return None
 
-    def _schedule_clip(self, item, text):
+    def _schedule_clip(self, item, text, text_pending=False):
         """Cut and send the clip once post-roll seconds of room exist.
 
         A timer rather than a sleep in the worker: the worker drains a queue,
@@ -642,6 +642,19 @@ class Notifier:
                        self.clip_max)
             clip = self._cut_clip(when, post=post)
             if not clip:
+                # Best-effort stays best-effort, but it may not be silent:
+                # when the caller held the text back for this clip, send it
+                # now. Better a bare line than a detection nobody hears about.
+                if text_pending:
+                    for u in self.urls:
+                        tg = _telegram_targets(u)
+                        if tg:
+                            for chat in tg[1]:
+                                self._send_telegram(tg[0], chat, text, [])
+                        elif _apprise is not None:
+                            ap = _apprise.Apprise(); ap.add(u)
+                            ap.notify(title=text, body=text)
+                    self._log('notify: clip failed; sent the text instead')
                 return
             try:
                 other = []
@@ -944,19 +957,27 @@ class Notifier:
             # been recorded. The two were already sent separately, for the
             # unrelated reason that a failed clip must not take the stills with
             # it; this only moves one of them later.
-            if not manual and self._video_wanted() and not withhold:
-                self._schedule_clip(item, text)
+            # A clip coming means the words are already spoken for: it is sent
+            # with `text` as its caption. Sending the same line now, with no
+            # picture attached, is how "Cat detected" arrived twice -- once
+            # bare and once under the video a few seconds later. With stills
+            # off there was nothing to attach, so EVERY alert did it.
+            clip_coming = not manual and self._video_wanted() and not withhold
+            if clip_coming:
+                self._schedule_clip(item, text, text_pending=not jpegs)
 
             results = []
             other = []
             for u in self.urls:
                 tg = _telegram_targets(u)
                 if tg:
+                    if not jpegs and clip_coming:
+                        continue          # the clip carries it
                     for chat in tg[1]:
                         results.append(self._send_telegram(tg[0], chat, text, jpegs))
                 else:
                     other.append(u)
-            if other and _apprise is not None:
+            if other and _apprise is not None and not (not paths and clip_coming):
                 ap = _apprise.Apprise()
                 for u in other:
                     ap.add(u)
