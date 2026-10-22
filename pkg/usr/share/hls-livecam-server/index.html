@@ -2439,12 +2439,19 @@
           <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
         </div>
       </div>
-      <!-- Reset (left) + Settings (right) share this row. Settings opens the
-           panel below, which holds the controls moved off the main banks. -->
-      <div class="modemrow" style="padding:0 2px; display:flex; gap:8px;">
-        <button type="button" class="pbtn guarded" id="globalResetBtn"
-                style="flex:1 1 0; padding:6px 10px;"
-                title="Full reset: restarts the server. Briefly drops the stream for every viewer.">Reset</button>
+      <!-- Settings alone, full width. Reset used to share this row, and it
+           became redundant the moment Repair feed was escalated to call
+           /api/reset: Repair now does cv-reset AND reset, so it was a strict
+           superset of this button minus a page reload.
+           Measured on tanzania before removing it, because "restarts the
+           server" deserved checking: Reset restarted broadcast-api
+           (1119124 -> 1311941) and left mediamtx (2346) and nginx (2348)
+           untouched, with feed mode and mask style preserved. So it was never
+           a full-stack reset either -- it restarted the one service Repair
+           feed already restarts, from a card two panels away from the trace
+           that tells you the feed has stopped.
+           One restart control, and it lives where the symptom appears. -->
+      <div class="modemrow" style="padding:0 2px; display:flex;">
         <button type="button" class="pbtn" id="settingsBtn" onclick="toggleSettings()"
                 style="flex:1 1 0; padding:6px 10px;" aria-expanded="false"
                 aria-controls="settingsPanel" title="Theme, buzz and audio settings">Settings</button>
@@ -5863,34 +5870,6 @@
   // No initHLS() here, and no updateFeedButtons() either. Both used to run
   // on load against an assumed mode; the first poll does them once it knows.
 </script>
-<script>
-  (function () {
-    var gr = document.getElementById('globalResetBtn');
-    if (!gr) return;
-    var armed = false, armTimer = null, label = gr.textContent;
-    gr.addEventListener('click', function () {
-      if (!armed) {
-        armed = true; gr.textContent = 'Confirm reset?'; gr.classList.add('pressed');
-        armTimer = setTimeout(function () {
-          armed = false; gr.textContent = label; gr.classList.remove('pressed');
-        }, 4000);
-        return;
-      }
-      if (armTimer) clearTimeout(armTimer);
-      armed = false; gr.disabled = true; gr.textContent = 'Restarting\u2026';
-      fetch('/api/reset', { method: 'POST' }).catch(function () {});
-      setTimeout(function () {
-        var tries = 0;
-        var iv = setInterval(function () {
-          tries++;
-          fetch('/api/info', { cache: 'no-store' })
-            .then(function (r) { if (r && r.ok) { clearInterval(iv); location.reload(); } })
-            .catch(function () {});
-          if (tries > 40) { clearInterval(iv); location.reload(); }
-        }, 500);
-      }, 2500);
-    });
-  })();
 
 
 
