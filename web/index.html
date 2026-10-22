@@ -1624,6 +1624,32 @@
     .roster-size { position: absolute; left: 0; right: 0; bottom: 0;
                    font: 7.5px/1.5 var(--mono); letter-spacing: .04em;
                    color: #cfe9e3; background: rgba(0,0,0,.72); text-align: center; }
+    /* Full-size preview. The strip's 60px crops are for FINDING a picture,
+       not for looking at one -- a cat is a dark smudge at that size. Tapping
+       one used to go straight to a prompt asking who it is, which is a
+       question you cannot answer before you have seen the face. So looking is
+       now the default gesture and naming is a deliberate second one, taken
+       from inside the preview where you can actually see what you are naming. */
+    .galprev { position: fixed; inset: 0; z-index: 90; display: none;
+               align-items: center; justify-content: center; padding: 18px;
+               background: rgba(0,0,0,.82);
+               backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
+    .galprev.on { display: flex; }
+    .galprev-box { display: flex; flex-direction: column; gap: 11px;
+                   max-width: min(92vw, 560px); }
+    /* No image-rendering: pixelated here, unlike the feed. These crops are
+       small and the point is to make a face readable, so smooth upscaling is
+       the kinder lie -- the exact pixel size is printed underneath anyway. */
+    .galprev-img { display: block; margin: 0 auto; max-width: 100%;
+                   max-height: 68vh; object-fit: contain; background: #000;
+                   border: 1px solid var(--border-strong); border-radius: 8px; }
+    .galprev-cap { font: 10px/1.6 var(--mono); letter-spacing: .04em;
+                   color: #cfe9e3; text-align: center; }
+    .galprev-acts { display: flex; gap: 8px; justify-content: center;
+                    flex-wrap: wrap; }
+    /* 11px and a real hit box: these are the only controls on the overlay and
+       on a phone they are the whole interaction. */
+    .galprev-acts .pbtn { font-size: 11px; padding: 8px 14px; }
     .roster-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
     .roster-name { flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--text); }
     .roster-count { font: 9px/1 var(--mono); color: var(--text-muted); }
@@ -1870,7 +1896,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">HLS Livecam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-175-g96e8646-dirty"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-177-gd8b2640-dirty"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
@@ -2710,6 +2736,20 @@
 
 <!-- Global Reset moved into the Reset+Settings row inside the sidebar; it is
      still a guarded two-press control (same id, same /api/reset handler). -->
+<!-- Gallery preview. Outside the sidebar on purpose: it is a page-level
+     overlay, and nesting it in a scrolling rail would clip it. -->
+<div class="galprev" id="galPrev" role="dialog" aria-modal="true"
+     aria-label="Picture preview" hidden>
+  <div class="galprev-box" id="galPrevBox">
+    <img class="galprev-img" id="galPrevImg" alt="">
+    <div class="galprev-cap" id="galPrevCap"></div>
+    <div class="galprev-acts">
+      <button type="button" class="pbtn" id="galPrevName">Name this one</button>
+      <button type="button" class="pbtn" id="galPrevClose">Close</button>
+    </div>
+  </div>
+</div>
+
 <footer class="page-foot">
   <span><span id="prodName">HLS Livecam Server</span> by The Fanged Deity &mdash; free software under the
     <a href="https://www.gnu.org/licenses/gpl-3.0.html" target="_blank" rel="noopener">GNU GPL v3</a>
@@ -6227,11 +6267,22 @@
     labels.forEach(function (L) {
       var r = document.createElement('div'); r.className = 'roster-row';
       if (L.cover) {
-        var t = document.createElement('span'); t.className = 'roster-thumb';
-        t.style.width = '34px'; t.style.height = '34px'; t.style.cursor = 'default';
+        // Was a span with cursor:default -- the one picture you have already
+        // identified was the one you could not look at.
+        var t = document.createElement('button');
+        t.type = 'button'; t.className = 'roster-thumb';
+        t.style.width = '34px'; t.style.height = '34px';
+        t.title = 'See ' + L.name + ' full size';
+        t.setAttribute('aria-label', 'See ' + L.name + ' full size');
         var im = document.createElement('img');
         im.src = galImg(L.name, L.cover); im.alt = '';
-        t.appendChild(im); r.appendChild(t);
+        t.appendChild(im);
+        t.onclick = function () {
+          openGalPreview(galImg(L.name, L.cover),
+                         L.name + ' \u00b7 ' + L.count +
+                         (L.count === 1 ? ' picture' : ' pictures'), null);
+        };
+        r.appendChild(t);
       }
       var nm = document.createElement('span'); nm.className = 'eng roster-name';
       nm.textContent = L.name; r.appendChild(nm);
@@ -6251,15 +6302,20 @@
     unl.forEach(function (u) {
       var b = document.createElement('button');
       b.type = 'button'; b.className = 'roster-thumb';
-      b.title = 'Name this ' + (u.cls || 'picture');
-      b.setAttribute('aria-label', 'Name this ' + (u.cls || 'picture') + ', ' + (u.size || ''));
+      b.title = 'See this ' + (u.cls || 'picture') + ' full size';
+      b.setAttribute('aria-label', 'See this ' + (u.cls || 'picture') +
+                     (u.size ? ', ' + u.size : '') + ', full size');
       var im = document.createElement('img'); im.src = galImg('unlabelled', u.id); im.alt = '';
       b.appendChild(im);
       if (u.size) {
         var sz = document.createElement('span'); sz.className = 'roster-size';
         sz.textContent = u.size; b.appendChild(sz);
       }
-      b.onclick = function () { labelPicture(u.id, u.cls); };
+      b.onclick = function () {
+        openGalPreview(galImg('unlabelled', u.id),
+                       (u.cls || 'picture') + (u.size ? ' \u00b7 ' + u.size : ''),
+                       { id: u.id, cls: u.cls });
+      };
       strip.appendChild(b);
     });
   }
@@ -6270,6 +6326,64 @@
       .catch(function () { return null; })
       .then(function (g) { if (g) renderGallery(g); });
   }
+
+  // ── GALLERY PREVIEW ──
+  // What the strip could not do: show you the picture. Opening this is now
+  // what a tap does; naming is a button inside it.
+  var galPrevTarget = null;     // {id, cls} when the picture can be named
+  var galPrevLastFocus = null;
+
+  function openGalPreview(src, caption, target) {
+    var box = document.getElementById('galPrev');
+    var im = document.getElementById('galPrevImg');
+    var cap = document.getElementById('galPrevCap');
+    var nameBtn = document.getElementById('galPrevName');
+    if (!box || !im) return;
+    galPrevLastFocus = document.activeElement;
+    galPrevTarget = target || null;
+    im.src = src;
+    im.alt = caption || 'Gallery picture';
+    if (cap) cap.textContent = caption || '';
+    // Already-named pictures have nothing to name, so the button goes rather
+    // than sitting there disabled -- there is no second state to explain.
+    if (nameBtn) nameBtn.hidden = !galPrevTarget;
+    box.hidden = false;
+    box.classList.add('on');
+    var first = galPrevTarget ? nameBtn : document.getElementById('galPrevClose');
+    if (first) { try { first.focus(); } catch (e) {} }
+  }
+
+  function closeGalPreview() {
+    var box = document.getElementById('galPrev');
+    if (!box) return;
+    box.classList.remove('on');
+    box.hidden = true;
+    var im = document.getElementById('galPrevImg');
+    if (im) im.src = '';          // stop holding the decoded bitmap
+    galPrevTarget = null;
+    if (galPrevLastFocus) { try { galPrevLastFocus.focus(); } catch (e) {} }
+    galPrevLastFocus = null;
+  }
+
+  (function wireGalPreview() {
+    var box = document.getElementById('galPrev');
+    var closeBtn = document.getElementById('galPrevClose');
+    var nameBtn = document.getElementById('galPrevName');
+    if (closeBtn) closeBtn.onclick = closeGalPreview;
+    if (nameBtn) nameBtn.onclick = function () {
+      var t = galPrevTarget;
+      closeGalPreview();                  // the prompt is modal; get out first
+      if (t) labelPicture(t.id, t.cls);
+    };
+    if (box) box.addEventListener('click', function (e) {
+      // Backdrop only. A tap on the picture or the buttons must not close it,
+      // which is the usual way these go wrong on a phone.
+      if (e.target === box) closeGalPreview();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && box && !box.hidden) closeGalPreview();
+    });
+  })();
 
   function labelPicture(id, cls) {
     var who = window.prompt('Who is this ' + (cls || 'picture') + '?');
