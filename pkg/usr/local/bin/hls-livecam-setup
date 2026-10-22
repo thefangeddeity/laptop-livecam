@@ -559,12 +559,33 @@ EOF
   echo -e "  ${GREEN}Sudoers entries written for $SUDO_USER_NAME.${NC}"
 fi
 
-# -- Studio sudoers: www-data can mask/unmask ffmpeg-cam ---------
+# -- Studio sudoers: the service user drives its own units -------
+# Both names are listed because the service user differs by distro --
+# www-data on Debian/Ubuntu, http on Arch -- and this file is written the
+# same way on both. A rule naming a user that does not exist never matches,
+# so carrying both is harmless and beats guessing.
+#
+# The `restart broadcast-api` lines are what makes the viewer's Repair feed
+# button real. Without them /api/reset answers 202 {"restarting": true} and
+# then silently does nothing: sudo -n is denied, the detached child dies, and
+# the browser has already been told the restart is under way. The button that
+# exists to fix a wedged feed was the one control that could not report its
+# own failure.
+#
+# Deliberately `restart <one unit>` and not `systemctl *`: this grants the
+# web service the right to bounce ITSELF, which is what the endpoint does,
+# and nothing else.
 cat > /etc/sudoers.d/hls-livecam-studio << 'EOF'
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl stop ffmpeg-cam
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl start ffmpeg-cam
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl mask ffmpeg-cam
 www-data ALL=(ALL) NOPASSWD: /bin/systemctl unmask ffmpeg-cam
+www-data ALL=(ALL) NOPASSWD: /bin/systemctl restart broadcast-api
+http ALL=(ALL) NOPASSWD: /bin/systemctl stop ffmpeg-cam
+http ALL=(ALL) NOPASSWD: /bin/systemctl start ffmpeg-cam
+http ALL=(ALL) NOPASSWD: /bin/systemctl mask ffmpeg-cam
+http ALL=(ALL) NOPASSWD: /bin/systemctl unmask ffmpeg-cam
+http ALL=(ALL) NOPASSWD: /bin/systemctl restart broadcast-api
 EOF
 chown root:root /etc/sudoers.d/hls-livecam-studio
 chmod 440 /etc/sudoers.d/hls-livecam-studio
