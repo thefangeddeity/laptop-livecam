@@ -2773,8 +2773,22 @@ def gallery_get():
                 out['unlabelled'].append({
                     'id': f, 'cls': bits[0] if bits else '', 'size': size})
         else:
-            out['labels'].append({'name': d, 'count': len(files),
-                                  'cover': files[0] if files else None})
+            # The whole set, not just the cover. The preview can page through
+            # a name's pictures, and it cannot do that from a count -- the
+            # roster could say "Bruce, 2 pictures" while offering a way to
+            # look at exactly one of them.
+            #
+            # Filenames only, and capped: a named set is curated by hand and
+            # does not grow like the unsorted pile, but this rides a 5s poll
+            # and an unbounded listdir on a shared poll is how a cheap
+            # endpoint stops being cheap.
+            out['labels'].append({
+                'name': d, 'count': len(files),
+                'cover': files[0] if files else None,
+                'pics': [{'id': f,
+                          'size': (f[:-4].rsplit('-', 3)[-1]
+                                   if len(f[:-4].rsplit('-', 3)) == 4 else '')}
+                         for f in files[:500]]})
     # try/except, not just an isdir guard: isdir covers "missing" and not
     # "there but unreadable", and a permissions problem would 500 the whole
     # listing rather than degrade it. The macOS side was written this way;
