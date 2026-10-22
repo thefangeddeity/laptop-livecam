@@ -20,6 +20,7 @@ except ImportError:
     import pyfakewebcam
 
 import block_art as _ba
+import buzz_tone as _buzz
 import cv_processor as _cvp
 import cv2 as _cv2
 import json as _json
@@ -39,6 +40,12 @@ app = Flask(__name__)
 
 BROADCAST_FILE  = "/var/www/hls-livecam/broadcast.txt"
 BUZZ_FILE       = "/var/www/hls-livecam/buzz.txt"
+# BUZZ has two halves. buzz.txt is the one every viewer polls, which shakes
+# their screen. This is the other: a tone on the speakers of the machine the
+# camera is bolted to, for reaching somebody in THAT room, who by definition
+# is not looking at a browser. Rendered once and cached -- it never changes.
+# In the state dir, not the web root: nothing should be able to fetch it.
+BUZZ_WAV        = "/var/lib/hls-livecam/buzz_tone.wav"
 DARK_FLAG       = "/var/lib/hls-livecam/dark"
 LOCK_FILE       = "/var/lib/hls-livecam/msg_lock"
 FEED_MODE_FILE  = "/var/lib/hls-livecam/feed_mode"
@@ -3321,12 +3328,46 @@ def snapshot_post():
             else 'busy, try again'), 200
 
 
+# device.env is read at use time, not cached at import -- the house pattern
+# here (see _blur_block, the retention reader, every other consumer), and the
+# one that lets a node be retuned without a restart.
+def _buzz_tone_cfg():
+    try:
+        return _read_device_env()
+    except Exception:
+        return {}
+
+
+def _buzz_tone_on(denv):
+    return str(denv.get('BUZZ_TONE', 'true')).strip().lower() != 'false'
+
+
+def _buzz_tone_boost(denv):
+    return str(denv.get('BUZZ_TONE_MAX_VOLUME', 'true')).strip().lower() != 'false'
+
+
 @app.route('/api/buzz', methods=['POST'])
 def buzz_post():
     try:
         ts = str(int(time.time() * 1000))
         with open(BUZZ_FILE, 'w') as f:
             f.write(ts)
+        # Off the request thread: the tone runs 2.3s and the caller is a
+        # button that should spring back now, not when the room stops
+        # ringing. Rate limiting lives in buzz_tone, so a held button or
+        # several viewers at once cannot stack tones over each other.
+        _bdenv = _buzz_tone_cfg()
+        if _buzz_tone_on(_bdenv):
+            try:
+                _buzz.play_async(BUZZ_WAV,
+                                 _bdenv.get('BUZZ_TONE_DEVICE') or None,
+                                 boost=_buzz_tone_boost(_bdenv))
+            except Exception as exc:
+                # The screen-shake half already succeeded. A speaker that
+                # will not play is not a reason to tell the caller the buzz
+                # failed -- it is a reason to say so in the log.
+                print('broadcast-api: buzz tone failed: '
+                      f'{type(exc).__name__}: {exc}', file=sys.stderr, flush=True)
         return ts, 200
     except PermissionError:
         abort(403)
