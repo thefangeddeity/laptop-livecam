@@ -4312,6 +4312,21 @@ if __name__ == '__main__':
         name='mic-publisher',
     ).start()
 
+    # One line per HTTP request tells you nothing in steady state: the
+    # viewer polls feed mode, gallery, alerts, buzz.txt and broadcast.txt
+    # every few seconds per open tab, and that the browser is polling is not
+    # news. Measured on the Linux node with one viewer open it was 3.5
+    # lines/sec and 57% of everything the service logged. This raises the
+    # floor to WARNING rather than silencing the logger, so a 500 still
+    # lands. WEB_ACCESS_LOG=1 in config.env brings it back.
+    try:
+        if str(_cfg.get('WEB_ACCESS_LOG', '0')).strip().lower() not in ('1', 'true', 'yes'):
+            import logging as _logging
+            _logging.getLogger('werkzeug').setLevel(_logging.WARNING)
+    except Exception as _exc:
+        print(f'broadcast-api: could not quiet the access log: {_exc}',
+              file=sys.stderr, flush=True)
+
     app.run(
         host='0.0.0.0',
         port=int(_cfg.get('WEB_PORT', 8080)),
