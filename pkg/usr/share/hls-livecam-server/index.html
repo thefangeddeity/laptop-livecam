@@ -3871,30 +3871,30 @@
         // of replaying a switch-off nobody triggered.
         if (!feedModeKnown) {
           feedModeKnown = true;
-          // SAFETY, by directive: a fresh page load ALWAYS forces the picture
-          // to Hide -- the same fail-safe posture audio takes (load = Silence).
-          // Overrides the server's persisted SAFE_FEED_MODE ('cv'), which was
-          // the code that kept "rebelling" and bringing CV back on refresh.
+          // ADOPT the server's mode. Do not command one.
           //
-          // Video is SERVER state, so we COMMAND hide via setFeedMode rather
-          // than painting a local guess -- painting alone is exactly what the
-          // poll then repaints over, and the two fight ("CV came back pressed").
-          // feedMode is still the 'show' placeholder here, so setFeedMode sees
-          // a real change and POSTs; coverFor('hide') covers instantly, so no
-          // CV/Show frame is ever shown, and no player is attached on arrival.
-          // After this one-shot the client follows other viewers' changes as
-          // normal (the m !== feedMode branch below).
-          if (m === 'hide') {
-            feedMode = 'hide';
-            updateFeedButtons();
-          } else {
-            // Adopt the server's CURRENT mode first, so a poll landing during
-            // the hide POST sees no divergence (m === feedMode) and stays a
-            // no-op instead of re-adopting the live picture -- then command
-            // hide through the existing function. coverFor('hide') inside it
-            // covers the stage at once and no player is ever attached.
-            feedMode = m;
-            setFeedMode('hide');
+          // A fresh load used to force Hide, overriding the node's persisted
+          // mode -- a "fail-safe" borrowed from audio, where load = Silence.
+          // It cost more than it bought: refreshing a page is not a security
+          // event, and anyone who can load the viewer can press Show, so the
+          // reset bought no secrecy from anyone it was meant to stop. What it
+          // did do was turn every refresh into a camera that had to be
+          // switched back on, and it fought the server's own SAFE_FEED_MODE
+          // -- which is what the CV-keeps-coming-back behaviour was.
+          //
+          // The feed is server state. It stays where it is until somebody
+          // deliberately changes it, and a viewer arriving simply reads it,
+          // like every other control on the page. A node that should be dark
+          // is set to Hide and STAYS hidden across restarts, which is a
+          // stronger guarantee than one re-imposed per page load.
+          //
+          // Still no eager initHLS(): the stream is attached from here, so a
+          // node that really is hidden gets no player and no fault cover.
+          feedMode = m;
+          updateFeedButtons();
+          if (m !== 'hide') {
+            coverFor(m);
+            setTimeout(reloadStream, 0);
           }
           return;
         }
