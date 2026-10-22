@@ -2830,7 +2830,8 @@ def gallery_label():
 
 @app.route('/api/gallery/forget', methods=['POST'])
 def gallery_forget():
-    """Delete one name's pictures, or -- with {"all": true} -- everything.
+    """Delete one picture ({"folder","id"}), one name's pictures
+    ({"label"}), or -- with {"all": true} -- everything.
 
     Destructive and meant to be: a labelled set of household faces is the
     most sensitive thing this node stores, and the operator must be able to
@@ -2842,6 +2843,33 @@ def gallery_forget():
         body = _json.loads(request.get_data(as_text=True) or '{}')
     except Exception:
         abort(400)
+    # ONE picture, by folder + filename. The rest of this endpoint deals in
+    # names ("forget Bruce") and in everything; neither can throw away a
+    # single bad crop, which is the common case -- a blurred frame, or the
+    # wall. Validated by _gal_safe like every other id from a browser: the
+    # name must look like a plain filename AND still resolve inside the
+    # gallery.
+    one_id = str(body.get('id') or '')
+    if one_id:
+        folder = str(body.get('folder') or 'unlabelled')
+        path = _gal_safe(folder, one_id)
+        if not path:
+            abort(400)
+        if not os.path.isfile(path):
+            abort(404)
+        try:
+            os.remove(path)
+        except Exception:
+            abort(500)
+        # A named folder with nothing left in it is a name with nobody under
+        # it, and it would keep showing in the roster with a missing cover.
+        try:
+            d = os.path.dirname(path)
+            if folder != 'unlabelled' and not os.listdir(d):
+                os.rmdir(d)
+        except Exception:
+            pass
+        return 'ok', 200
     if body.get('all') is True:
         try:
             shutil.rmtree(GALLERY_DIR, ignore_errors=True)
