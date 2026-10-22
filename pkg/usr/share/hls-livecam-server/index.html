@@ -37,16 +37,19 @@
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { overflow-x: hidden; max-width: 100%; }
+  html { overflow-x: hidden; max-width: 100%; background: var(--bg); min-height: 100%; }
 
   body {
     background: var(--bg);
     color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-    height: 100dvh;
+    /* Content height, NOT viewport height, and the PAGE scrolls rather than
+       each rail. Locking body to the viewport is what forced a reserved
+       scrollbar gutter inside the columns, and that gutter is why the right
+       column's cards sat inside the header's edge. */
     display: flex;
     flex-direction: column;
-    overflow: hidden; padding: 16px;
+    overflow-y: auto; padding: 16px;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -157,7 +160,9 @@
 
   /* ── DESKTOP LAYOUT ── */
   .main {
-    flex: 1;
+    /* Does not grow: flex:1 stretched it to the viewport and left the footer
+       pinned to the bottom with dead space above it. */
+    flex: 0 0 auto;
     display: flex;
     flex-direction: row;
     min-height: 0;
@@ -166,7 +171,11 @@
        pill. At 16px the columns overhung the header's content by 4px -- not
        enough to look deliberate, just enough to look unaligned. Mobile
        overrides this to 0. */
-    padding: 16px 20px;
+    /* No horizontal padding: the columns' outer edges land on the header's
+       own edges. 20px matched the header's INNER padding, which lined the
+       columns up with the brand mark rather than with the bar they sit in --
+       and the eye compares box to box. */
+    padding: 16px 0;
     gap: 16px;
   }
 
@@ -179,7 +188,8 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 9px;
+    /* 16, the same gap the header leaves above the first card. */
+    gap: 16px;
     min-width: 0; min-height: 0;
   }
   .avstrip {
@@ -543,7 +553,9 @@
     align-items: center;
     justify-content: center;
     gap: 4px 10px;
-    padding: 14px 16px 20px;
+    /* .main leaves 16px above and body's padding 16px below, so the footer
+       adds none of its own -- otherwise each gap is two numbers added. */
+    padding: 0 16px;
     font-size: 11px;
     color: var(--text-muted);
     letter-spacing: 0.02em;
@@ -1110,9 +1122,15 @@
     flex: 1;
     justify-content: flex-start;
     min-height: 0;
+    /* In flow. Taking this out of flow (absolute, inset:0) to stop the rails
+       setting the row's height left them with no height of their own, and
+       with overflow:hidden on the rail they disappeared outright -- the
+       measurements still read 16px because a clipped card still reports a
+       position. Looked at, not just measured, the page had no panels.
+       The 8px padding-right and the reserved gutter stay gone: those were
+       the actual cause of the right column sitting inside the header edge. */
     overflow-y: auto;
-    scrollbar-gutter: stable;
-    padding-right: 8px;
+    scrollbar-width: thin;
   }
 
   /* ── BUTTONS ── */
@@ -1227,6 +1245,11 @@
     body { overflow: auto; height: auto; min-height: 100dvh; }
     header { padding: 10px 16px; }
     .main { flex-direction: column; padding: 0; gap: 0; flex: none; }
+    /* .stage-col stops being a box here so the display is a direct child of
+       .main again -- its order:-1 and sticky rules are written against .main,
+       and wrapping it for the desktop AV strip put a box between them, which
+       made the page lead with the Video panel instead of the picture. */
+    .stage-col { display: contents; }
     /* order:-1 keeps the video FIRST on mobile now that panels flank it on
        desktop -- the column stack is video, then the left column's panels
        (Audio, Video), then the right column's (AV, Message, Settings).
@@ -1979,16 +2002,19 @@
     <span class="hdr-vfd" id="buildTube"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
-    <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
          a third control shape for a global toggle would be one more thing to
-         learn for no gain. -->
+         learn for no gain.
+         It sits LEFT of the state pill: the pill is what you glance at, and
+         a glance goes to the end of the row, so the thing you read lands on
+         the outside edge and the thing you operate sits inboard of it. -->
     <div class="hdr-tog">
       <button type="button" class="reset tog" id="themeBtn" onclick="toggleTheme()"
               aria-pressed="false" aria-label="Light theme"
               title="Light theme"><span class="pin"></span></button>
       <span class="eng rstlab">Light</span>
     </div>
+    <span class="hdr-vfd"><span class="live-pill" id="liveIndicator">CONNECTING</span></span>
   </div>
 </header>
 
