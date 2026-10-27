@@ -4,6 +4,59 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.44
+
+- Night mode removed entirely — key, mode, capture branch, v4l2 control
+  switching and its image processing. The blur filter does more for a dark
+  room than its tone curve ever did.
+- The detector model is installed by both packages instead of being a file
+  someone placed by hand. It is fetched from the `models-v1` release and
+  checksummed.
+- First published macOS installer. The DMG build had been failing since
+  Oct 5 on a stale check for a renamed element.
+- Viewer repaired: removing the Reset button took a `<script>` tag with it
+  and the page printed its own source as text.
+- `scripts/check-viewer.py` now runs in every render path — structure,
+  JavaScript syntax, placeholders.
+
+## 7.0.43
+
+- The AV bank became a strip under the picture, as wide as the picture.
+- The gallery can be browsed: arrows page through a name's pictures, and
+  Delete stays open and advances.
+- Everything is Laptop LiveCam / LLC. tina's masthead said HLS LightCV, and
+  every node's Source link pointed at a repository that no longer exists.
+- Logs went from 7.3 lines a second to zero in steady state.
+- A refresh no longer forces the picture to Hide.
+
+## 7.0.42
+
+- Tab titles unified: `Tina | LLC 7.0.42 (ubuntu)`.
+- Gallery preview with Name / Close / Delete, and single-picture delete.
+- The CV key follows the CPU class, as it was always documented to — the
+  rule existed and nothing called it, so a remembered timing verdict had
+  tanzania marked unfit with no way to earn its way back.
+- `/cams/` had been serving a five-month-old page on Debian.
+
+## 7.0.41
+
+- BUZZ makes a sound on the camera machine, not only in viewers' browsers.
+  Alternating 1400/2100 Hz, chosen by playing candidates through a laptop
+  speaker and recording the result.
+
+## 7.0.40
+
+- The Arch setup script needed the sudoers rule too. 7.0.39 added it to the
+  Debian script only, so Arch shipped without the rule the Repair feed
+  button depends on.
+
+## 7.0.39
+
+- The privacy mask's "Pixelate instead" renders the block-art cloak rather
+  than a mosaic, so what it hides stays hidden.
+- Repair feed restarts the camera server instead of just the player, and
+  `/api/reset` was silently failing for want of a sudoers rule.
+
 ## 7.0.38
 
 - **"Stretch to fill" flipped between stretched and not, once a second.**

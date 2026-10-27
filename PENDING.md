@@ -1,53 +1,26 @@
-# PENDING — Linux branch, and what other branches should check
+# PENDING — open work and notes to carry forward
 
-**As of 2026-08-27, commit `dc3e70c`, tagged `v6.0.7`, on the AUR, installed on both nodes.**
-**From:** tanzania · **Repo:** `github.com:thefangeddeity/hls-livecam-server`
+**Current:** 7.0.44, on the AUR, installed on tanzania and tina.
+**Repo:** `github.com/thefangeddeity/laptop-livecam` · `main` is Linux,
+`macos` and `windows` are the ports.
 
-Everything below is in git **and shipped**: tagged `v6.0.0`, pushed to the
-AUR, built as a `.deb`, and installed on tanzania and tina. Both nodes
-verify clean against their own package (`pacman -Qkk`: 54 files, 0 altered;
-`dpkg --verify`: silent). The version line moved to 6.0.0 because the panel
-is no longer the 5.x panel — the theme rules below are the reason.
+Open, in rough order:
 
-### What the installers were about to undo — check yours
+- **Autothrottle.** The pipeline has no step between full rate and late
+  frames, so contention lands on the viewer as buffering. See the PARKED
+  section below for the measurements.
+- **Windows installer.** `windows/packaging/build-msi.ps1` exists; no build
+  host is set up.
+- **Settings panel redesign.** Concept agreed: one wide sheet below the
+  display, three columns, destructive actions at the foot. 55 control ids to
+  carry over.
+- **Gallery phase 2.** Measured: a cheap colour descriptor scores at chance
+  because it reads the room, not the animal. Needs a learned embedding or
+  far more data.
 
-Cutting the release surfaced four ways a package could quietly revert a
-sprint, and every one of them is the kind of thing another branch can have
-without knowing:
-
-1. **Two copies of the viewer.** The deb shipped `/var/www/.../index.html`
-   as payload *and* `/usr/share/.../index.html` as the wizard's source. Only
-   the share copy was ever updated, so the payload copy was still a **May
-   build, 32 KB against today's 104 KB** — and dpkg owns that path. The
-   payload copy is gone; `/usr/share` is the single source and both
-   installers copy it into the web root on install **and** upgrade.
-2. **An asset nothing installed.** The header asks for `/brand.png`; no
-   installer ever put it there. It worked only on nodes where someone had
-   copied it by hand.
-3. **Optional at import time is not optional in the payload.**
-   `cv_persist.py` and `cv_occupancy.py` are imported behind `try/except`.
-   They were missing from the PKGBUILD, so an Arch install simply had no
-   persistence and no occupancy and said nothing about it.
-4. **Node facts stored in payload files.** Identity (`PRODUCT`) and tuning
-   (temporal denoise weights, hand-edited into tina's `cv_processor.py`)
-   both lived where an installer overwrites them. Identity now reads
-   `/etc/hls-livecam/PRODUCT` first; tuning is `CV_TEMPORAL_W_CUR` /
-   `CV_TEMPORAL_W_PREV` in `device.env`. **Whatever is true of the node
-   belongs in /etc, not in the package.**
-
-One operational note for whoever upgrades next: files that were hand-copied
-to a package-owned path make pacman refuse the whole transaction
-(`exists in filesystem`). Move them aside first; do not reach for
-`--overwrite` reflexively.
-
-Fleet split, since it decides who this file is even for:
-
-| repo | nodes |
-|---|---|
-| `hls-livecam-server` | tanzania, ariana, spitsbergen, hera, 7elwe |
-| `hls-lightcv-server` | tina, amira — cutoff is i5 / 8 GB |
-
----
+Everything below this line is historical: incidents, their causes, and the
+rules they bought. It is kept because the reasoning is worth more than the
+dates, but it is NOT a description of the current tree.
 
 ## ⚠ CHECK YOUR BRANCH FOR THESE THREE
 
