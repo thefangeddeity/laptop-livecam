@@ -20,6 +20,7 @@ from html.parser import HTMLParser
 
 # Only elements whose mismatch actually breaks the page.
 WATCH = ('script', 'style', 'head', 'body', 'html')
+_last_script_count = []
 VOID = {'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
         'link', 'meta', 'param', 'source', 'track', 'wbr'}
 
@@ -61,6 +62,20 @@ class Structure(HTMLParser):
 
 
 
+def _load_esprima():
+    """The vendored parser, or an installed one, or None."""
+    import os
+    import sys
+    vendored = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vendor')
+    if vendored not in sys.path:
+        sys.path.insert(0, vendored)
+    try:
+        import esprima
+        return esprima
+    except Exception:
+        return None
+
+
 def check(path):
     src = open(path, encoding='utf-8').read()
     bad = []
@@ -68,6 +83,7 @@ def check(path):
     p = Structure()
     p.feed(src)
     p.close()
+    _last_script_count[:] = p.scripts
 
     for tag, line in p.stack:
         if tag in WATCH:
@@ -78,14 +94,19 @@ def check(path):
 
     # JavaScript syntax. The structure check above catches a tag that went
     # missing; it cannot catch a function whose body was half-deleted, which
-    # is the same edit one line further in. esprima is optional -- no node,
-    # deno or JS engine exists on any node in this fleet, so where the parser
-    # is absent this degrades to the structure check rather than failing.
-    try:
-        import esprima
-    except ImportError:
-        esprima = None
-    if esprima is not None:
+    # is the same edit one line further in.
+    #
+    # REQUIRED, not optional. It was optional, and that made it decoration:
+    # the Debian build calls system python3, which had no esprima, so this
+    # returned `ok` having parsed nothing. A check that silently does not run
+    # is worse than no check, because it reports success. scripts/vendor/
+    # carries the parser so it is present in every build environment; if it
+    # is somehow not, this FAILS rather than skipping.
+    esprima = _load_esprima()
+    if esprima is None:
+        bad.append('no JavaScript parser available -- cannot validate script '
+                   'bodies (expected scripts/vendor/esprima)')
+    else:
         for js, line in p.scripts:
             try:
                 esprima.parseScript(js, {'tolerant': False})
@@ -118,5 +139,7 @@ if __name__ == '__main__':
             for b in problems:
                 print('     %s' % b, file=sys.stderr)
         else:
-            print('ok   %s' % path)
+            n = len(_last_script_count)
+            print('ok   %s  (%d inline script%s parsed)'
+                  % (path, n, '' if n == 1 else 's'))
     raise SystemExit(1 if failed else 0)
