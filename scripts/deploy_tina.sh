@@ -16,7 +16,7 @@
 #   2. /etc/nginx/conf.d/hls-livecam.conf is payload with no conffiles
 #      declaration, so dpkg overwrites it with no prompt and no .dpkg-old.
 #      On tina that file is the ONLY one carrying TLS -- the 301 to
-#      https://tina.humboldt-polaris.ts.net and the listen 8443 ssl block.
+#      https://<node>.<tailnet>.ts.net and the listen 8443 ssl block.
 #      The repo's copy is `listen 8080;` and nothing else.
 #   3. The sudoers drop-ins hls-livecam-dark, hls-livecam-services and
 #      camdash-smart are deleted. The package has never shipped them, so
