@@ -129,9 +129,12 @@ MODEL_DIR=/usr/share/hls-livecam-server/models/candidates
 MODEL=$MODEL_DIR/yolov8n.onnx
 if [ ! -s "$MODEL" ]; then
     mkdir -p "$MODEL_DIR"
+    # Checksummed, not just size-checked: a size test only proves the download
+    # was not an error page. This is the same hash the Arch PKGBUILD pins.
+    MODEL_SHA=b2bc52f40e8e1c532427d5bde3575a5d5b571b739fab2c6df443733ed1589cbd
     if command -v curl >/dev/null 2>&1 && curl -fsSL -o "$MODEL.part" \
          "https://github.com/thefangeddeity/laptop-livecam/releases/download/models-v1/yolov8n.onnx" \
-       && [ "$(stat -c%s "$MODEL.part" 2>/dev/null || echo 0)" -gt 1000000 ]; then
+       && [ "$(sha256sum "$MODEL.part" 2>/dev/null | cut -d' ' -f1)" = "$MODEL_SHA" ]; then
         mv "$MODEL.part" "$MODEL"
         chmod 0644 "$MODEL"
         echo "Detector model installed: $MODEL"

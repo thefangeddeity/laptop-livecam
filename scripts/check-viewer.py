@@ -29,21 +29,36 @@ class Structure(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.stack = []
         self.unmatched_end = []
+        self.scripts = []
+        self._in_script = False
 
     def handle_starttag(self, tag, attrs):
+        if tag == 'script':
+            # Only inline scripts have a body to parse.
+            self._in_script = not any(k == 'src' for k, _ in attrs)
+            self._script_at = self.getpos()[0]
+            self._buf = []
         if tag in VOID:
             return
         self.stack.append((tag, self.getpos()[0]))
+
+    def handle_data(self, data):
+        if getattr(self, '_in_script', False):
+            self._buf.append(data)
 
     def handle_startendtag(self, tag, attrs):
         pass                      # self-closing: opens and closes at once
 
     def handle_endtag(self, tag):
+        if tag == 'script' and getattr(self, '_in_script', False):
+            self.scripts.append((''.join(self._buf), self._script_at))
+            self._in_script = False
         for i in range(len(self.stack) - 1, -1, -1):
             if self.stack[i][0] == tag:
                 del self.stack[i:]
                 return
         self.unmatched_end.append((tag, self.getpos()[0]))
+
 
 
 def check(path):
@@ -60,6 +75,24 @@ def check(path):
     for tag, line in p.unmatched_end:
         if tag in WATCH:
             bad.append('</%s> at line %d closes nothing' % (tag, line))
+
+    # JavaScript syntax. The structure check above catches a tag that went
+    # missing; it cannot catch a function whose body was half-deleted, which
+    # is the same edit one line further in. esprima is optional -- no node,
+    # deno or JS engine exists on any node in this fleet, so where the parser
+    # is absent this degrades to the structure check rather than failing.
+    try:
+        import esprima
+    except ImportError:
+        esprima = None
+    if esprima is not None:
+        for js, line in p.scripts:
+            try:
+                esprima.parseScript(js, {'tolerant': False})
+            except Exception as exc:
+                msg = getattr(exc, 'message', str(exc))
+                bad.append('JavaScript error in the <script> at line %d: %s'
+                           % (line, msg))
 
     left = sorted({t for t in __import__('re').findall(r'@[A-Z_]{3,}@', src)})
     if left:
