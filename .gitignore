@@ -66,3 +66,12 @@ auto.key
 config.env
 state/cv_verdict.json
 web/capabilities.json
+
+# config.env.bak-1792640359 got committed because *.bak does not match a
+# timestamped suffix. Match the stem instead.
+config.env.*
+camdash-gui.app/
+*.log
+models/
+CLAUDE.md
+GUI-ARCHITECTURE-*.md
