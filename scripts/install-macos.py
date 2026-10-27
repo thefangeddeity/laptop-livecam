@@ -261,7 +261,7 @@ if tpl.exists():
     leftover = re.findall(r"@[A-Z_]+@", rendered)
     if leftover:
         sys.exit(f"ERROR: unsubstituted placeholder(s) in index.html: {sorted(set(leftover))}")
-    if "roomAudioPlayer" not in rendered:
+    if "roomAudio" not in rendered:
         sys.exit("ERROR: rendered viewer has no audio player")
 
     (RUNTIME / "web" / "index.html").write_text(rendered)

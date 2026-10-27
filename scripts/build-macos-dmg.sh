@@ -178,7 +178,7 @@ fi
 
 # The audio panel has been lost once already by regenerating the viewer from a
 # template that never carried it. Fail the build rather than ship a silent one.
-if ! grep -q 'roomAudioPlayer' "$RUNTIME/web/index.html"; then
+if ! grep -q 'roomAudio' "$RUNTIME/web/index.html"; then
   echo "ERROR: rendered viewer has no audio player" >&2
   exit 1
 fi
