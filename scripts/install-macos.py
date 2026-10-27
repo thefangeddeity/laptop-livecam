@@ -241,6 +241,22 @@ if tpl.exists():
                 .replace("@VERSION@", label)
                 .replace("@BUILD_LABEL@", label))
 
+    # Structure first: a viewer whose tags do not balance prints its own
+    # source onto the page as text, and that shipped once because HTML was
+    # the one thing nothing validated.
+    import subprocess as _sp, tempfile as _tf, os as _os
+    with _tf.NamedTemporaryFile('w', suffix='.html', delete=False) as _fh:
+        _fh.write(rendered)
+        _probe = _fh.name
+    try:
+        _r = _sp.run([str(ROOT / "scripts" / "check-viewer.py"), _probe],
+                     capture_output=True, text=True)
+        if _r.returncode != 0:
+            sys.exit("ERROR: rendered index.html failed the structure check\n"
+                     + _r.stderr.strip())
+    finally:
+        _os.unlink(_probe)
+
     # Both are invisible until someone opens the page, so fail here instead.
     leftover = re.findall(r"@[A-Z_]+@", rendered)
     if leftover:

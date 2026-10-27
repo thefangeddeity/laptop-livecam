@@ -160,6 +160,14 @@ sed -e "s|@HLS_PORT@|${BUILD_HLS_PORT}|g" \
     -e "s|@BUILD_LABEL@|${VERSION} · ${BUILD_STAMP} · ${GIT_COMMIT}|g" \
   "$ROOT/web/index.template.html" > "$RUNTIME/web/index.html"
 
+# Structure first: a rendered viewer whose tags do not balance prints its own
+# source onto the page as text. That shipped once, to two nodes, because every
+# Python edit was checked with ast.parse and the HTML was checked with nothing.
+"$ROOT/scripts/check-viewer.py" "$RUNTIME/web/index.html" || {
+  echo "ERROR: rendered index.html failed the structure check" >&2
+  exit 1
+}
+
 # An unsubstituted placeholder would ship a viewer that cannot reach the
 # stream, and it is invisible until someone opens the page.
 if grep -q '@[A-Z_]*@' "$RUNTIME/web/index.html"; then
