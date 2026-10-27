@@ -130,6 +130,15 @@ chmod 755 "$WORK/build/$PKGNAME/DEBIAN/"{preinst,postinst,prerm}
 for s in preinst postinst prerm; do
     bash -n "$WORK/build/$PKGNAME/DEBIAN/$s" || die "DEBIAN/$s is not valid bash"
 done
+# A viewer whose tags do not balance prints its own source onto the page
+# as text. That shipped once, to two nodes, because every Python edit was
+# checked with ast.parse and the HTML was checked with nothing.
+python3 "$REPO/scripts/check-viewer.py" \
+  "$WORK/build/$PKGNAME/usr/share/hls-livecam-server/index.html" || {
+  echo "ERROR: viewer failed the structure check -- not packaging" >&2
+  exit 1
+}
+
 fakeroot dpkg-deb --build "$WORK/build/$PKGNAME" "$WORK/$DEB" >/dev/null
 # Captured, not piped into `grep -q`. With pipefail, grep -q exits at its
 # first match and the producer takes SIGPIPE, so the pipeline can report 141
