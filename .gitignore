@@ -20,3 +20,7 @@ art/hls-lightcv-server.png
 # repo. Untracked-but-not-ignored is how a `git add -A` sweeps a directory in
 # by accident; two such sweeps happened before this line existed.
 aibridge/
+
+# The detector model is a release asset (models-v1), not repo content.
+# scripts/fetch-model.sh puts it on a node.
+models/*.onnx
