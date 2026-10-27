@@ -4,8 +4,15 @@ Turns a Mac's webcam into a live HLS stream with a browser-based presence
 system: message board, dark-mode cloak, block-art "cloak"/"hide" feed modes,
 buzz notifications, and a `camdash` terminal monitor.
 
-This is a macOS port of [thefangeddeity/hls-livecam-server](https://github.com/thefangeddeity/hls-livecam-server)
-(a Debian package). It targets **this Mac only** — no packaging, no root.
+This is the macOS lineage of
+[laptop-livecam](https://github.com/thefangeddeity/laptop-livecam). It runs
+without root and keeps its state under the user's home.
+
+**To install, don't build from here — take the `.dmg` from
+[Releases](https://github.com/thefangeddeity/laptop-livecam/releases/latest).**
+It bundles Python, ffmpeg and Qt, so there is nothing to install separately.
+This README documents the source workflow: running from a checkout, and
+building the DMG with `scripts/build-macos-dmg.sh`.
 
 ---
 
