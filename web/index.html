@@ -1270,7 +1270,19 @@
        underneath it (opaque #000 background from .video-wrap hides them as
        they slide under its lower edge). */
     .video-wrap { flex: none; width: 100%; aspect-ratio: var(--feed-ar, 16 / 9); border-radius: 0; box-shadow: none;
-                  order: -1; position: sticky; top: 0; z-index: 5; }
+                  order: -1; position: sticky; top: 0; z-index: 5;
+                  /* Clear of the header. .main drops its padding here, so the
+                     picture was butting straight against the version pill and
+                     the theme switch with nothing between them. */
+                  margin-top: 10px; }
+    /* The call bar belongs to the picture, so it rides with it. Without this
+       it keeps .main's default order and lands AFTER the left column -- which
+       on a phone put it below Video and Audio, halfway down the page, instead
+       of under the display it controls. Same -1 as the picture: within the
+       group they fall in DOM order, so the picture is still first.
+       Not sticky: two sticky boxes stacked would eat a third of a phone. */
+    .avstrip { order: -1; border-radius: 0; border-left: 0; border-right: 0;
+               margin-top: 0; }
     video { object-fit: contain; }
     .sidebar {
       width: 100%; height: auto; border-radius: 0;
@@ -2034,7 +2046,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">Laptop LiveCam</span>
-    <span class="hdr-vfd" title="mac-v1.8.0-187-g35c54b7-dirty"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.0-189-gdeea032-dirty"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -5904,9 +5916,7 @@
   // No initHLS() here, and no updateFeedButtons() either. Both used to run
   // on load against an assumed mode; the first poll does them once it knows.
 </script>
-
-
-
+<script>
   // ── DETECTION + ALERTS ──
   // Server-backed throughout, like Blur: the node owns every answer, so two
   // phones looking at this panel can never disagree about what the camera is
