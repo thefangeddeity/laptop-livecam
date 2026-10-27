@@ -116,6 +116,33 @@ if [ -f /usr/local/etc/mediamtx.yml ]; then
     chown root:root /usr/local/etc/mediamtx.yml
 fi
 
+# --- Detector model ---------------------------------------------
+# Not shipped in the .deb and not in the repo: it is a 12.3 MiB release asset
+# (models-v1). It used to be tracked in git and installed by nothing, so the
+# file every node loaded was hand-placed and owned by no package -- which is
+# how a working fleet ends up running an artifact described nowhere.
+#
+# Fetched only when absent, so an upgrade never re-downloads it and a node
+# without network still upgrades cleanly. Detection is the only thing that
+# needs it; the stream does not, so a failure here warns and continues.
+MODEL_DIR=/usr/share/hls-livecam-server/models/candidates
+MODEL=$MODEL_DIR/yolov8n.onnx
+if [ ! -s "$MODEL" ]; then
+    mkdir -p "$MODEL_DIR"
+    if command -v curl >/dev/null 2>&1 && curl -fsSL -o "$MODEL.part" \
+         "https://github.com/thefangeddeity/laptop-livecam/releases/download/models-v1/yolov8n.onnx" \
+       && [ "$(stat -c%s "$MODEL.part" 2>/dev/null || echo 0)" -gt 1000000 ]; then
+        mv "$MODEL.part" "$MODEL"
+        chmod 0644 "$MODEL"
+        echo "Detector model installed: $MODEL"
+    else
+        rm -f "$MODEL.part"
+        echo -e "${YELLOW}Could not fetch the detector model.${NC}"
+        echo "  Detection stays off until it is present. Run:"
+        echo "    /usr/share/hls-livecam-server/fetch-model.sh"
+    fi
+fi
+
 # --- sudoers drop-ins -------------------------------------------
 # Fix ownership on the ones that are here, and SAY SO when one is not.
 # These are written by hls-livecam-setup, not by dpkg, so this script
