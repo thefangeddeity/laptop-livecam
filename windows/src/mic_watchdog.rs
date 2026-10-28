@@ -62,11 +62,9 @@ const SOURCE_URL: &str = "rtsp://127.0.0.1:8554/cam";
 const SILENT_MAX_DB: f32 = -65.0;
 /// Two consecutive bad probes (~30s of confirmed silence) before acting,
 /// so one unlucky quiet moment doesn't trigger a reset mid-call.
-const BAD_PROBES_BEFORE_RESET: u32 = 2;
+const BAD_PROBES_BEFORE_WARN: u32 = 2;
 const PROBE_INTERVAL: Duration = Duration::from_secs(15);
 /// After a reset, give the app's own capture supervisor time to reopen
-/// the device and stabilize before judging it again.
-const POST_RESET_COOLDOWN: Duration = Duration::from_secs(45);
 
 #[cfg(windows)]
 fn no_window(cmd: &mut Command) {
@@ -103,44 +101,6 @@ fn find_sst_controller_id() -> Option<String> {
         }
     }
     None
-}
-
-fn reset_controller(instance_id: &str) {
-    let mut disable = Command::new("pnputil");
-    disable.args(["/disable-device", instance_id]);
-    no_window(&mut disable);
-    let _ = disable.status();
-
-    std::thread::sleep(Duration::from_secs(2));
-
-    let mut enable = Command::new("pnputil");
-    enable.args(["/enable-device", instance_id]);
-    no_window(&mut enable);
-    let _ = enable.status();
-
-    // The controller reset alone does nothing for a call already in
-    // progress: pipeline.rs's dshow capture process opened its handle to
-    // the device before the reset and keeps it -- confirmed by hand,
-    // resetting the controller with that process still running leaves
-    // its output bit-identical, frozen on the same stale buffer. Killing
-    // it here is safe: pipeline.rs supervises /cam the same way every
-    // other leg in this codebase does (roomaudio.rs, talk.rs) and
-    // respawns on exit within about a second, this time opening a fresh
-    // handle against the just-reset hardware.
-    kill_cam_capture();
-}
-
-fn kill_cam_capture() {
-    let mut cmd = Command::new("powershell");
-    cmd.args([
-        "-NoProfile",
-        "-Command",
-        "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" \
-         | Where-Object { $_.CommandLine -like '*dshow*' -and $_.CommandLine -like '*8554/cam*' } \
-         | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
-    ]);
-    no_window(&mut cmd);
-    let _ = cmd.status();
 }
 
 /// Probes /cam's current audio level the same way manual diagnosis did:
@@ -215,12 +175,20 @@ pub fn spawn_supervisor(ffmpeg: PathBuf) {
                 Some(db) if db <= SILENT_MAX_DB => {
                     bad_streak += 1;
                     log(&format!("probe: {db:.1} dB (silent, streak {bad_streak})"));
-                    if bad_streak >= BAD_PROBES_BEFORE_RESET {
-                        bad_streak = 0;
-                        log("resetting SST controller");
-                        reset_controller(id);
-                        log("reset done, cooling down");
-                        std::thread::sleep(POST_RESET_COOLDOWN);
+                    if bad_streak == BAD_PROBES_BEFORE_WARN {
+                        // Report, never remedy. Disabling and re-enabling an
+                        // audio controller is not something to do to a machine
+                        // unattended: the trigger cannot tell a faulty device
+                        // from a muted endpoint or a silent room, and the old
+                        // loop would cycle the controller every ~75s for as
+                        // long as the condition held, uncapped. The operator
+                        // does what the supervisor used to, deliberately.
+                        log(&format!(
+                            "mic reads silent. NOT resetting anything. To recover by \
+                             hand (admin): pnputil /disable-device {id} then \
+                             pnputil /enable-device {id}, then restart capture. \
+                             See windows/README.md."
+                        ));
                     }
                 }
                 Some(db) => {
