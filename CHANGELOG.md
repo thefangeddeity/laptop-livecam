@@ -4,6 +4,29 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.45
+
+- First published Windows installer. The `windows` branch could not compile
+  at all: a commit stripping the Linux tree took with it the ten files
+  `assets.rs` and `cv.rs` embed at build time, which they reach into `pkg/`
+  for on purpose.
+- The Windows mic watchdog no longer disables and re-enables the audio
+  controller. It power-cycled a device node unattended, roughly every 75
+  seconds for as long as it judged the mic silent, and could not tell a
+  faulty device from a muted one. It now reports, and logs the exact
+  commands for a human to run deliberately.
+- `/api/audio/restart` and a viewer control to go with it, so the operator
+  has the safe half of that remedy: the server reopens its own capture
+  without touching any driver.
+- Every node now configures and repairs its own HTTPS through
+  `tailscale serve`. Browsers grant getUserMedia() only in a secure
+  context, so a dropped serve config killed two-way audio while the viewer
+  went on looking healthy. Nodes repair themselves rather than warning,
+  because a warning only helps someone who knows what to type.
+- ariana's serve config went from four path mappings to one. Two were
+  dead: `/audio` pointed at a port with nothing on it, and `/hls`
+  duplicated a proxy broadcast-api already had.
+
 ## 7.0.44
 
 - Night mode removed entirely — key, mode, capture branch, v4l2 control
