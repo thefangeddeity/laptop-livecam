@@ -4281,6 +4281,69 @@ def _normalize_notify_classes():
               file=sys.stderr, flush=True)
 
 
+# ── HTTPS, kept working rather than merely set up once ──────────────────
+_TS_CANDIDATES = ('/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+                  '/usr/bin/tailscale', 'tailscale')
+
+
+def _tailscale(args, timeout=20):
+    """Run the tailscale CLI wherever this platform keeps it, or None."""
+    for exe in _TS_CANDIDATES:
+        try:
+            return subprocess.run([exe] + args, capture_output=True,
+                                  text=True, timeout=timeout)
+        except FileNotFoundError:
+            continue
+        except Exception:
+            return None
+    return None
+
+
+def _serve_guard_loop():
+    """Keep https://<node>/ pointed at this server, forever.
+
+    HTTPS is load-bearing, not decoration: browsers expose getUserMedia()
+    only in a secure context, so the two-way talk leg has no microphone
+    without it. A node whose serve config gets dropped -- by a Tailscale
+    upgrade, a daemon restart, or being logged out -- carries on serving
+    the viewer over plain HTTP and fails at RTC silently. Nothing about the
+    page looks wrong, so nobody reports it, and the node can sit
+    half-broken for weeks.
+
+    This repairs instead of warning. A warning is only worth something to
+    someone who knows what to type in response, and on this fleet that
+    person is not guaranteed to be present. Re-applying serve is exactly
+    what they would do, is idempotent, and costs nothing when the config is
+    already correct.
+
+    Deliberately no certificate handling. Serve's cert is provisioned and
+    renewed inside tailscaled and never becomes a file anyone owns, so
+    expiry is not repairable from here -- reading its dates could only
+    produce a warning no one could act on. What CAN break out here is the
+    config and the login, so that is what this watches.
+    """
+    port = int(_cfg.get('WEB_PORT', 8080))
+    want = 'http://127.0.0.1:%d' % port
+    while True:
+        try:
+            st = _tailscale(['serve', 'status'])
+            if not (st and st.returncode == 0 and want in (st.stdout or '')):
+                r = _tailscale(['serve', '--bg', str(port)])
+                if r is not None and r.returncode == 0:
+                    print('broadcast-api: tailscale serve was missing, restored '
+                          '(https -> :%d)' % port, file=sys.stderr, flush=True)
+                else:
+                    why = (r.stderr.strip() if r is not None and r.stderr
+                           else 'tailscale unavailable')
+                    print('broadcast-api: could not restore HTTPS (%s) -- two-way '
+                          'audio will not work. Open Tailscale and make sure this '
+                          'node is signed in; it repairs itself once that is true.'
+                          % why, file=sys.stderr, flush=True)
+        except Exception:
+            pass
+        time.sleep(300)
+
+
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
@@ -4298,6 +4361,12 @@ if __name__ == '__main__':
         target=_mic_publisher_loop,
         daemon=True,
         name='mic-publisher',
+    ).start()
+    # HTTPS is what RTC needs; keep it repaired, not just configured.
+    threading.Thread(
+        target=_serve_guard_loop,
+        daemon=True,
+        name='serve-guard',
     ).start()
 
     # One line per HTTP request tells you nothing in steady state: the
