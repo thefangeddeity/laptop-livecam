@@ -1,6 +1,6 @@
 # PENDING — open work and notes to carry forward
 
-**Current:** 7.0.45, on the AUR, installed on tanzania and tina.
+**Current:** 7.0.46, on the AUR, installed on tanzania and tina.
 **Repo:** `github.com/thefangeddeity/laptop-livecam` · `main` is Linux,
 `macos` and `windows` are the ports.
 

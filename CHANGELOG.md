@@ -4,6 +4,21 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.46
+
+- Linux fix. 7.0.45's HTTPS guard could detect a missing `tailscale serve`
+  config but never repair it: reading serve status works unprivileged,
+  writing it does not, and broadcast-api runs as `www-data` or `http`.
+  macOS has no such split, which is why it worked there and the Linux copy
+  shipped broken. On a fresh Linux node that meant no HTTPS at all, so no
+  two-way audio, plus an error in the log every five minutes.
+- The guard now escalates through `sudo -n` only after the unprivileged
+  call fails, and `hls-livecam-setup` grants exactly one command --
+  `/usr/bin/tailscale serve --bg 8080` -- rather than a wildcard that
+  would let any port be published over the tailnet.
+- Windows and macOS are unaffected and remain at 7.0.45; their guards were
+  already working.
+
 ## 7.0.45
 
 - First published Windows installer. The `windows` branch could not compile
