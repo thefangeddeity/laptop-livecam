@@ -525,6 +525,7 @@ http ALL=(ALL) NOPASSWD: /bin/systemctl start ffmpeg-cam
 http ALL=(ALL) NOPASSWD: /bin/systemctl mask ffmpeg-cam
 http ALL=(ALL) NOPASSWD: /bin/systemctl unmask ffmpeg-cam
 http ALL=(ALL) NOPASSWD: /bin/systemctl restart broadcast-api
+http ALL=(ALL) NOPASSWD: /usr/bin/tailscale serve --bg 8080
 SUDOEOF
 chown root:root /etc/sudoers.d/hls-livecam-studio
 chmod 440 /etc/sudoers.d/hls-livecam-studio

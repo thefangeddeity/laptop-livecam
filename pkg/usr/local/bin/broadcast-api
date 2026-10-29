@@ -3620,11 +3620,12 @@ _TS_CANDIDATES = ('/usr/bin/tailscale', 'tailscale',
                   '/Applications/Tailscale.app/Contents/MacOS/Tailscale')
 
 
-def _tailscale(args, timeout=20):
+def _tailscale(args, timeout=20, sudo=False):
     """Run the tailscale CLI wherever this platform keeps it, or None."""
+    pre = ['sudo', '-n'] if sudo else []
     for exe in _TS_CANDIDATES:
         try:
-            return subprocess.run([exe] + args, capture_output=True,
+            return subprocess.run(pre + [exe] + args, capture_output=True,
                                   text=True, timeout=timeout)
         except FileNotFoundError:
             continue
@@ -3671,6 +3672,15 @@ def _serve_guard_loop():
             st = _tailscale(['serve', 'status'])
             if not (st and st.returncode == 0 and want in (st.stdout or '')):
                 r = _tailscale(['serve', '--bg', str(port)])
+                if r is None or r.returncode != 0:
+                    # Reading serve status works unprivileged, but WRITING it
+                    # does not: tailscaled answers "Access denied: serve config
+                    # denied" to a non-root caller, and this process runs as
+                    # www-data (Debian) or http (Arch). macOS has no such split
+                    # and succeeds above, so escalate only after the plain call
+                    # fails. The sudoers drop-in hls-livecam-setup writes allows
+                    # exactly this one command and nothing else.
+                    r = _tailscale(['serve', '--bg', str(port)], sudo=True)
                 if r is not None and r.returncode == 0:
                     print('broadcast-api: tailscale serve was missing, restored '
                           '(https -> :%d)' % port, file=sys.stderr, flush=True)
