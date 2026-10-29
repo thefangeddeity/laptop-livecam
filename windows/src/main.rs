@@ -37,6 +37,7 @@
 mod assets;
 mod audio_settings;
 mod autostart;
+mod tsserve;
 mod audio_capture;
 mod binaries;
 mod cam_mux;
@@ -100,6 +101,19 @@ fn main() {
         Ok(true) => launch_log("autostart: registered"),
         Ok(false) => launch_log("autostart: already registered"),
         Err(e) => launch_log(&format!("autostart: could not register ({e}) -- continuing without it")),
+    }
+
+    // HTTPS is load-bearing here, not decoration: without a secure context
+    // browsers refuse getUserMedia(), so RTC has no microphone. See
+    // tsserve.rs. Fail-soft -- a node that cannot reach Tailscale still
+    // serves HTTP, and saying so is more useful than refusing to start.
+    let serve_port = tsserve::bound_port();
+    match tsserve::ensure_serving(serve_port) {
+        Ok(true) => launch_log(&format!("tailscale serve: configured (https -> :{serve_port})")),
+        Ok(false) => launch_log("tailscale serve: already configured"),
+        Err(e) => launch_log(&format!(
+            "tailscale serve: not configured ({e}) -- HTTPS unavailable, so RTC will not work"
+        )),
     }
 
     // Handoff from the background server thread to the GUI (main) thread:
