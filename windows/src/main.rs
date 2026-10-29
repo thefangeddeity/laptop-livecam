@@ -115,6 +115,10 @@ fn main() {
             "tailscale serve: not configured ({e}) -- HTTPS unavailable, so RTC will not work"
         )),
     }
+    // ...and keep it that way: the config can be dropped later by a
+    // Tailscale upgrade or a logout, and nothing about a node serving
+    // plain HTTP looks broken until someone tries to talk.
+    tsserve::spawn_supervisor(serve_port);
 
     // Handoff from the background server thread to the GUI (main) thread:
     // state/pipeline/a runtime handle, once the async bootstrap completes.
