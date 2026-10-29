@@ -98,6 +98,7 @@ pub fn router(ctx: Arc<Ctx>) -> Router {
             get(notches_get).post(notches_post).delete(notches_delete).patch(notches_patch),
         )
         .route("/api/notches/sort", post(notches_sort))
+        .route("/api/audio/restart", post(api_audio_restart))
         .route("/api/talk", get(talk_get).post(talk_post))
         .route("/api/pipeline", get(api_pipeline))
         .route("/api/cv-state", get(api_cv_state))
@@ -115,7 +116,8 @@ pub fn router(ctx: Arc<Ctx>) -> Router {
         .route("/cam/{*rest}", any(proxy_cam))
         // roomaudio.rs republishes /cam's audio as Opus for the two-way
         // WHEP inbound leg; proxy_cam's logic is already path-generic
-        // (recomputes est from the real URI each call), so the same
+        // (recomputes 
+est from the real URI each call), so the same
         // handler proxies this path too without any change to it.
         .route("/roomaudio/{*rest}", any(proxy_cam))
         // An unknown /api/ path reaches Flask and gets Flask's 404 page;
@@ -259,6 +261,24 @@ async fn api_buzz(State(ctx): State<Arc<Ctx>>) -> Response {
             false,
         ),
     }
+}
+
+/// Operator-triggered audio restart -- the remedy mic_watchdog.rs no
+/// longer performs by itself.
+///
+/// Drops the capture child so the supervisor respawns it against a fresh
+/// device handle. That is the process-level equivalent of releasing and
+/// re-activating the client, which is Microsoft's documented recovery for
+/// a capture device gone bad (AUDCLNT_E_DEVICE_INVALIDATED); ffmpeg's
+/// dshow input cannot speak that protocol itself, so a restart is the
+/// closest remedy available from out here. Crucially it stays inside this
+/// process: no device node is disabled, nothing needs admin, and no other
+/// application on the machine loses its audio. Video is untouched --
+/// audio_capture.rs runs separately from camvideo precisely so this
+/// cannot take a healthy feed down with it.
+async fn api_audio_restart(State(ctx): State<Arc<Ctx>>) -> Response {
+    ctx.pipeline.reload_audio().await;
+    flask_text("restarted")
 }
 
 async fn feed_mode_get(State(ctx): State<Arc<Ctx>>) -> Response {
@@ -555,7 +575,7 @@ async fn api_info() -> Response {
     // drift from what actually got built (Cargo.toml is the one place
     // the version is written down).
     let body = format!(
-        "{{\"hostname\": \"{}\", \"tailscale\": \"{}\", \"version\": \"{}\"}}\n",
+        "{{\"hostname\": \"{}\", \"tailscale\": \"{}\", \"version\": \"{}\", \"audio_restart\": true}}\n",
         json_escape(&host),
         json_escape(&ts),
         env!("CARGO_PKG_VERSION"),
