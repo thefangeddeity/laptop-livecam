@@ -5,7 +5,7 @@ name = "hls-livecam-win"
 # rather than each platform keeping its own line. This feeds the MSI
 # filename, the installer's ProductVersion, and the viewer's
 # windows-v<version> build label via CARGO_PKG_VERSION.
-version = "7.0.0"
+version = "7.0.45"
 edition = "2021"
 description = "Native Windows camera node for hls-livecam-server (control-plane, web assets, capture pipeline)"
 license = "GPL-3.0"
