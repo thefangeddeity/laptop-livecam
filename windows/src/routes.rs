@@ -277,7 +277,7 @@ async fn api_buzz(State(ctx): State<Arc<Ctx>>) -> Response {
 /// cannot take a healthy feed down with it.
 async fn api_audio_restart(State(ctx): State<Arc<Ctx>>) -> Response {
     ctx.pipeline.reload_audio().await;
-    flask_text("restarted")
+    flask_text("restarted".to_string())
 }
 
 async fn feed_mode_get(State(ctx): State<Arc<Ctx>>) -> Response {
