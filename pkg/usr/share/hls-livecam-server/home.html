@@ -128,11 +128,11 @@
       <span class="state" id="llcState">checking…</span>
       <span class="path">/llc</span>
     </a>
-    <a class="door msgr" href="/elem">
+    <a class="door msgr" href="/elem/">
       <span class="name">Messenger</span>
-      <span class="what">ELE Messenger: household chat that keeps working without the internet.</span>
+      <span class="what">ELE Mesh: household chat that keeps working without the internet.</span>
       <span class="state" id="elemState">checking…</span>
-      <span class="path">/elem</span>
+      <span class="path">/elem/</span>
     </a>
   </div>
 
@@ -167,7 +167,7 @@
       });
   }
   probe('/api/pipeline', document.getElementById('llcState'), 'ready');
-  probe('/ele-api/online', document.getElementById('elemState'), 'ready');
+  probe('/elem/v1/ping', document.getElementById('elemState'), 'ready');
 
   // The node's OWN name, which is not the same as the name you reached it
   // by -- an address, a tailnet name and a .local name are all routes to one

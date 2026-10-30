@@ -2402,7 +2402,7 @@
       <!-- ══ ELE MESSENGER ══
            Hidden unless the messenger is actually installed on this node.
            No build flag and no server change decides that: the viewer asks
-           /ele-api/online, which answers 200 when the messenger is present
+           /elem/v1/ping, which answers 200 when the mesh is present
            and 404 when it is not, because the nginx include that routes
            /ele* is a wildcard that matches nothing on a node without it.
            A node with no messenger therefore shows Node Note and nothing
@@ -2414,8 +2414,9 @@
         <div class="ele-top ele-sub">
           <span class="ele-col">
             <span class="ele-what eng">Messages</span>
-            <span class="ele-brand"><img src="/ele/icons/ELE-messenger-favicon-16px.png"
-                  alt="" width="12" height="12"> ELEM</span>
+            <!-- No icon: /ele/icons was the removed server's path and 404s
+                 now. A broken image in the header reads as a broken card. -->
+            <span class="ele-brand">ELE Mesh</span>
           </span>
           <span class="ele-col right">
             <span class="me" id="eleMe"></span>
@@ -2436,9 +2437,13 @@
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
-        <div class="msg-actions one" id="eleActions" hidden>
+        <div class="msg-actions two" id="eleActions" hidden>
           <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
                   title="Open the full chat in its own window">Open chat</button>
+          <!-- Hidden until signed in: a visitor cannot mint invites, and a
+               button that always 401s is worse than no button. -->
+          <button class="pbtn" id="eleInviteBtn" onclick="eleInvite()" hidden
+                  title="Copy a link that lets one device join, once, within a day">Copy invite</button>
         </div>
       </div>
 
@@ -5477,7 +5482,7 @@
 
 
   // ── ELE MESSENGER (optional neighbour on this origin) ──────────────────
-  // /ele-api/online is used as a REACHABILITY check and nothing more: it
+  // /elem/v1/ping is used as a REACHABILITY check and nothing more: it
   // answers 200 where the messenger is installed and 404 where it is not, so
   // one request decides whether this card exists at all. A node without the
   // messenger shows Node Note alone -- the designed degradation, not a
@@ -5491,10 +5496,12 @@
   var elePanel = document.getElementById('elePanel');
   var eleList  = document.getElementById('eleList');
   var elePresent = false;
-  var eleBusy = false;      // one history request at a time
-  var eleTok  = null;       // the session, held in memory only
-  var eleWho  = null;       // who that session says we are
   var eleHost = null;       // this machine's name
+  var eleRoom = 'home';     // the house channel; the mesh default
+  var eleMsgs = [];         // what we have been told, in order
+  var eleCursor = 0;        // the mesh's cursor, never computed here
+  var eleGen = 0;           // bumps to retire an in-flight long poll
+  var eleAuthed = false;
 
   // This machine's name, for rendering person@machine. capabilities.json is
   // the node stating its own name and is already served from this origin.
@@ -5503,7 +5510,7 @@
     .catch(function () { return null; })
     .then(function (d) {
       var n = d && d.identity && d.identity.node && d.identity.node.value;
-      if (n) { eleHost = n; eleRenderHistory(); }
+      if (n) eleHost = n;
     });
 
   function eleEsc(t) {
@@ -5526,47 +5533,34 @@
     e.hidden = !msg;
   }
 
-  // ── THE SESSION IS NOT A GATE ───────────────────────────────────────────
-  // There is no sign-in here, by design. A browser open on this machine is
-  // already somebody: this machine. The card takes a node session, and when
-  // that session stops working -- the messenger holds sessions in memory, so
-  // every restart invalidates every one of them -- it takes a new one and
-  // carries on.
+  // ── THREE STATES, NOT TWO ───────────────────────────────────────────────
+  // The old server let this machine speak for itself: the card took a node
+  // session and never asked anyone who they were. The mesh does not work
+  // that way. A browser without the mesh cookie is a VISITOR, and every
+  // endpoint except /v1/ping answers 401 to one.
   //
-  // It previously treated a 401 as "you are signed out" and put a name-and-PIN
-  // form on screen. That is a sign-in product's reflex, and it is wrong here:
-  // the one thing someone must be able to do is say something, and a restart
-  // of a service they cannot see is not a reason to ask them who they are.
-  // Connect first. Gating, if it is ever wanted, comes after and on purpose.
-  function eleSession(then) {
-    if (eleTok) { then(eleTok); return; }
-    fetch('/ele-api/api/node-login', { method: 'POST', cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (j && j.token) { eleTok = j.token; eleWho = j.username; }
-        then(eleTok);
-      });
-  }
-
+  // So the card has three states now and must be able to say which it is in:
+  //   absent          -- no mesh on this node at all; hide the card
+  //   not signed in   -- mesh is here, this browser is a visitor; offer the
+  //                      way in rather than a dead list
+  //   signed in       -- show the conversation
+  //
+  // Modelling only the first and last is what made the card vanish when the
+  // old server went away: an unreachable probe and an unauthenticated one
+  // are different facts, and a card that cannot tell them apart reports a
+  // broken camera when the truth is "click here to sign in".
   function eleParts() {
-    // No `head`: the .ele-head element went away in the header refactor and
-    // every read of it was null, so the hiding it was supposed to do never
-    // happened and nobody noticed.
     return { send: document.getElementById('eleSend'),
              actions: document.getElementById('eleActions'),
+             invite: document.getElementById('eleInviteBtn'),
              me: document.getElementById('eleMe') };
   }
 
-  // from_user and origin_node are the SAME for a message a machine wrote, so
-  // printing both gave "ariana ariana:". One identity per line: the machine
-  // alone, or person@machine when a person wrote it. No "you" -- in a shared
-  // channel every line should name who said it, including your own, so the
-  // log reads the same to everyone looking at it.
   // Which network this page came in over. Read off the address bar rather
-  // than asserted: it is the one thing we know for certain about the path,
-  // and a label that cannot be wrong beats one that is merely optimistic.
-  // When mesh or BLE carry this, they can report instead of being inferred.
+  // than asserted: it is the one thing we know for certain about the path.
+  // It describes how the BROWSER reached this machine, not how the message
+  // travels once it is in the mesh -- those are different journeys and
+  // conflating them would make the label a lie the moment a link is relayed.
   function eleNetwork() {
     var h = (location.hostname || '').toLowerCase();
     if (/\.ts\.net$/.test(h)) return 'tailnet';
@@ -5576,10 +5570,13 @@
     return 'network';
   }
 
-  function eleIdent(from, origin) {
-    if (!origin) return from || '';
-    if (!from || from === origin) return origin;
-    return from + '@' + origin;
+  // One identity per line: the machine alone, or person@machine when a
+  // person wrote it. No "you" -- in a shared channel every line should name
+  // who said it, including your own.
+  function eleIdent(nick, author) {
+    if (!author) return nick || '';
+    if (!nick || nick === author) return author;
+    return nick + '@' + author;
   }
 
   function eleShowUnavailable(note) {
@@ -5589,159 +5586,191 @@
       eleList.innerHTML = '<span class="quiet">' + eleEsc(note) + '</span>';
     }
     if (p.send) p.send.hidden = true;
+    if (p.invite) p.invite.hidden = true;
     if (p.actions) p.actions.hidden = false;
   }
 
-  function eleRenderHistory(retrying) {
-    if (!eleList || eleBusy) return;
-    eleSession(function (tok) {
-      if (!tok) { eleShowUnavailable('messenger unavailable'); return; }
-      var p = eleParts();
+  // A visitor is not an error. Offer the door, do not report a fault.
+  function eleShowSignIn() {
+    eleAuthed = false;
+    var p = eleParts();
+    if (eleList) {
       eleList.hidden = false;
-      if (p.send) p.send.hidden = false;
-      if (p.actions) p.actions.hidden = false;
-      if (p.me) {
-        var asNode = (eleWho === eleHost) || !eleHost;
-        p.me.textContent = eleIdent(eleWho, eleHost) || eleWho || '';
-        p.me.className = asNode ? 'me node' : 'me';
-      }
-      var netEl = document.getElementById('eleTransport');
-      if (netEl) netEl.textContent = eleNetwork();
-      eleBusy = true;
-      fetch('/ele-api/api/history?token=' + encodeURIComponent(tok), { cache: 'no-store' })
-        .then(function (r) {
-          if (r.status === 401 || r.status === 403) return 'stale';
-          return r.ok ? r.json() : null;
-        })
-        .catch(function () { return null; })
-        .then(function (h) {
-          eleBusy = false;
-          if (h === 'stale') {
-            // ONCE. Clearing the token and calling straight back in is an
-            // infinite loop if the server keeps rejecting -- it spins and
-            // hammers a messenger that is already unhappy. One fresh session,
-            // one retry, then say so and wait for the next poll.
-            eleTok = null;
-            if (!retrying) { eleRenderHistory(true); return; }
-            eleList.innerHTML = '<span class="quiet">messenger not accepting this node</span>';
-            return;
-          }
-          if (!h) { eleList.innerHTML = '<span class="quiet">messenger unreachable</span>'; return; }
-          var msgs = (h.history || []).slice(-12);
-          if (!msgs.length) {
-            eleList.innerHTML = '<span class="quiet">nothing said yet</span>';
-            return;
-          }
-          var atBottom = (eleList.scrollHeight - eleList.scrollTop
-                          - eleList.clientHeight) < 24;
-          // A run of messages from one machine names it once and the rest
-          // line up underneath -- the shape a chat log has had since AOL,
-          // and the reason is unchanged: the name repeated on every line is
-          // noise that pushes the words themselves out of the column.
-          var lastWho = null;
-          eleList.innerHTML = msgs.map(function (m) {
-            var body = m.secret
-              ? '<span class="lock">● encrypted — open to read</span>'
-              : eleEsc(m.message || (m.image_id ? '[image]' : ''));
-            var who = eleIdent(m.from, m.origin_node);
-            var runs = (who === lastWho);
-            lastWho = who;
-            return '<span class="em' + (runs ? ' cont' : '') + '">' +
-                   '<span class="who">' + (runs ? '' : eleEsc(who) + ':') + '</span>' +
-                   '<span class="txt">' + body + '</span>' +
-                   '<span class="when">' + (runs ? '' : eleEsc(eleWhen(m.timestamp))) + '</span>' +
-                   '</span>';
-          }).join('');
-          if (atBottom) eleList.scrollTop = eleList.scrollHeight;
-        })
-        .catch(function () { eleBusy = false; });
-    });
+      eleList.innerHTML = '<span class="quiet">not signed in — ' +
+        '<a href="/elem/" target="_blank" rel="noopener">open the mesh</a>' +
+        ' to join with the passphrase</span>';
+    }
+    if (p.send) p.send.hidden = true;
+    if (p.invite) p.invite.hidden = true;
+    if (p.actions) p.actions.hidden = false;
   }
 
-  function eleSendMsg(retrying) {
+  function eleRender() {
+    if (!eleList) return;
+    var p = eleParts();
+    eleList.hidden = false;
+    if (p.send) p.send.hidden = false;
+    if (p.invite) p.invite.hidden = false;
+    if (p.actions) p.actions.hidden = false;
+    var netEl = document.getElementById('eleTransport');
+    if (netEl) netEl.textContent = eleNetwork();
+    if (p.me) {
+      p.me.textContent = eleHost || '';
+      p.me.className = 'me node';
+    }
+    var msgs = eleMsgs.slice(-12);
+    if (!msgs.length) {
+      eleList.innerHTML = '<span class="quiet">nothing said yet</span>';
+      return;
+    }
+    var atBottom = (eleList.scrollHeight - eleList.scrollTop
+                    - eleList.clientHeight) < 24;
+    var lastWho = null;
+    eleList.innerHTML = msgs.map(function (m) {
+      var who = eleIdent(m.nick, m.author);
+      var runs = (who === lastWho);
+      lastWho = who;
+      return '<span class="em' + (runs ? ' cont' : '') + '">' +
+             '<span class="who">' + (runs ? '' : eleEsc(who) + ':') + '</span>' +
+             '<span class="txt">' + eleEsc(m.text || '') + '</span>' +
+             '<span class="when">' + (runs ? '' : eleEsc(eleWhen(m.ts_ms))) + '</span>' +
+             '</span>';
+    }).join('');
+    if (atBottom) eleList.scrollTop = eleList.scrollHeight;
+  }
+
+  // Long-poll, not a timer. The mesh holds the request open for up to 25s
+  // and answers the moment something is said, so a message appears when it
+  // is sent rather than up to ten seconds later -- and an idle house costs
+  // one parked request instead of six round trips a minute.
+  //
+  // The generation counter retires a poll rather than cancelling it: a
+  // fetch already in flight cannot be stopped, but it can be told that its
+  // answer is no longer wanted, which is what stops two loops running after
+  // a re-probe.
+  function elePoll(gen) {
+    if (gen !== eleGen) return;
+    fetch('/elem/v1/rooms/' + encodeURIComponent(eleRoom) +
+          '/messages?after=' + eleCursor + '&wait=25', { cache: 'no-store' })
+      .then(function (r) {
+        if (r.status === 401) return 'unauth';
+        return r.ok ? r.json() : null;
+      })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (gen !== eleGen) return;
+        if (j === 'unauth') { eleShowSignIn(); setTimeout(function () { elePoll(gen); }, 4000); return; }
+        if (!j) { setTimeout(function () { elePoll(gen); }, 4000); return; }
+        eleAuthed = true;
+        if (j.messages && j.messages.length) {
+          for (var i = 0; i < j.messages.length; i++) {
+            var m = j.messages[i], c = m.control;
+            // Control entries are instructions, not things to show. A delete
+            // matches on author AND seq: seq alone is only unique per author,
+            // so matching on it would take someone else's message down too.
+            if (!c) { eleMsgs.push(m); continue; }
+            if (c === 'clear') {
+              eleMsgs = eleMsgs.filter(function (x) { return x.ts_ms > m.ts_ms; });
+            } else if (c.delete) {
+              eleMsgs = eleMsgs.filter(function (x) {
+                return !(x.author === c.delete.author && x.seq === c.delete.seq);
+              });
+            }
+          }
+          eleMsgs.sort(function (a, b) {
+            return a.ts_ms - b.ts_ms ||
+                   String(a.author).localeCompare(String(b.author)) ||
+                   a.seq - b.seq;
+          });
+          eleCursor = j.cursor;
+          eleRender();
+        }
+        elePoll(gen);
+      });
+  }
+
+  function eleSendMsg() {
     var box = document.getElementById('eleMsg');
     var btn = document.getElementById('eleSendBtn');
     if (!box) return;
     var text = (box.value || '').trim();
     if (!text) return;
-    eleSession(function (tok) {
-      if (!tok) { eleSay('messenger unavailable'); return; }
-      if (btn) { btn.disabled = true; btn.textContent = '…'; }
-      eleSay('');
-      fetch('/ele-api/api/send', {
-        method: 'POST', cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        // The house channel: one rolling conversation everyone is in.
-        body: JSON.stringify({ token: tok, conversation_id: 'house', message: text })
-      })
-        .then(function (r) {
-          if (r.status === 401 || r.status === 403) return 'stale';
-          return r.ok ? r.json() : null;
-        })
-        .catch(function () { return null; })
-        .then(function (j) {
-          if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
-          if (j === 'stale') {
-            // Take a fresh session and send again, once. The text stays in
-            // the box until something is actually written down.
-            eleTok = null;
-            if (!retrying) { eleSendMsg(true); return; }
-            eleSay('could not send');
-            return;
-          }
-          if (!j || !j.ok) { eleSay('not sent — messenger unreachable'); return; }
-          box.value = '';
-          eleRenderHistory();
-        });
-    });
-  }
-
-  // A window, not a tab -- the shape a chat client had before everything
-  // became a tab, and the right one for something you keep beside the camera
-  // rather than switch to.
-  //
-  // Pop-up blockers are not a risk here: they block opens that are
-  // PROGRAMMATIC or deferred, not ones made synchronously inside a click
-  // handler, which this is. If one refuses anyway, window.open returns null
-  // and we fall back to a tab rather than appearing to do nothing.
-  //
-  // The window is NAMED, so pressing the button again brings the existing one
-  // forward instead of opening a second copy of the same conversation.
-  function eleOpenWindow() {
-    var w = 420, h = 660;
-    var left = 0, top = 0;
-    try {
-      left = (window.screenX || 0) + Math.max(0, (window.outerWidth || w) - w - 24);
-      top  = (window.screenY || 0) + 48;
-    } catch (e) {}
-    var win = window.open('/elem', 'elemesh',
-      'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top +
-      ',resizable=yes,scrollbars=yes');
-    if (!win) { window.open('/elem', '_blank'); return; }
-    try { win.focus(); } catch (e) {}
-  }
-
-  function eleProbe() {
-    fetch('/ele-api/online', { cache: 'no-store' })
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    eleSay('');
+    // Empty nick means the machine's own name, which is what a camera node
+    // speaking for itself should be.
+    fetch('/elem/v1/rooms/' + encodeURIComponent(eleRoom) + '/messages', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nick: '', text: text })
+    })
       .then(function (r) {
-        if (r.status === 404) return 'absent';
-        return r.ok ? r.json() : 'unreachable';
+        if (r.status === 401) return 'unauth';
+        return r.ok;
       })
-      .catch(function () { return 'unreachable'; })
+      .catch(function () { return null; })
+      .then(function (ok) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
+        if (ok === 'unauth') { eleShowSignIn(); return; }
+        if (!ok) { eleSay('not sent — mesh unreachable'); return; }
+        box.value = '';
+      });
+  }
+
+  // One device, once, within a day, without handing over the passphrase.
+  function eleInvite() {
+    var b = document.getElementById('eleInviteBtn');
+    if (b) b.disabled = true;
+    eleSay('making an invite…');
+    fetch('/elem/v1/invite', { method: 'POST', cache: 'no-store' })
+      .then(function (r) {
+        if (r.status === 401) return 'unauth';
+        return r.ok ? r.json() : null;
+      })
+      .catch(function () { return null; })
       .then(function (j) {
-        if (j === 'absent') {
+        if (b) b.disabled = false;
+        if (j === 'unauth') { eleShowSignIn(); eleSay(''); return; }
+        if (!j || !j.invite) { eleSay('could not make an invite'); return; }
+        var link = location.origin + '/elem/#invite=' + j.invite;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(link)
+            .then(function () { eleSay('invite link copied — one device, one day'); })
+            .catch(function () { eleSay(link); });
+        } else {
+          eleSay(link);
+        }
+      });
+  }
+
+  // A tab, not a pop-up. This used to open a sized window -- the shape a
+  // chat client had before everything became a tab -- but pop-ups read as
+  // something gone wrong now rather than as a feature, and browsers treat
+  // them with suspicion besides.
+  //
+  // The window NAME is kept, because that part was right: pressing the
+  // button again brings the existing tab forward instead of opening a
+  // second copy of the same conversation.
+  function eleOpenWindow() {
+    var win = window.open('/elem/', 'elemesh');
+    if (win) { try { win.focus(); } catch (e) {} }
+  }
+
+function eleProbe() {
+    fetch('/elem/v1/ping', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (!j || !j.mesh) {
           elePresent = false;
           if (elePanel) elePanel.hidden = true;
           return;
         }
-        if (j === 'unreachable') {
-          if (!elePresent) return;
-          eleShowUnavailable('messenger unreachable');
-          return;
-        }
+        if (elePresent) return;    // already running; do not start a second poll
         elePresent = true;
         if (elePanel) elePanel.hidden = false;
-        eleRenderHistory();
+        eleGen++;
+        elePoll(eleGen);
       });
   }
 
