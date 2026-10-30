@@ -4,6 +4,25 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.48
+
+- The Messages card no longer lets a sender's name size the message
+  column. It rendered the sender as nick@author, and the mesh's author is
+  a 16-character node id, so "ariana@1bce903a1c6dc8bb" took the card and
+  left the message breaking mid-word -- "Tailscale" reading as
+  "Tailsc / ale". The id is gone from the log: it is how machines tell
+  each other apart, not something a person reads. Hover still carries the
+  full name, the machine and the exact time.
+- The underlying fault was the row template, and any long name would have
+  brought it back: an intrinsic track lets user-settable content size a
+  layout column. The tracks are fixed now, the message column can
+  actually shrink, and a word breaks only when it cannot fit rather than
+  eagerly.
+- Runs group on the author rather than the displayed name, so two
+  machines sharing a name no longer merge and a machine renaming itself
+  mid-run no longer splits. A run also breaks after ten quiet minutes or
+  across a day boundary, so a stale block re-announces when it was.
+
 ## 7.0.47
 
 - The viewer's Messages card talks to the ELE mesh. ELE went mesh-only in
