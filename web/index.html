@@ -1623,11 +1623,24 @@
        actually need and no more, which keeps short names from leaving a
        gutter, and max-content means it is measured rather than guessed
        again the next time a node is named something longer. */
+    /* NO intrinsic sizing here -- not max-content, min-content, fit-content
+       or auto. The sender name is user-settable, and an intrinsic track lets
+       one long name size the whole row: a 22-character sender once took the
+       card and left the message breaking mid-word, "Tailscale" reading as
+       "Tailsc / ale". Fixed tracks mean the message column cannot be starved
+       by its neighbours, whatever arrives in them. */
     .ele-list .em { display: grid;
-                    grid-template-columns: minmax(5.2em, max-content) 1fr auto;
-                    gap: 0 6px; margin-bottom: 3px; word-break: break-word; }
-    /* The name itself never breaks; the message does. */
-    .ele-list .em .who { white-space: nowrap; }
+                    grid-template-columns: 6.5em 1fr 3.4em;
+                    gap: 0 6px; margin-bottom: 3px; }
+    /* Right-aligned so short names hug the text they introduce -- which is
+       the job the trailing colon used to do, and the colon was the first
+       thing an ellipsis ate. */
+    .ele-list .em .who { white-space: nowrap; overflow: hidden;
+                         text-overflow: ellipsis; text-align: right; }
+    /* min-width:0 or a grid item refuses to shrink below its content.
+       overflow-wrap breaks only a word that cannot fit; word-break broke
+       eagerly, mid-syllable, even when there was room. */
+    .ele-list .em .txt { min-width: 0; overflow-wrap: break-word; }
     .ele-list .em .who { grid-column: 1; }
     .ele-list .em .txt { grid-column: 2; }
     .ele-list .em .when { grid-column: 3; float: none; margin-left: 0; }
@@ -2046,7 +2059,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">Laptop LiveCam</span>
-    <span class="hdr-vfd" title="mac-v1.8.2-1-gbad67f0"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-2-gf1264a2"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2954,7 +2967,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-1-gbad67f0';
+    var build = info.version || 'mac-v1.8.2-2-gf1264a2';
     // ONE format across the fleet. The hostname beside this already says
     // which machine you are looking at, so a platform prefix said it twice:
     // "mac-v1.8.0 @ariana" against "7.0.31 @tanzania" -- the same field,
@@ -5604,13 +5617,22 @@
     return 'network';
   }
 
-  // One identity per line: the machine alone, or person@machine when a
-  // person wrote it. No "you" -- in a shared channel every line should name
-  // who said it, including your own.
-  function eleIdent(nick, author) {
-    if (!author) return nick || '';
-    if (!nick || nick === author) return author;
-    return nick + '@' + author;
+  // Names only. `author` is a 16-character node id -- how machines tell
+  // each other apart, not something to read in a chat log. Printing it as
+  // person@machine gave "ariana@1bce903a1c6dc8bb", and since the name
+  // column is max-content and never wraps, it took the card and left the
+  // message breaking mid-word. The mesh fills an empty nick with the
+  // sending machine's own name, so this is populated in practice.
+  //
+  // No "you" -- in a shared channel every line should name who said it,
+  // including your own, so the log reads the same to everyone.
+  function eleIdent(nick) {
+    // Clipped HERE, not only in CSS: an unvalidated length is a data
+    // problem, and CSS is the second net rather than the first.
+    var n = String(nick || '').replace(/[\u0000-\u001f]/g, ' ')
+                              .replace(/\s+/g, ' ').trim();
+    if (!n) return 'unnamed';
+    return n.length > 12 ? n.slice(0, 11) + '\u2026' : n;
   }
 
   function eleShowUnavailable(note) {
@@ -5659,13 +5681,24 @@
     }
     var atBottom = (eleList.scrollHeight - eleList.scrollTop
                     - eleList.clientHeight) < 24;
-    var lastWho = null;
+    // Runs are keyed on the AUTHOR, not on the name shown. Two machines can
+    // choose the same name, and one machine can change its name mid-run --
+    // keying on the rendered string would merge the first and split the
+    // second. A run also breaks when the conversation goes quiet for ten
+    // minutes or the day turns, so a stale block re-announces when it was.
+    var lastAuthor = null, lastTs = 0;
     eleList.innerHTML = msgs.map(function (m) {
-      var who = eleIdent(m.nick, m.author);
-      var runs = (who === lastWho);
-      lastWho = who;
-      return '<span class="em' + (runs ? ' cont' : '') + '">' +
-             '<span class="who">' + (runs ? '' : eleEsc(who) + ':') + '</span>' +
+      var who = eleIdent(m.nick);
+      var stale = !lastTs || (m.ts_ms - lastTs) > 600000 ||
+                  new Date(m.ts_ms).toDateString() !== new Date(lastTs).toDateString();
+      var runs = (m.author === lastAuthor) && !stale;
+      lastAuthor = m.author; lastTs = m.ts_ms;
+      // The card identifies; the full chat adjudicates. Hover carries what
+      // the column cannot: the untruncated name and the machine behind it.
+      var full = eleEsc((m.nick || 'unnamed') + ' \u00b7 ' + (m.author || '?') +
+                        ' \u00b7 ' + new Date(m.ts_ms).toLocaleString());
+      return '<span class="em' + (runs ? ' cont' : '') + '" title="' + full + '">' +
+             '<span class="who">' + (runs ? '' : eleEsc(who)) + '</span>' +
              '<span class="txt">' + eleEsc(m.text || '') + '</span>' +
              '<span class="when">' + (runs ? '' : eleEsc(eleWhen(m.ts_ms))) + '</span>' +
              '</span>';
