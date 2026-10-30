@@ -5777,27 +5777,20 @@
       });
   }
 
-  // A window, not a tab -- the shape a chat client had before everything
-  // became a tab. NAMED, so pressing the button again brings the existing
-  // one forward instead of opening a second copy.
+  // A tab, not a pop-up. This used to open a sized window -- the shape a
+  // chat client had before everything became a tab -- but pop-ups read as
+  // something gone wrong now rather than as a feature, and browsers treat
+  // them with suspicion besides.
+  //
+  // The window NAME is kept, because that part was right: pressing the
+  // button again brings the existing tab forward instead of opening a
+  // second copy of the same conversation.
   function eleOpenWindow() {
-    var w = 420, h = 660;
-    var left = 0, top = 0;
-    try {
-      left = (window.screenX || 0) + Math.max(0, (window.outerWidth || w) - w - 24);
-      top  = (window.screenY || 0) + 48;
-    } catch (e) {}
-    var win = window.open('/elem/', 'elemesh',
-      'width=' + w + ',height=' + h + ',left=' + left + ',top=' + top +
-      ',resizable=yes,scrollbars=yes');
-    if (!win) { window.open('/elem/', '_blank'); return; }
-    try { win.focus(); } catch (e) {}
+    var win = window.open('/elem/', 'elemesh');
+    if (win) { try { win.focus(); } catch (e) {} }
   }
 
-  // /v1/ping is the one endpoint a visitor may call, which is exactly what
-  // makes it the right probe: it separates "no mesh here" from "mesh here,
-  // you are not signed in" without needing to be signed in to find out.
-  function eleProbe() {
+function eleProbe() {
     fetch('/elem/v1/ping', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; })

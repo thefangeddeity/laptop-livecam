@@ -910,7 +910,16 @@ class Notifier:
         if withhold:
             # Say so. An alert that silently arrives without its picture reads
             # as a broken camera.
-            text += " -- no photo or clip, someone is home"
+            # Name the media that was actually withheld, not a generic pair.
+            # Both can be enabled at once, so saying "no photo" when a clip
+            # was also held back would be false; "no photo or clip" is only
+            # correct when both were wanted.
+            kinds = []
+            if self._shots_wanted():
+                kinds.append('photo')
+            if self._video_wanted():
+                kinds.append('clip')
+            text += ", no %s due to person present." % (' or '.join(kinds) or 'media')
         want_shots = manual or (self._shots_wanted() and not withhold)
         try:
             for i, p in enumerate(item['picks'] if want_shots else []):
