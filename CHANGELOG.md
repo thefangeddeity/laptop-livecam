@@ -4,6 +4,33 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.47
+
+- The viewer's Messages card talks to the ELE mesh. ELE went mesh-only in
+  1.5.0 and the server the card used is gone, so it hid itself and looked
+  like a broken camera. It now models three states rather than two: no
+  mesh (hide), mesh present but this browser is a visitor (offer the way
+  in), signed in (show the conversation). Conflating the middle one with
+  "unreachable" is what made it vanish.
+- Long-poll instead of a ten-second timer, so a message appears when it is
+  sent. Control entries are applied, never displayed, and a delete matches
+  on author AND seq -- seq alone is unique only per author.
+- A Copy-invite button: one device, once, within a day, without handing
+  over the passphrase. Hidden until signed in, because a button that
+  always 401s is worse than no button.
+- The chat opens in a named tab rather than a pop-up.
+- `location = /elem` now redirects to `/elem/` with `absolute_redirect
+  off`. Behind tailscale serve, nginx otherwise answers with an absolute
+  URL built from its own listen port, downgrading https://<node>/elem to
+  http://<node>:8080/elem/. This comes upstream from a hand-applied
+  stopgap that the next upgrade would have silently reverted.
+- Detection alerts read "<Node>: Cat detected, no photo due to person
+  present.", naming the media actually withheld rather than guessing.
+- The HTTPS guard stands down on nodes that terminate TLS themselves.
+  tina's nginx holds 443 with its own certificate, so `tailscale serve`
+  cannot bind there and the guard would have failed every cycle while
+  claiming to repair something that was never broken.
+
 ## 7.0.46
 
 - Linux fix. 7.0.45's HTTPS guard could detect a missing `tailscale serve`
