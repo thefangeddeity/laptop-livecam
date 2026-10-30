@@ -13,3 +13,33 @@ is how a fork ends up branded as the thing it forked from.
 Source images are RGB with no alpha. The viewer header sits on a dark
 housing, so a derivative needs a transparent or matched background rather
 than the white one that comes out of a naive resize.
+
+---
+
+## Derivatives, and how they are built
+
+Everything below comes from `hls-livecam-server.png`. Nothing is retouched
+by hand, and nothing is downscaled from another derivative.
+
+    scripts/make-app-icon.py --art art/hls-livecam-server.png \
+        --shape <previous icon> --out gui/assets/icon_1024.png
+    scripts/make-brand-mark.py --product livecam --full-tile --size 128
+
+On macOS the icon set and `.icns` are then built with `sips` and
+`iconutil -c icns`, and copied on to `packaging/` and the app bundle.
+
+Two traps worth keeping written down:
+
+**The corner is a continuous superellipse, not a circular-arc rounded
+rectangle.** `make-app-icon.py` clones the silhouette's alpha from the icon
+it replaces rather than drawing one, because a radius-based mask is the wrong
+curve and looks subtly wrong beside other icons in a dock or launcher.
+
+**The source draws its own corners in black.** Cutting the tile with alpha
+leaves that black just inside the arc and fringes all four corners. The
+generator masks it; anything else working on this art has to handle it rather
+than assume the corners are background.
+
+The generators need Pillow and numpy. On ariana `.venv/bin/python` has both
+and the system interpreters do not.
+
