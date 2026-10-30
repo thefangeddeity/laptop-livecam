@@ -3634,6 +3634,31 @@ def _tailscale(args, timeout=20, sudo=False):
     return None
 
 
+def _serve_handlers():
+    """Current path -> proxy target, from tailscaled's own structured output.
+
+    `serve status --json` rather than the text table: the table is laid out
+    for a person and changes shape with the terminal, while this is the
+    daemon stating its own configuration.
+    """
+    r = _tailscale(['serve', 'status', '--json'])
+    if not (r and r.returncode == 0):
+        return None
+    try:
+        d = json.loads(r.stdout or '{}')
+    except Exception:
+        return None
+    out = {}
+    for _host, cfg in (d.get('Web') or {}).items():
+        for path, h in (cfg.get('Handlers') or {}).items():
+            if h.get('Proxy'):
+                out[path] = h['Proxy']
+    return out
+
+
+SERVE_MAP_FILE = '/var/lib/hls-livecam/serve-map.json'
+
+
 def _serve_guard_loop():
     """Keep https://<node>/ pointed at NGINX, forever.
 
@@ -3687,8 +3712,19 @@ def _serve_guard_loop():
         pass
     while True:
         try:
-            st = _tailscale(['serve', 'status'])
-            if not (st and st.returncode == 0 and want in (st.stdout or '')):
+            cur = _serve_handlers()
+            if cur is not None and cur.get('/') == want:
+                # Healthy: record the whole mapping set, extras included, so a
+                # later total loss can be put back exactly. A node may serve
+                # more than its root -- /elem at the messenger, for one -- and
+                # restoring only / would leave the page up with the messenger
+                # 404ing, which nobody reports because nothing looks wrong.
+                try:
+                    with open(SERVE_MAP_FILE, 'w') as fh:
+                        json.dump(cur, fh)
+                except Exception:
+                    pass
+            else:
                 r = _tailscale(['serve', '--bg', str(port)])
                 if r is None or r.returncode != 0:
                     # Reading serve status works unprivileged, but WRITING it
@@ -3700,8 +3736,24 @@ def _serve_guard_loop():
                     # exactly this one command and nothing else.
                     r = _tailscale(['serve', '--bg', str(port)], sudo=True)
                 if r is not None and r.returncode == 0:
+                    restored = []
+                    try:
+                        with open(SERVE_MAP_FILE) as fh:
+                            remembered = json.load(fh)
+                    except Exception:
+                        remembered = {}
+                    for path, target in sorted(remembered.items()):
+                        if path == '/' or (cur or {}).get(path) == target:
+                            continue
+                        rr = _tailscale(['serve', '--bg', '--set-path', path, target])
+                        if rr is None or rr.returncode != 0:
+                            rr = _tailscale(['serve', '--bg', '--set-path', path, target],
+                                            sudo=True)
+                        if rr is not None and rr.returncode == 0:
+                            restored.append(path)
+                    extra = (' and %s' % ', '.join(restored)) if restored else ''
                     print('broadcast-api: tailscale serve was missing, restored '
-                          '(https -> :%d)' % port, file=sys.stderr, flush=True)
+                          '/ -> :%d%s' % (port, extra), file=sys.stderr, flush=True)
                 else:
                     why = (r.stderr.strip() if r is not None and r.stderr
                            else 'tailscale unavailable')
