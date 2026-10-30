@@ -4299,6 +4299,32 @@ def _tailscale(args, timeout=20):
     return None
 
 
+def _serve_handlers():
+    """Current path -> proxy target, from tailscaled's own structured output.
+
+    `serve status --json` rather than the text table: the table is laid out
+    for a person and changes shape with the terminal, while this is the
+    daemon stating its own configuration.
+    """
+    r = _tailscale(['serve', 'status', '--json'])
+    if not (r and r.returncode == 0):
+        return None
+    try:
+        d = json.loads(r.stdout or '{}')
+    except Exception:
+        return None
+    out = {}
+    for _host, cfg in (d.get('Web') or {}).items():
+        for path, h in (cfg.get('Handlers') or {}).items():
+            if h.get('Proxy'):
+                out[path] = h['Proxy']
+    return out
+
+
+def _serve_map_file():
+    return os.path.join(STATE_DIR, 'serve-map.json')
+
+
 def _serve_guard_loop():
     """Keep https://<node>/ pointed at this server, forever.
 
@@ -4324,14 +4350,43 @@ def _serve_guard_loop():
     """
     port = int(_cfg.get('WEB_PORT', 8080))
     want = 'http://127.0.0.1:%d' % port
+    # A node may serve more than its own root. ariana also maps /elem at the
+    # messenger, and restoring only `/` after a total loss would silently
+    # drop it -- the page would load and the messenger would 404, which is
+    # the shape of breakage nobody reports because nothing looks wrong.
+    #
+    # Rather than hardcode a per-node table that drifts the moment someone
+    # adds a path, remember what this node actually had whenever the config
+    # is healthy, and put that back after a repair. The node is the source
+    # of truth about itself.
     while True:
         try:
-            st = _tailscale(['serve', 'status'])
-            if not (st and st.returncode == 0 and want in (st.stdout or '')):
+            cur = _serve_handlers()
+            if cur is not None and cur.get('/') == want:
+                # Healthy: record the whole mapping set, extras included.
+                try:
+                    with open(_serve_map_file(), 'w') as fh:
+                        json.dump(cur, fh)
+                except Exception:
+                    pass
+            else:
                 r = _tailscale(['serve', '--bg', str(port)])
                 if r is not None and r.returncode == 0:
+                    restored = []
+                    try:
+                        with open(_serve_map_file()) as fh:
+                            remembered = json.load(fh)
+                    except Exception:
+                        remembered = {}
+                    for path, target in sorted(remembered.items()):
+                        if path == '/' or (cur or {}).get(path) == target:
+                            continue
+                        rr = _tailscale(['serve', '--bg', '--set-path', path, target])
+                        if rr is not None and rr.returncode == 0:
+                            restored.append(path)
+                    extra = (' and %s' % ', '.join(restored)) if restored else ''
                     print('broadcast-api: tailscale serve was missing, restored '
-                          '(https -> :%d)' % port, file=sys.stderr, flush=True)
+                          '/ -> :%d%s' % (port, extra), file=sys.stderr, flush=True)
                 else:
                     why = (r.stderr.strip() if r is not None and r.stderr
                            else 'tailscale unavailable')
