@@ -16,19 +16,32 @@ than the white one that comes out of a naive resize.
 
 ---
 
-## macOS note (ariana)
+## macOS derivatives
 
-Copied verbatim from `origin/main` for future derivative work. **Nothing here
-is wired into the viewer or the bundle yet** — queued, per the maintainer.
-
-Current macOS derivatives come from a *different* source and still do:
+The switch has happened: every macOS derivative is now generated from
+`hls-livecam-server.png`, not downscaled from a previous icon.
 
 - `web/brand.png` / `web/brand@2x.png` — 40px/80px header mark
-- `gui/assets/AppIcon.icns` — the .app bundle icon
+  `scripts/make-brand-mark.py --product livecam --full-tile --size 40|80 --out <path>`
+- `gui/assets/icon_1024.png` — the 1024 master
+  `scripts/make-app-icon.py --art art/hls-livecam-server.png --shape <previous icon> --out <path>`
+- `gui/assets/AppIcon.iconset/` then `iconutil -c icns` — the bundle icon,
+  copied on to `packaging/` and `camdash-gui.app/Contents/Resources/`
 
-Both were downscaled from `gui/assets/icon_1024.png`. When the switch happens
-they should be regenerated from `hls-livecam-server.png` instead, and the
-`.icns` rebuilt from its iconset rather than edited.
+Two things that are easy to get wrong and were:
+
+**The corner is a superellipse, not a rounded rectangle.** `make-app-icon.py`
+clones the silhouette's alpha from an existing icon rather than drawing one,
+because a circular-arc radius looks subtly wrong beside every other icon in
+the Dock. A hand-rolled `rounded_rectangle` mask is the wrong curve.
+
+**The source draws its own corners in black.** Cutting the squircle with alpha
+leaves that black just inside the arc, fringing all four corners. The
+generator masks it away; anything else operating on this art has to deal with
+it rather than assume the corners are background.
+
+The generators need numpy and Pillow — `.venv/bin/python` has both, the system
+interpreters do not.
 
 Heed the alpha warning above: this source is RGB with no alpha, and the
 header sits on dark housing, so a naive `sips -Z` leaves a white square.
