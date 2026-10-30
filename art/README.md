@@ -35,10 +35,14 @@ rectangle.** `make-app-icon.py` clones the silhouette's alpha from the icon
 it replaces rather than drawing one, because a radius-based mask is the wrong
 curve and looks subtly wrong beside other icons in a dock or launcher.
 
-**The source draws its own corners in black.** Cutting the tile with alpha
-leaves that black just inside the arc and fringes all four corners. The
-generator masks it; anything else working on this art has to handle it rather
-than assume the corners are background.
+**The source is full-bleed, and its corners are field colour.** The tile
+shape belongs to the mask, not to the artwork. An earlier revision painted its
+own rounded corners in black, which survived just inside the arc when the tile
+was cut and fringed all four corners -- and, in the mirror-image failure, made
+the Windows generator read black as the background and pad with it. The
+corners are now `#012463` like the rest of the field. Keep it that way: if a
+future source arrives with painted corners, flood-fill them to the field
+colour before committing it.
 
 The generators need Pillow and numpy. On ariana `.venv/bin/python` has both
 and the system interpreters do not.
