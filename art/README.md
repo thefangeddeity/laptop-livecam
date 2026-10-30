@@ -35,10 +35,14 @@ clones the silhouette's alpha from an existing icon rather than drawing one,
 because a circular-arc radius looks subtly wrong beside every other icon in
 the Dock. A hand-rolled `rounded_rectangle` mask is the wrong curve.
 
-**The source draws its own corners in black.** Cutting the squircle with alpha
-leaves that black just inside the arc, fringing all four corners. The
-generator masks it away; anything else operating on this art has to deal with
-it rather than assume the corners are background.
+**The source is full-bleed, and its corners are field colour.** The tile
+shape belongs to the mask, not to the artwork. An earlier revision painted
+its own rounded corners in black, which survived just inside the arc when the
+squircle was cut and fringed all four corners — and, in the mirror-image
+failure, made the Windows generator read black as the background and pad with
+it. The corners are now `#012463` like the rest of the field, so no consumer
+has to know about it. Keep it that way: if a future source arrives with
+painted corners, flood-fill them to the field colour before committing it.
 
 The generators need numpy and Pillow — `.venv/bin/python` has both, the system
 interpreters do not.
