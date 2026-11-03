@@ -2286,10 +2286,15 @@
         <div class="pdiv"></div>
         <!-- THREE KEYS, ONE BANK -- the same shape as Show/Hide/CV
              upstairs, because they are the same KIND of thing: one exclusive
-             selection of what the audio path is doing. Play and Stop are not
-             a transport separate from Talk; Stop means neither direction is
-             open, which is why it wears the guarded red Hide wears and why
+             selection of what the audio path is doing. Listen and Silence are not
+             a transport separate from 2-Way; Silence means neither direction
+             is open, which is why it wears the guarded red Hide wears and why
              it belongs in this bank rather than in a row of its own.
+
+             Listen and 2-Way differ by ONE thing now -- whether your
+             microphone opens -- because they share the inbound leg. That is
+             the whole distinction, and it is worth a key: hearing the room
+             without being heard is the ordinary case.
 
              MUTE is deliberately NOT in the bank. It silences what you hear
              without changing which direction is open, exactly as BLUR
@@ -2301,13 +2306,23 @@
              so two-way needs a second peer connection that does not exist on
              this branch yet. A key that looks operable and silently does
              nothing is the worst of the three states it could be in. -->
+        <!-- THE KEYS NAME WHAT THEY DO, NOT HOW IT TRAVELS.
+             They used to read HLS / Silence / RTC, because the transport
+             WAS the distinction: listening meant buffered HLS and the only
+             way to hear the room live was to open your microphone. That is
+             no longer true -- both of these listen over RTC and fall back to
+             HLS by themselves -- so a key labelled HLS was naming a choice
+             the operator no longer makes, and a key labelled RTC was
+             claiming a transport the other one also uses.
+             Which leg is carrying is a READOUT, and it has two lamps three
+             lines up. It is not a button. -->
         <div class="btnrow">
           <button class="pbtn" id="audioPlayBtn" onclick="setAudioMode('play')"
-                  title="Listen to the room over buffered HLS (a few seconds behind, no mic)">HLS</button>
+                  title="Hear the room, live, without opening your microphone">Listen</button>
           <button class="pbtn guarded" id="audioStopBtn" onclick="setAudioMode('stop')"
                   title="Neither direction open">Silence</button>
           <button class="pbtn" id="twoWayBtn" onclick="setAudioMode('two-way')"
-                  title="Live two-way audio with the room over WebRTC">RTC</button>
+                  title="Hear the room and talk back, with echo cancellation">2-Way</button>
         </div>
 
         <!-- Where the audio bank says what just happened -- the only channel
