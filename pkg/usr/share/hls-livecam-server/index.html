@@ -99,6 +99,18 @@
     font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
   }
   header .hdr-vfd .vlit { font-size: 11px; }
+  /* inline-flex so the two halves can be told how to share the space; the
+     strip itself may shrink, which is what lets the ellipsis ever appear. */
+  header .brand .hdr-vfd { min-width: 0; }
+  header .brand .hdr-vfd .vlit { display: inline-flex; min-width: 0;
+    /* The space between version and host lives in textContent, and a
+       flex item drops a LEADING space -- its text starts a new line, so
+       white-space processing removes it. Measured: the split strip came
+       out 6.6px narrower than the single span at 11px, which is exactly
+       one monospace character, and it rendered "g0123619@ariana".
+       1ch puts that character back as layout, so what is read matches
+       what textContent says without either half owning the gap. */
+    gap: 1ch; }
   .brand-mark { width: 20px; height: 20px; display: block; flex: 0 0 auto; image-rendering: auto; }
   /* The title is cast into the housing like every other label on this page.
      It is a name, not a state -- it must never light up or go green. */
@@ -119,7 +131,22 @@
     font-size: 14px;
     font-weight: 600;
     letter-spacing: -0.01em;
+    /* A flex item will not shrink below its content unless it is told it
+       may. Without this the brand kept its full width on a phone and shoved
+       the theme switch off the right edge -- the header was not too big for
+       the screen, it was refusing to be measured against it. */
+    min-width: 0;
   }
+  /* The product name is a name. It reads as one line or it reads wrong, and
+     wrapping it to two was what made the header twice as tall as it needed
+     to be before anything else had even been measured. */
+  .brand-name { white-space: nowrap; }
+  /* Which half of the build strip yields when there is not enough room.
+     See the markup note: the version is diagnostic, the node is the answer
+     to "which camera is this", so the node is the half that is kept. */
+  .vlit .bl-ver  { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .vlit .bl-dev  { }                      /* hidden on mobile -- see below */
+  .vlit .bl-host { flex: 0 0 auto; }
   .brand .sep { color: var(--text-muted); font-weight: 400; }
   .brand .host { color: var(--text-dim); font-weight: 500; }
   .status-bar {
@@ -1240,6 +1267,15 @@
   .reload-btn.spinning svg { animation: spin 0.6s linear; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
+  /* PHONE, the narrowest step of the build-strip ladder (see the .bl-dev
+     note inside the mobile block below). Under ~430px even the bare version
+     stops fitting beside a node name, so the strip keeps the half that
+     answers the question a phone is usually asking -- WHICH CAMERA IS THIS
+     -- and drops the one that is pure diagnostics. */
+  @media (max-width: 430px) {
+    .vlit .bl-ver { display: none; }
+  }
+
   /* ── MOBILE ── */
   @media (max-width: 720px) {
     body { overflow: auto; height: auto; min-height: 100dvh; }
@@ -1324,6 +1360,29 @@
        would push the product name onto two lines again. */
     header .status-bar { display: flex; }
     header .status-bar .hdr-vfd { display: none; }
+    /* The two sides of the header, told explicitly who yields. The brand
+       side may shrink to nothing; the controls side may not, because a
+       control that is half off the screen is not a control -- which is
+       exactly what the Light switch had become, reading "Ligh". */
+    header { gap: 10px; }
+    header .brand { flex: 1 1 auto; min-width: 0; }
+    header .status-bar { flex: 0 0 auto; }
+    /* Tighter strip on a phone: it is the one element here that is pure
+       diagnostics, so it pays for the room the name and the switch need
+       rather than the other way round. */
+    header .brand .hdr-vfd { padding: 4px 7px; gap: 6px; }
+    /* A LADDER, because at 390px there is genuinely not room for all of
+       it and pretending otherwise just moves the ellipsis around. Measured
+       on this page at 390px: the strip gets 78.7px and "1.8.2 @ariana"
+       needs 92.6 -- and a node is as likely to be called @tanzania, which
+       is wider still. The product name is 119px of that, the switch and
+       its word another 94, and both were deliberately kept (see the notes
+       above them).
+       So the strip gives up its halves in order of how little they are
+       missed, at the width where each stops fitting. Nothing is deleted:
+       both halves stay in buildLabel.textContent and in the hover title at
+       every size, and the desktop header is untouched. */
+    .vlit .bl-dev { display: none; }
     /* The label stays. It was dropped here for header width, but the switch
        is a bare pill with no icon and no caption -- on a phone it was a
        control that did not say what it did, which is worse than a header
@@ -2011,7 +2070,17 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">Laptop LiveCam</span>
-    <span class="hdr-vfd" id="buildTube"><span class="vlit" id="buildLabel"></span></span>
+    <!-- TWO spans, not one string. On a phone this strip has to give up
+         width, and which END it gives up decides whether the label stays
+         useful: "1.8.2-7-g012..." tells you nothing you wanted, while
+         "1.8.2... @ariana" still answers WHICH CAMERA AM I LOOKING AT,
+         which is the question a phone is usually being asked. So the
+         version truncates and the node name never does.
+         buildLabel.textContent is unchanged (the space lives inside the
+         host span), so anything reading the whole label still gets the
+         whole label, and #buildTube still gets the untrimmed tag as its
+         hover title (set in the same JS that fills these spans). -->
+    <span class="hdr-vfd" id="buildTube"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2959,8 +3028,24 @@
     // the same way and a future platform needs no new rule here.
     // The full tag, prefix and all, stays in the hover title.
     build = String(build).replace(/^[a-z]+-/, '').replace(/^v/, '');
-    var bl = document.getElementById('buildLabel');
-    if (bl) bl.textContent = (build ? build + ' ' : '') + '@' + host;
+    // Split across the two spans above. The leading space belongs to the
+    // HOST half so that buildLabel.textContent still reads exactly as it
+    // did when this was one node -- "1.8.2 @ariana", one space, no change.
+    // Split at a MEANINGFUL boundary, not wherever the pixels run out.
+    // `build` is git describe: a tag, then "-<n>-g<hash>" when the node is
+    // ahead of it. Ellipsising the raw string on a phone gave "1.", which
+    // is a version number with the version removed. Cutting the describe
+    // suffix instead leaves every part of what is left useful.
+    // Nothing is deleted: the suffix is only hidden by CSS, so
+    // buildLabel.textContent is the whole label at every viewport and
+    // #buildTube's hover title still carries the untrimmed tag.
+    var _bm = /^([0-9][0-9.]*)(.*)$/.exec(build || '');
+    var bv = document.getElementById('buildVer');
+    var bd = document.getElementById('buildDev');
+    var bh = document.getElementById('buildHost');
+    if (bv) bv.textContent = _bm ? _bm[1] : (build || '');
+    if (bd) bd.textContent = _bm ? _bm[2] : '';
+    if (bh) bh.textContent = (build ? ' ' : '') + '@' + host;
     // The hover detail comes from the same source as the label.
     var bt = document.getElementById('buildTube');
     if (bt && info.version) bt.title = info.product
@@ -4093,6 +4178,9 @@
           if (m !== 'hide') {
             coverFor(m);
             setTimeout(reloadStream, 0);
+            // A fresh page must not land on a stale picture. See
+            // armArrivalCheck -- it does nothing at all on a healthy node.
+            armArrivalCheck();
           }
           return;
         }
@@ -4688,6 +4776,75 @@
           else { reloadStream(); done(); }   // last resort, never spin forever
         });
     }, 2000);
+  }
+
+  // ── ARRIVAL CHECK ──────────────────────────────────────────────────────
+  //
+  // Reloading the browser should not leave you looking at a stale feed and
+  // reaching for the Reload button (requirement). So the page checks itself
+  // on arrival and runs that button's function if it needs to.
+  //
+  // IT IS GATED, and deliberately not fired on every load. manualReload()
+  // POSTs /api/reset, which detaches a full `livecam restart` -- the stream
+  // is gone for tens of seconds and it is gone for EVERY viewer, not just
+  // whoever refreshed. A feed that looks stuck is the exact thing that makes
+  // someone refresh, so an unconditional version would turn one person's
+  // refresh into a real outage, and that outage into another refresh.
+  //
+  // Two gates, both measured rather than assumed:
+  //
+  //   1. IS THE PICTURE ACTUALLY STALE. Not just the LIVE pill, which only
+  //      says a fragment once loaded: a frozen currentTime under a lit pill
+  //      is the quiet failure this page already documents elsewhere. So
+  //      currentTime is sampled twice and has to have MOVED.
+  //
+  //   2. WHOSE FAULT IS IT. If /api/pipeline says every server stage is
+  //      healthy, the problem is this browser's player and the fix is a
+  //      local reattach -- restarting a working node for everyone because
+  //      one tab mis-attached would be the wrong repair aimed at the wrong
+  //      machine. Only a server stage that is actually down earns the full
+  //      button.
+  //
+  // Runs once per page load. Nothing happens on a healthy node, which is
+  // the normal case and the one this must stay out of the way of.
+  var arrivalChecked = false;
+  function armArrivalCheck() {
+    if (arrivalChecked) return;
+    arrivalChecked = true;
+    var t0 = null;
+    // Sampled after the player has had time to attach but well before the
+    // verdict, so the gap between the two is real playback time.
+    setTimeout(function () { t0 = video.currentTime; }, 5000);
+    setTimeout(function () {
+      // Hide publishes black on purpose and attaches no player; there is
+      // nothing stale about a feed that is off.
+      if (feedMode === 'hide') return;
+      var live = !!(liveInd && liveInd.textContent === 'LIVE');
+      var moved = t0 !== null && video.currentTime > t0 + 0.2;
+      if (live && moved) return;              // arrived healthy; leave it alone
+
+      fetch('/api/pipeline', { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (p) {
+          // No answer at all is a server problem by itself -- the API is on
+          // the same process as the capture supervisor.
+          var serverOk = !!p && p.camera === 'ok' && p.rtsp === 'ok'
+                             && p.hls === 'ok';
+          if (serverOk) {
+            // The node is fine and this tab is not. Reattach locally and
+            // say so in the log rather than bouncing a working camera.
+            console.info('viewer: picture stale on arrival but the node ' +
+                         'reports every stage healthy -- reattaching the ' +
+                         'player only.');
+            reloadStream();
+            return;
+          }
+          console.info('viewer: picture stale on arrival and the node ' +
+                       'reports a stage down -- running Reload.');
+          manualReload();
+        });
+    }, 12000);
   }
 
   // ── APP-SWITCH / BACKGROUND RECOVERY ──
