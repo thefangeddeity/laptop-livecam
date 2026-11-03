@@ -2132,8 +2132,8 @@
             <div class="led" id="ledCamera"><span class="bulb"></span><span class="n">Camera</span></div>
             <div class="led" id="ledMtxV"><span class="bulb"></span><span class="n">MediaMTX</span></div>
             <div class="led" id="ledRtspV"><span class="bulb"></span><span class="n">RTSP</span></div>
-            <div class="led" id="ledHlsV"><span class="bulb"></span><span class="n">HLS</span></div>
-            <div class="led" id="ledRtcV" title="Video WebRTC leg (not wired yet)"><span class="bulb"></span><span class="n">RTC</span></div>
+            <div class="led" id="ledHlsV" title="The picture is arriving over buffered HLS -- the fallback, about seven seconds behind"><span class="bulb"></span><span class="n">HLS</span></div>
+            <div class="led" id="ledRtcV" title="The picture is arriving over WebRTC -- sub-second, no buffer window"><span class="bulb"></span><span class="n">RTC</span></div>
           </div>
         </div>
         <div class="pdiv"></div>
@@ -2253,10 +2253,15 @@
         <div class="pdiv"></div>
         <!-- THREE KEYS, ONE BANK -- the same shape as Show/Hide/CV
              upstairs, because they are the same KIND of thing: one exclusive
-             selection of what the audio path is doing. Play and Stop are not
-             a transport separate from Talk; Stop means neither direction is
-             open, which is why it wears the guarded red Hide wears and why
+             selection of what the audio path is doing. Listen and Silence are not
+             a transport separate from 2-Way; Silence means neither direction
+             is open, which is why it wears the guarded red Hide wears and why
              it belongs in this bank rather than in a row of its own.
+
+             Listen and 2-Way differ by ONE thing now -- whether your
+             microphone opens -- because they share the inbound leg. That is
+             the whole distinction, and it is worth a key: hearing the room
+             without being heard is the ordinary case.
 
              MUTE is deliberately NOT in the bank. It silences what you hear
              without changing which direction is open, exactly as BLUR
@@ -2268,13 +2273,23 @@
              so two-way needs a second peer connection that does not exist on
              this branch yet. A key that looks operable and silently does
              nothing is the worst of the three states it could be in. -->
+        <!-- THE KEYS NAME WHAT THEY DO, NOT HOW IT TRAVELS.
+             They used to read HLS / Silence / RTC, because the transport
+             WAS the distinction: listening meant buffered HLS and the only
+             way to hear the room live was to open your microphone. That is
+             no longer true -- both of these listen over RTC and fall back to
+             HLS by themselves -- so a key labelled HLS was naming a choice
+             the operator no longer makes, and a key labelled RTC was
+             claiming a transport the other one also uses.
+             Which leg is carrying is a READOUT, and it has two lamps three
+             lines up. It is not a button. -->
         <div class="btnrow">
           <button class="pbtn" id="audioPlayBtn" onclick="setAudioMode('play')"
-                  title="Listen to the room over buffered HLS (a few seconds behind, no mic)">HLS</button>
+                  title="Hear the room, live, without opening your microphone">Listen</button>
           <button class="pbtn guarded" id="audioStopBtn" onclick="setAudioMode('stop')"
                   title="Neither direction open">Silence</button>
           <button class="pbtn" id="twoWayBtn" onclick="setAudioMode('two-way')"
-                  title="Live two-way audio with the room over WebRTC">RTC</button>
+                  title="Hear the room and talk back, with echo cancellation">2-Way</button>
         </div>
 
         <!-- Where the audio bank says what just happened -- the only channel
@@ -2811,6 +2826,25 @@
           <span class="eng rstlab">Disable buzz</span>
         </div>
         
+        <!-- NOT a fallback switch. The fallback is automatic and needs no
+             setting: RTC carries the picture, HLS catches it, and the two
+             lamps on the Video panel say which is doing it.
+             This is the other direction -- skip RTC entirely. WebRTC is one
+             PeerConnection per viewer, held open for as long as they watch,
+             and the node pays for every one; HLS is a directory of segments
+             any number of people can pull without the node knowing they are
+             there. Sub-second is the better trade for a household and the
+             wrong one for an audience, so the choice can be made before the
+             viewers arrive rather than discovered afterwards. -->
+        <div class="pinrow">
+          <button type="button" class="pinled" id="forceHlsBtn" onclick="toggleForceHls()"
+                  aria-pressed="false" aria-label="Force HLS"
+                  title="Serve every viewer over HLS and never negotiate WebRTC. For a large audience: WebRTC costs this node one connection per viewer, HLS costs it nothing per viewer. The picture runs about seven seconds behind.">
+            <span class="bulb" id="forceHlsLamp"></span>
+          </button>
+          <span class="eng rstlab">Force HLS <span class="cap2">(for an audience)</span></span>
+        </div>
+
         <!-- One switch for a node that cannot keep up. Measured on ariana
              (2-core i5-6287U, 15fps): the CV render alone took 62.7ms of the
              66.7ms frame budget -- 94% -- with broadcast-api at ~80% of a
@@ -3841,7 +3875,17 @@
     fetch('/api/pipeline', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.json() : null; })
       .catch(function() { return null; })
-      .then(function(p) { pipeline = p; paintLamps(); applyCvCapability(); });
+      .then(function(p) {
+        pipeline = p;
+        // Node state, so it can change under a viewer that is already
+        // watching -- an operator turning it on before an event should not
+        // need everyone to reload. Re-pick the transport when it flips.
+        if (p && typeof p.force_hls === 'boolean' && p.force_hls !== forceHls) {
+          forceHls = p.force_hls;
+          if (feedModeKnown && feedMode !== 'hide') initVideo();
+        }
+        paintLamps(); applyCvCapability();
+      });
   }
   pollPipeline();
   pollEvery(pollPipeline, 4000);
@@ -3891,11 +3935,20 @@
     // Hidden video == silenced audio -> dark, not 'ok'. (The stream is still
     // packaging black frames, but the operator is not watching a feed, exactly
     // as a silenced room is still being published but not heard.)
-    var hls = (feedModeKnown && feedMode === 'hide') ? ''
-            : live ? 'ok'
-            : (!feedModeKnown) ? ''
-            : (pipeline ? 'down' : '');
-    set('ledHlsV', hls);
+    // TWO TRANSPORT LAMPS, BOTH ALWAYS PRESENT, and the lit one says which
+    // is carrying the picture (requirement: keep it retro -- the LEDs
+    // switch, nothing disappears). Neither is health: they are a readout of
+    // WHICH LEG, and a dark one means "not this one", not "broken".
+    //
+    // 'down' goes only on the leg currently being ATTEMPTED, because that is
+    // the only one that has been measured and failed. Lighting the idle leg
+    // red would report a fault in something nobody asked to run.
+    var tx = (feedModeKnown && feedMode === 'hide') ? ''
+           : live ? 'ok'
+           : (!feedModeKnown) ? ''
+           : (pipeline ? 'down' : '');
+    set('ledHlsV', videoTransport === 'hls' ? tx : '');
+    set('ledRtcV', videoTransport === 'rtc' ? tx : '');
     // ledHlsA (the AUDIO panel's HLS lamp) is NOT server health: it means
     // "listening over buffered HLS", the inbound audio SOURCE, so it is
     // driven by audioMode in paintAudioModes and goes dark the moment the
@@ -4364,6 +4417,11 @@
   }
 
   function seekToLiveEdge() {
+    // HLS ONLY. An RTC stream has no seekable window -- there is nothing to
+    // be behind -- and video.seekable on a MediaStream is empty, so this
+    // would be a no-op anyway. Guarded explicitly so it reads as a decision
+    // rather than an accident of the API.
+    if (videoTransport === 'rtc') return false;
     var drift = liveEdgeDrift();
     if (drift === null) return false;
     // Only when it is actually worth it. A seek flushes the decoder, so
@@ -4394,7 +4452,122 @@
   // feed ends up several seconds old with every lamp on the page green.
   pollEvery(seekToLiveEdge, 5000);
 
-  function reloadStream() { initHLS(); seekToLiveEdgeSoon(); }
+  // ── THE PICTURE'S TRANSPORT ────────────────────────────────────────────
+  //
+  // Two ways to carry the same camera, and they fail differently:
+  //
+  //   RTC   mediamtx's WHEP leg. Sub-second, no buffer window, so it cannot
+  //         drift and go stale. Costs the NODE one PeerConnection per
+  //         viewer, held open the whole time they watch.
+  //   HLS   a directory of segments. Seven seconds behind by construction,
+  //         survives restrictive networks and browsers that cannot
+  //         negotiate WebRTC, and costs the node nothing per viewer.
+  //
+  // RTC is tried first and HLS catches it. Both lamps stay on the panel and
+  // the lit one tells you which is carrying -- the switching is the readout
+  // (requirement), not a reason to hide a lamp.
+  //
+  // Except when the node says otherwise: force_hls skips RTC entirely. See
+  // the note on /api/force-hls in broadcast-api -- that is for the event
+  // where the per-viewer cost is the thing that matters.
+  var WHEP_URL = window.location.origin + '/cam/whep';
+  var videoTransport = 'none';          // 'rtc' | 'hls' | 'none'
+  var vidRtcPc = null, vidRtcRes = null;
+  var forceHls = false;                 // from /api/pipeline
+
+  function setVideoTransport(t) {
+    if (videoTransport === t) return;
+    videoTransport = t;
+    paintLamps();
+  }
+
+  function stopVideoRtc() {
+    // DELETE the WHEP session as well as closing the peer connection: the
+    // node holds the resource until told, and a viewer that merely navigated
+    // away would leave it paying for a connection nobody is watching. Same
+    // reasoning as startRoomRx's own teardown.
+    if (vidRtcRes) { fetch(vidRtcRes, { method: 'DELETE' }).catch(function () {}); vidRtcRes = null; }
+    if (vidRtcPc) { try { vidRtcPc.close(); } catch (e) {} vidRtcPc = null; }
+  }
+
+  // Resolves TRUE only if media actually arrived.
+  //
+  // A clean SDP exchange is not evidence: mediamtx answers /cam/whep even
+  // when the path has no publisher yet -- routine in the seconds after a
+  // restart -- so the offer/answer can succeed and the track never fire.
+  // startRoomRx learned this on the audio leg and retries; here the right
+  // answer is to stop waiting and let HLS take the picture, because unlike
+  // audio there is a second transport that works.
+  function startVideoRtc() {
+    if (!window.RTCPeerConnection) return Promise.resolve(false);
+    var gotTrack = false;
+    stopVideoRtc();
+    try {
+      vidRtcPc = new RTCPeerConnection({ iceServers: [] });
+    } catch (e) { return Promise.resolve(false); }
+    var pc = vidRtcPc;
+    // VIDEO ONLY, deliberately. Sound already has its own arrangement --
+    // roomaudio over WHEP for Two-way, the HLS rendition for Play -- and
+    // pulling audio in here would quietly change which leg the room is
+    // heard on. One thing at a time: this replaces how the PICTURE arrives.
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addEventListener('track', function (ev) {
+      if (pc !== vidRtcPc) return;              // a superseded attempt
+      gotTrack = true;
+      try {
+        video.removeAttribute('src');           // drop any HLS source first
+        video.load();
+      } catch (e) {}
+      video.srcObject = ev.streams[0];
+      video.play().catch(function () {});
+      setStatus('LIVE', 'live');
+    });
+    return pc.createOffer()
+      .then(function (o) { return pc.setLocalDescription(o); })
+      .then(function () { return talkIceReady(pc); })   // mediamtx is non-trickle
+      .then(function () {
+        return fetch(WHEP_URL, {
+          method: 'POST', headers: { 'Content-Type': 'application/sdp' },
+          body: pc.localDescription.sdp
+        });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error('WHEP ' + res.status);
+        vidRtcRes = res.headers.get('Location');
+        return res.text();
+      })
+      .then(function (sdp) { return pc.setRemoteDescription({ type: 'answer', sdp: sdp }); })
+      .then(function () {
+        return new Promise(function (resolve) {
+          setTimeout(function () { resolve(gotTrack && pc === vidRtcPc); }, 2500);
+        });
+      })
+      .catch(function () { return false; });
+  }
+
+  // THE ONE ENTRY POINT. Everything that used to call reloadStream() still
+  // does; what changed is that it now chooses a transport first.
+  function initVideo() {
+    stopVideoRtc();
+    if (forceHls) {
+      setVideoTransport('hls');
+      initHLS(); seekToLiveEdgeSoon();
+      return;
+    }
+    setStatus('CONNECTING');
+    startVideoRtc().then(function (ok) {
+      if (ok) { setVideoTransport('rtc'); return; }
+      // RTC did not deliver. Release whatever it reserved on the node before
+      // asking HLS for the same picture -- otherwise a node that just failed
+      // to send us anything goes on paying for the attempt.
+      stopVideoRtc();
+      setVideoTransport('hls');
+      try { video.srcObject = null; } catch (e) {}
+      initHLS(); seekToLiveEdgeSoon();
+    });
+  }
+
+  function reloadStream() { initVideo(); }
 
   // ── ROOM AUDIO ──
   // No second stream is fetched. The variant hls.js is already playing
@@ -4549,10 +4722,11 @@
     if (audioMode === 'two-way' && typeof twoWayOn !== 'undefined' && twoWayOn) stopTwoWay();
     audioMode = m;
     if (m === 'play') {
-      resolveAudioSrc(function () {
-        roomAudio.play().then(paintTransport).catch(paintTransport);
-      });
-    } else {
+      startListen();
+    } else if (audioMode !== 'two-way') {
+      stopListen();
+    }
+    if (m !== 'play') {
       // Talk holds the room rather than mixing it: this node's talkback comes
       // out of a speaker in the same room as the mic, so playing the room
       // while talking is a feedback loop, not a feature.
@@ -4588,8 +4762,16 @@
     if (dirEl) dirEl.textContent = (audioMode === 'two-way') ? 'TWO-WAY'
                                  : (audioMode === 'play') ? 'INBOUND'
                                  : (audioMode === 'talk') ? 'TO ROOM' : 'NONE';
+    // TWO TRANSPORT LAMPS for the room, read exactly like the picture's
+    // pair upstairs: both always present, the lit one says which leg is
+    // carrying. RTC is no longer a Two-way-only lamp -- Monitor uses the
+    // same leg now, so it lights for listening however you started it.
     var rtcLed = document.getElementById('ledRtcA');
-    if (rtcLed) rtcLed.className = 'led' + ((typeof twoWayOn !== 'undefined' && twoWayOn) ? ' on' : '');
+    if (rtcLed) {
+      var rtcListening = (typeof twoWayOn !== 'undefined' && twoWayOn)
+                      || (audioMode === 'play' && listenTransport === 'rtc');
+      rtcLed.className = 'led' + (rtcListening ? ' on' : '');
+    }
     // HLS audio lamp = actually listening over buffered HLS. Off in Silence,
     // and off during Two-way -- roomAudio is paused there and inbound arrives
     // on the RTC leg (see startTwoWay), so the two lamps never both claim the
@@ -4602,7 +4784,10 @@
     // not look like "broken".
     var hlsLed = document.getElementById('ledHlsA');
     if (hlsLed) {
-      var hs = (audioMode !== 'play') ? ''
+      // Only when HLS is the leg actually carrying. In Monitor-over-RTC
+      // roomAudio is paused on purpose, and an unlit HLS lamp there means
+      // "not this one", not "failed".
+      var hs = (audioMode !== 'play' || listenTransport !== 'hls') ? ''
              : roomAudio.error ? 'down'
              : !roomAudio.paused ? 'ok' : '';
       hlsLed.className = 'led' + (hs === 'ok' ? ' on' : hs === 'down' ? ' down' : '');
@@ -4618,7 +4803,11 @@
       // real platform limitation, not a bug here. Flagging it in the HUD
       // rather than silently showing a dead meter with no explanation.
       setHudStatus(audioMode === 'two-way' ? 'RTC AUDIO LIVE'
-                 : audioMode === 'play' ? ((roomHls ? '' : 'NATIVE ') + 'HLS AUDIO LIVE')
+                 : audioMode === 'play'
+                     ? (listenTransport === 'rtc' ? 'RTC AUDIO LIVE'
+                        : listenTransport === 'hls'
+                            ? ((roomHls ? '' : 'NATIVE ') + 'HLS AUDIO LIVE')
+                            : 'CONNECTING')
                  : audioMode === 'talk' ? 'TALK LIVE' : '');
     }
     // Keep the Mute-mic key's enabled/greyed state in step with the call.
@@ -5406,11 +5595,80 @@
         // This automates the manual Silence->Two-way that used to be needed.
         return new Promise(function (resolve) {
           setTimeout(function () {
-            if (gotTrack || attempt >= 4) { resolve(); return; }
+            // Resolves whether media ACTUALLY arrived, so a caller with a
+            // second transport can act on it. Two-way has nowhere else to
+            // go and keeps retrying; Monitor does, and stops after one.
+            if (gotTrack || attempt >= 4) { resolve(gotTrack); return; }
             resolve(startRoomRx(attempt + 1));
           }, 2500);
         });
-      });
+      })
+      .catch(function () { return false; });
+  }
+
+  // ── LISTENING: THE SAME TWO LEGS AS THE PICTURE ────────────────────────
+  //
+  // Monitor used to be HLS and Two-way used to be WebRTC, which made the
+  // transport a property of WHICH KEY you pressed rather than of what was
+  // available. So listening was seven seconds behind unless you also opened
+  // your microphone -- and the only way to hear the room live was to start
+  // talking into it.
+  //
+  // Now both keys want the same thing: the room, live. RTC is tried first
+  // and HLS catches it, exactly as the picture does, and the two lamps in
+  // the Audio panel say which leg is carrying.
+  //
+  // It is ONE WHEP session either way, on the element Two-way already uses.
+  // Monitor and Two-way's inbound are the same leg now, so moving between
+  // them neither renegotiates nor opens a second subscription the node
+  // would have to pay for.
+  var listenTransport = 'none';         // 'rtc' | 'hls' | 'none'
+
+  function setListenTransport(t) {
+    if (listenTransport === t) return;
+    listenTransport = t;
+    paintAudioModes();
+    paintLamps();
+  }
+
+  function startListen() {
+    // forceHls is the node saying it cannot afford a connection per viewer
+    // -- see /api/force-hls. It applies to the room as much as the picture.
+    if (forceHls) { startListenHls(); return; }
+    setListenTransport('none');
+    startRoomRx().then(function (ok) {
+      if (ok) {
+        // The room is on the RTC element; the HLS monitor must not also be
+        // running or the same room arrives twice, seven seconds apart.
+        try { roomAudio.pause(); } catch (e) {}
+        setListenTransport('rtc');
+        applyAudioSilence();
+        return;
+      }
+      stopRoomRx();
+      startListenHls();
+    });
+  }
+
+  function startListenHls() {
+    setListenTransport('hls');
+    resolveAudioSrc(function () {
+      roomAudio.play().then(paintTransport).catch(paintTransport);
+    });
+  }
+
+  function stopListen() {
+    // Two-way owns the RTC leg while a call is up -- tearing it down here
+    // would cut the inbound half of somebody's conversation.
+    if (!(typeof twoWayOn !== 'undefined' && twoWayOn)) stopRoomRx();
+    try { roomAudio.pause(); } catch (e) {}
+    setListenTransport('none');
+  }
+
+  function stopRoomRx() {
+    if (twoWayRxRes) { fetch(twoWayRxRes, { method: 'DELETE' }).catch(function () {}); twoWayRxRes = null; }
+    if (twoWayRxPc) { try { twoWayRxPc.close(); } catch (e) {} twoWayRxPc = null; }
+    if (twoWayRx) { try { twoWayRx.srcObject = null; } catch (e) {} }
   }
 
   function startTwoWay() {
@@ -5425,6 +5683,7 @@
     }
     if (twoWayBtn) twoWayBtn.disabled = true;
     roomAudio.pause();          // HLS monitor stands down; the room arrives on twoWayRx, low-latency
+    setListenTransport('rtc');  // same leg Monitor uses now -- see startListen
     navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     })
@@ -6259,6 +6518,9 @@ function eleProbe() {
   // it changes what the camera is doing, so every viewer must see the same
   // answer. (Contrast fitRoi below, which changes only your own screen.)
   var lowPowerOn = false;
+  // Mirrors the node's /api/force-hls. `forceHls` (declared with the
+  // transport code) is what the player reads; this is the Settings lamp,
+  // painted from the same answer so the two cannot disagree.
   // Per-viewer and remembered: a display preference, not node state.
   var fitRoi = false;
   try { fitRoi = localStorage.getItem('fitRoi') === 'true'; } catch (e) {}
@@ -6309,6 +6571,7 @@ function eleProbe() {
     // looks exactly like a broken camera.
     var pm = document.getElementById('privacyMaskBtn');
     if (pm) pm.classList.toggle('na', !roiCur);
+    paintLed('forceHls', forceHls);
     paintLed('lowPower', lowPowerOn);
     // Low power switches the detector off WITHOUT rewriting its setting, so
     // Detection keeps showing what it is set to and goes inert instead --
@@ -6384,6 +6647,17 @@ function eleProbe() {
   // comes back after an ffmpeg teardown rather than instantly. post() paints
   // from the reply, which is what keeps the lamp honest across that gap
   // instead of lighting on the click and hoping.
+  // Node state, not per-viewer: the point is to protect the node, so one
+  // browser must not be able to opt itself back onto the expensive path.
+  // initVideo() re-runs on the reply, so the operator who flips it sees the
+  // transport change rather than having to reload.
+  function toggleForceHls() {
+    post('/api/force-hls', forceHls ? 'false' : 'true', function (v) {
+      forceHls = v.trim() === 'true';
+      if (feedModeKnown && feedMode !== 'hide') initVideo();
+    });
+  }
+
   function toggleLowPower() {
     post('/api/low-power', lowPowerOn ? 'false' : 'true',
          function(v) { lowPowerOn = v.trim() === 'true'; });
@@ -7130,6 +7404,10 @@ function eleProbe() {
     fetch('/api/presence-pause', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
       .then(function(v) { if (v !== null && e2c === alertsEpoch) presenceOn = v.trim() === 'true'; paintAll(); });
+    var eFh = alertsEpoch;
+    fetch('/api/force-hls', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null && eFh === alertsEpoch) forceHls = v.trim() === 'true'; paintAll(); });
     var eLp = alertsEpoch;
     fetch('/api/low-power', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })

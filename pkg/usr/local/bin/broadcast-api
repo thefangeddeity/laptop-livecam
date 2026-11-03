@@ -60,6 +60,7 @@ DETECT_ROI_FILE    = "/var/lib/hls-livecam/detect_roi"
 PRIVACY_MASK_FILE  = "/var/lib/hls-livecam/privacy_mask"
 MASK_STYLE_FILE    = "/var/lib/hls-livecam/mask_style"
 LOW_POWER_FILE     = "/var/lib/hls-livecam/low_power"
+FORCE_HLS_FILE     = "/var/lib/hls-livecam/force_hls"
 GALLERY_DIR        = "/var/lib/hls-livecam/gallery"
 
 
@@ -688,6 +689,49 @@ _low_power_lock = threading.Lock()
 def _low_power_on():
     with _low_power_lock:
         return _low_power
+
+
+# -- FORCE HLS -------------------------------------------------------------
+#
+# Pin every viewer to the HLS transport and never negotiate WebRTC.
+#
+# NOT "turn HLS off" and not a fallback switch -- the fallback is automatic
+# and needs no setting. The opposite: stop the node negotiating WebRTC at
+# all. WebRTC is one PeerConnection per viewer held open for as long as they
+# watch and the node pays for each; HLS is a directory of segments any number
+# of people can pull without the node knowing they are there. Sub-second is
+# the better trade for a household and the wrong one for an audience, so the
+# choice can be made before the viewers arrive rather than discovered
+# afterwards. Covers the room as well as the picture -- same arithmetic.
+#
+# Node state, not per-viewer: the point is to protect the node, so one
+# browser must not be able to opt itself back onto the expensive path.
+def _read_force_hls():
+    try:
+        with open(FORCE_HLS_FILE) as f:
+            return f.read().strip() == 'true'
+    except Exception:
+        return False
+
+
+def _write_force_hls(enabled):
+    """Raises on failure -- the caller turns that into a 500."""
+    os.makedirs(os.path.dirname(FORCE_HLS_FILE), exist_ok=True)
+    tmp = FORCE_HLS_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write('true' if enabled else 'false')
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, FORCE_HLS_FILE)
+
+
+_force_hls = _read_force_hls()
+_force_hls_lock = threading.Lock()
+
+
+def _force_hls_on():
+    with _force_hls_lock:
+        return _force_hls
 
 
 def _effective_mode(mode):
@@ -2459,6 +2503,7 @@ def pipeline_get():
     try:
         _lp = _low_power_on()
         out['low_power'] = _lp
+        out['force_hls'] = _force_hls_on()
         out['mode_effective'] = _effective_mode(_read_feed_mode())
         if _lp:
             out['cv'] = False
@@ -3126,6 +3171,30 @@ def detect_always_post():
     except Exception:
         abort(500)
     return ('true' if enabled else 'false'), 200
+
+@app.route('/api/force-hls', methods=['GET'])
+def force_hls_get():
+    return ('true' if _force_hls_on() else 'false'), 200
+
+
+@app.route('/api/force-hls', methods=['POST'])
+def force_hls_post():
+    global _force_hls
+    val = request.get_data(as_text=True).strip().lower()
+    if val not in ('true', 'false'):
+        abort(400)
+    enabled = val == 'true'
+    try:
+        _write_force_hls(enabled)
+    except Exception:
+        abort(500)
+    with _force_hls_lock:
+        _force_hls = enabled
+    # No pipeline rebuild: this changes which transport VIEWERS pick, not
+    # anything the node publishes. mediamtx goes on offering both.
+    _PIPELINE_CACHE['at'] = 0.0
+    return ('true' if enabled else 'false'), 200
+
 
 @app.route('/api/low-power', methods=['GET'])
 def low_power_get():
