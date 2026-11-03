@@ -31,6 +31,37 @@
 set -euo pipefail
 
 HOST=tina
+
+# WHERE THE NODE IS.
+#
+# This was written to drive tina from another machine, which quietly made
+# every deploy depend on a SECOND host being up. The usual one is tanzania
+# -- which is Hera's other half, so it is unavailable exactly when somebody
+# is building the Windows port, and that is when tina is most likely to be
+# sitting on an old package.
+#
+# tina has dpkg-deb, fakeroot and git of its own. Nothing about building or
+# installing the package needed a second machine; only this script's habit
+# of reaching for ssh did. It cannot ssh to ITSELF either (no key for its
+# own account), so "just run it there" did not work.
+#
+# node() runs a command on the target -- directly when that target is this
+# machine, over ssh otherwise -- and node_put() copies a file to it. Every
+# call site goes through one of the two, so exactly one place knows the
+# difference and none of the guards below change shape.
+if [ "$(hostname -s 2>/dev/null)" = "$HOST" ]; then
+    LOCAL_NODE=1
+else
+    LOCAL_NODE=0
+fi
+
+node() {
+    if [ "$LOCAL_NODE" = 1 ]; then bash -c "$1"; else node "$1"; fi
+}
+
+node_put() {        # node_put <local file> <path on the node>
+    if [ "$LOCAL_NODE" = 1 ]; then cp -f "$1" "$2"; else scp -q "$1" "$HOST:$2"; fi
+}
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VER="$(sed -n 's/^Version: //p' "$REPO/pkg/DEBIAN/control")"
 PKGNAME="$(sed -n 's/^Package: //p' "$REPO/pkg/DEBIAN/control")"
@@ -45,15 +76,20 @@ say() { printf '\n== %s ==\n' "$*"; }
 die() { printf '\nFAILED: %s\n' "$*" >&2; rollback_hint; exit 1; }
 
 rollback_hint() {
+    # The commands are printed for a human to run, so the prefix has to match
+    # where that human actually is. Printing "ssh tina ..." to somebody who is
+    # already ON tina is the kind of small lie this script exists not to tell.
+    local P=""
+    [ "$LOCAL_NODE" = 1 ] || P="ssh $HOST "
     cat >&2 <<HINT
 
 ROLLBACK, if you need it. Two steps, not one -- the 6.0.7 deb carries the
 nginx config too, so reinstalling it clobbers TLS a second time:
 
-  ssh $HOST 'sudo dpkg -i ~/tina-backups/hls-livecam-server_6.0.7_amd64.deb'
-  ssh $HOST "sudo cp -p $BACKUP/hls-livecam.conf /etc/nginx/conf.d/hls-livecam.conf \\
+  ${P}'sudo dpkg -i ~/tina-backups/hls-livecam-server_6.0.7_amd64.deb'
+  ${P}"sudo cp -p $BACKUP/hls-livecam.conf /etc/nginx/conf.d/hls-livecam.conf \\
              && sudo nginx -t && sudo systemctl reload nginx"
-  ssh $HOST 'sudo systemctl enable --now mediamtx broadcast-api'
+  ${P}'sudo systemctl enable --now mediamtx broadcast-api'
 HINT
 }
 
@@ -75,7 +111,7 @@ VERFILE="$REPO/pkg/usr/share/hls-livecam-server/VERSION"
 # Refuse to reinstall the version already there. Not a safety rule -- dpkg
 # would do it happily -- but a deploy that silently does nothing new is how
 # you end up believing a fix is live when the build never got rebuilt.
-INSTALLED="$(ssh "$HOST" "dpkg-query -W -f='\${Version}' $PKGNAME 2>/dev/null" || true)"
+INSTALLED="$(node "dpkg-query -W -f='\${Version}' $PKGNAME 2>/dev/null" || true)"
 if [ "$INSTALLED" = "$VER" ]; then
     die "$HOST already has $PKGNAME $VER -- bump the version or uninstall first"
 fi
@@ -99,7 +135,7 @@ git -C "$REPO" diff --quiet "$REF" -- pkg/ \
     || die "pkg/ differs from $REF -- the working tree is not what the tag says"
 echo "building $DEB from $REF ($COMMIT)"
 
-ssh "$HOST" 'test -f ~/tina-backups/hls-livecam-server_6.0.7_amd64.deb' \
+node 'test -f ~/tina-backups/hls-livecam-server_6.0.7_amd64.deb' \
     || die "no rollback artifact on $HOST:~/tina-backups/ -- build it from tag v6.0.7 first"
 echo "rollback artifact present on $HOST"
 
@@ -107,8 +143,8 @@ echo "rollback artifact present on $HOST"
 # Taken BEFORE the install, from the live node, because the recovery path
 # in postinst explicitly cannot know it.
 say "Capturing current state from $HOST"
-BACKUP="$(ssh "$HOST" 'B=~/tina-preupgrade-$(date +%Y%m%d-%H%M%S); mkdir -p "$B"; echo "$B"')"
-ssh "$HOST" "set -e
+BACKUP="$(node 'B=~/tina-preupgrade-$(date +%Y%m%d-%H%M%S); mkdir -p "$B"; echo "$B"')"
+node "set -e
     sudo cp -p /etc/nginx/conf.d/hls-livecam.conf '$BACKUP/'
     for f in hls-livecam-dark hls-livecam-services camdash-smart hls-livecam-studio; do
         [ -f /etc/sudoers.d/\$f ] && sudo cp -p /etc/sudoers.d/\$f '$BACKUP/' || true
@@ -120,9 +156,9 @@ ssh "$HOST" "set -e
     done | sudo tee '$BACKUP/unit-state.txt' >/dev/null
     sudo chown -R ron:ron '$BACKUP'"
 echo "backup: $HOST:$BACKUP"
-ssh "$HOST" "cat '$BACKUP/unit-state.txt'"
+node "cat '$BACKUP/unit-state.txt'"
 
-NGINX_MD5_BEFORE="$(ssh "$HOST" 'md5sum /etc/nginx/conf.d/hls-livecam.conf | cut -d" " -f1')"
+NGINX_MD5_BEFORE="$(node 'md5sum /etc/nginx/conf.d/hls-livecam.conf | cut -d" " -f1')"
 VIEWER_MD5_REPO="$(md5sum "$REPO/pkg/usr/share/hls-livecam-server/index.html" | cut -d' ' -f1)"
 
 # --- 2. Build the .deb from a clean export of the commit --------------
@@ -162,11 +198,11 @@ echo "built $(du -h "$WORK/$DEB" | cut -f1) -- $(md5sum "$WORK/$DEB" | cut -d' '
 
 # --- 3. Dry run, then install ----------------------------------------
 say "Dry run on $HOST"
-scp -q "$WORK/$DEB" "$HOST:/tmp/$DEB"
-ssh "$HOST" "sudo dpkg --simulate -i /tmp/$DEB" || die "dpkg --simulate refused the package"
+node_put "$WORK/$DEB" "/tmp/$DEB"
+node "sudo dpkg --simulate -i /tmp/$DEB" || die "dpkg --simulate refused the package"
 
 say "Installing on $HOST (the camera goes dark from here until step 4)"
-ssh "$HOST" "sudo dpkg -i /tmp/$DEB" || die "dpkg -i failed -- node is mid-install, roll back"
+node "sudo dpkg -i /tmp/$DEB" || die "dpkg -i failed -- node is mid-install, roll back"
 
 # --- 4. Re-assert what the rename destroyed ---------------------------
 # The order here matters more than it looks. Validating AFTER writing, and
@@ -179,7 +215,7 @@ ssh "$HOST" "sudo dpkg -i /tmp/$DEB" || die "dpkg -i failed -- node is mid-insta
 # Being left on the package config is visibly broken and fixable in a
 # minute; being left on an invalid file is invisible until it is not.
 say "Restoring the nginx TLS config"
-ssh "$HOST" "set -e
+node "set -e
     sudo cp -p /etc/nginx/conf.d/hls-livecam.conf /tmp/hls-livecam.conf.frompkg
     sudo cp -p '$BACKUP/hls-livecam.conf' /etc/nginx/conf.d/hls-livecam.conf
     if ! sudo nginx -t; then
@@ -189,10 +225,10 @@ ssh "$HOST" "set -e
     fi
     sudo rm -f /tmp/hls-livecam.conf.frompkg" \
     || die "restored nginx config does not pass nginx -t (package copy left in place, TLS is DOWN)"
-ssh "$HOST" 'sudo systemctl reload nginx' || die "nginx reload failed"
+node 'sudo systemctl reload nginx' || die "nginx reload failed"
 
 say "Restoring the sudoers drop-ins"
-ssh "$HOST" "set -e
+node "set -e
     for f in hls-livecam-dark hls-livecam-services camdash-smart hls-livecam-studio; do
         if [ -f '$BACKUP/'\$f ] && [ ! -f /etc/sudoers.d/\$f ]; then
             sudo install -o root -g root -m 0440 '$BACKUP/'\$f /etc/sudoers.d/\$f
@@ -206,7 +242,7 @@ ssh "$HOST" "set -e
 # path, already broken before this upgrade. It is restored to enabled and
 # left stopped: putting it back as found, not pretending it is well.
 say "Re-asserting unit state from the capture"
-ssh "$HOST" "set -e
+node "set -e
     while read -r unit en ac; do
         u=\$unit; want_en=\${en#enabled=}; want_ac=\${ac#active=}
         [ \"\$u\" = nginx ] && continue
@@ -230,33 +266,33 @@ check() { # label, actual, expected
 }
 
 check "package version" \
-      "$(ssh "$HOST" "dpkg-query -W -f='\${Version}' $PKGNAME 2>/dev/null")" "$VER"
+      "$(node "dpkg-query -W -f='\${Version}' $PKGNAME 2>/dev/null")" "$VER"
 check "old package gone" \
-      "$(ssh "$HOST" 'dpkg -l hls-livecam-server 2>/dev/null | grep -c "^ii" || true')" "0"
+      "$(node 'dpkg -l hls-livecam-server 2>/dev/null | grep -c "^ii" || true')" "0"
 check "broadcast-api active" \
-      "$(ssh "$HOST" 'systemctl is-active broadcast-api')" "active"
+      "$(node 'systemctl is-active broadcast-api')" "active"
 check "mediamtx active" \
-      "$(ssh "$HOST" 'systemctl is-active mediamtx')" "active"
+      "$(node 'systemctl is-active mediamtx')" "active"
 check "nginx active" \
-      "$(ssh "$HOST" 'systemctl is-active nginx')" "active"
+      "$(node 'systemctl is-active nginx')" "active"
 check "nginx conf unchanged by install" \
-      "$(ssh "$HOST" 'md5sum /etc/nginx/conf.d/hls-livecam.conf | cut -d" " -f1')" "$NGINX_MD5_BEFORE"
+      "$(node 'md5sum /etc/nginx/conf.d/hls-livecam.conf | cut -d" " -f1')" "$NGINX_MD5_BEFORE"
 check "served viewer matches repo" \
-      "$(ssh "$HOST" 'md5sum /var/www/hls-livecam/index.html | cut -d" " -f1')" "$VIEWER_MD5_REPO"
+      "$(node 'md5sum /var/www/hls-livecam/index.html | cut -d" " -f1')" "$VIEWER_MD5_REPO"
 check "packaged viewer matches repo" \
-      "$(ssh "$HOST" 'md5sum /usr/share/hls-livecam-server/index.html | cut -d" " -f1')" "$VIEWER_MD5_REPO"
+      "$(node 'md5sum /usr/share/hls-livecam-server/index.html | cut -d" " -f1')" "$VIEWER_MD5_REPO"
 check "https viewer answers 200" \
-      "$(ssh "$HOST" 'curl -sk -o /dev/null -w "%{http_code}" https://localhost/llc')" "200"
+      "$(node 'curl -sk -o /dev/null -w "%{http_code}" https://localhost/llc')" "200"
 check "http 8080 still redirects" \
-      "$(ssh "$HOST" 'curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/')" "301"
+      "$(node 'curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/')" "301"
 check "sudoers drop-ins present" \
-      "$(ssh "$HOST" 'ls /etc/sudoers.d/hls-livecam-dark /etc/sudoers.d/hls-livecam-services /etc/sudoers.d/camdash-smart 2>/dev/null | wc -l')" "3"
+      "$(node 'ls /etc/sudoers.d/hls-livecam-dark /etc/sudoers.d/hls-livecam-services /etc/sudoers.d/camdash-smart 2>/dev/null | wc -l')" "3"
 check "rename flag cleaned up" \
-      "$(ssh "$HOST" 'test -f /var/lib/hls-livecam/renamed-from-hls-livecam-server && echo left || echo gone')" "gone"
+      "$(node 'test -f /var/lib/hls-livecam/renamed-from-hls-livecam-server && echo left || echo gone')" "gone"
 check "cams.json survived" \
-      "$(ssh "$HOST" 'test -s /var/www/hls-livecam/cams/cams.json && echo yes || echo no')" "yes"
+      "$(node 'test -s /var/www/hls-livecam/cams/cams.json && echo yes || echo no')" "yes"
 
-ssh "$HOST" "rm -f /tmp/$DEB"
+node "rm -f /tmp/$DEB"
 
 if [ "$FAIL" -ne 0 ]; then
     die "verification failed -- see above. Backup is at $HOST:$BACKUP"

@@ -4,6 +4,35 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.52
+
+- **The picture and the room arrive over WebRTC now, with HLS as the
+  fallback.** Both try RTC first and fall back by themselves; the Video and
+  Audio panels each carry two transport lamps and the lit one says which leg
+  is carrying. A clean SDP exchange is not treated as success -- mediamtx
+  answers even when a path has no publisher -- so the viewer waits for an
+  actual track and releases the session before asking HLS for the same
+  thing.
+- The seven-second HLS window was the reason a feed could look real and be
+  old. RTC has no window to drift in.
+- **The audio keys name what they do, not how it travels**: Listen /
+  Silence / 2-Way, where they read HLS / Silence / RTC. Listening used to
+  mean buffered HLS, so the only way to hear the room live was to open your
+  microphone; both keys now share one WHEP leg and differ only in whether
+  your mic opens. Which leg is carrying is a readout, and it already had
+  lamps.
+- **Force HLS**, in Settings under This device, skips RTC entirely. Not a
+  fallback switch -- the fallback needs no setting. WebRTC costs this node
+  one connection per viewer; HLS costs it nothing per viewer. Sub-second is
+  the right trade for a household and the wrong one for an audience.
+- `scripts/deploy_tina.sh` can run ON tina. It was written to drive the node
+  from another machine, which made every deploy depend on a second host --
+  usually tanzania, which is Hera's other half and therefore away exactly
+  when the Windows port is being built. tina has dpkg-deb and fakeroot of
+  its own; only the script's habit of reaching for ssh needed a second
+  machine, and it could not ssh to itself either. One dispatch point now
+  decides local-or-remote and every guard is unchanged.
+
 ## 7.0.51
 
 - The header shows `linux-v7.0.51` instead of a bare `7.0.51` with a commit
