@@ -1337,6 +1337,12 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
             _t_cv = time.perf_counter()
             out, _meta = proc.process(frame)
             _cv_obs_record((time.perf_counter() - _t_cv) * 1000.0)
+            # process() has always computed a per-stage breakdown and the
+            # pump has always discarded it, so the one number that would
+            # say WHERE the frame budget goes never left this loop. Stash
+            # the latest; /api/pipeline reads it like it reads _hud_text.
+            globals()['_cv_last_timings'] = _meta.get('timings_ms') or {}
+            globals()['_cv_eco'] = bool(_meta.get('eco'))
             dst.write(np.ascontiguousarray(out).tobytes())
         except BrokenPipeError:
             break                      # B exited; the loop above will notice
@@ -3623,6 +3629,8 @@ _cv_cap_lock = threading.Lock()
 # worse than showing one that may be slow.
 _CV_OBS_MAX     = 240    # rolling window of per-frame render times (ms)
 _CV_OBS_MIN     = 90     # before this many, we have not seen enough to judge
+_cv_last_timings = {}     # newest per-stage breakdown from CVProcessor
+_cv_eco          = False  # the processor dropped its enhancement pipeline
 _cv_obs         = collections.deque(maxlen=_CV_OBS_MAX)
 _cv_obs_lock    = threading.Lock()
 _CV_VERDICT_F   = os.path.join(STATE_DIR, 'cv_verdict.json')
@@ -4041,6 +4049,13 @@ def pipeline():
         # that is ignoring them.
         'low_power': low_power,
         'mode_effective': eff_mode,
+        # Measured, per stage, from the last rendered frame -- and the
+        # median the autothrottle actually decides on, so the threshold and
+        # the reading on the panel are the same number.
+        'cv_timings_ms': (_cv_last_timings if eff_mode == 'cv' else None),
+        'cv_render_median_ms': (_cv_obs_median()[0] if eff_mode == 'cv' else None),
+        'cv_budget_ms': round(_cv_budget_ms(), 1),
+        'cv_eco': (_cv_eco if eff_mode == 'cv' else None),
         'cv_capable':    _cap['state'],
         'cv_capability': _cap,
         'mode':     mode_now,

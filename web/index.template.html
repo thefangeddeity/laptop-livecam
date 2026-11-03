@@ -6068,6 +6068,12 @@ function eleProbe() {
     // engage or release when the MASK is toggled -- only when the region was
     // touched. Idempotent and cheap: it reads two rects and writes one style.
     applyFitRoi();
+    // Same reasoning, same poll: the CV HUD's corner depends on the mask and
+    // the stretch as well as on the region, and paintAll is the only thing
+    // that runs when those two change. Also catches the frame finally
+    // reporting its dimensions, which videoRect() needs and does not get
+    // until metadata arrives.
+    paintHudWindow();
     // Inert unless something is actually being hidden.
     var mp = document.getElementById('maskPixelBtn');
     if (mp) mp.classList.toggle('na', !(maskOn && roiCur));
@@ -6138,7 +6144,14 @@ function eleProbe() {
   function toggleDetect() {
     if (lowPowerOn) return;      // inert, and says so -- see paintAll
     post('/api/detect-always', detectOn ? 'false' : 'true',
-         function(v) { detectOn = v.trim() === 'true'; });
+         function(v) {
+           detectOn = v.trim() === 'true';
+           // Switching the detector on gives it a window if it has none --
+           // see ensureRoiWindow. Switching it off leaves the region alone:
+           // it is remembered, exactly like every other setting here, and
+           // only its outline goes away (paintRoi).
+           ensureRoiWindow();
+         });
   }
   // The server rebuilds the whole capture pipeline on this, so the answer
   // comes back after an ffmpeg teardown rather than instantly. post() paints
@@ -6227,6 +6240,65 @@ function eleProbe() {
     }
   }
 
+  // ── THE CV HUD FOLLOWS THE DETECTOR WINDOW ──────────────────────────
+  //
+  // #hudCvBlock reports what the DETECTOR is doing ("DETECTING 2 TARGETS",
+  // "OVERLAY AT ACUITY 1.00"). When the detector has been confined to a
+  // region, those words are about that region, so they belong on its
+  // corner rather than on the picture's -- a reading pinned to the frame
+  // while the instrument taking it looks at a box in the middle of that
+  // frame is telemetry with the wrong label.
+  //
+  // ONLY #hudCvBlock moves. #hudStatus and #hudError are about the STREAM
+  // -- connection state, playback faults -- and have nothing to do with
+  // where the detector is looking. Worse, moving them would file a
+  // connection error into whatever corner the operator last dragged, which
+  // can be a small box anywhere on the picture. They stay on the frame.
+  //
+  // SIZE DOES NOT FOLLOW, only position. The e% rule sizes HUD text against
+  // the FRAME precisely so it is one constant across every node and every
+  // resolution with nothing to re-tune (cv_detect.draw_hud's own note). The
+  // region is a rectangle somebody drags, so sizing type to it would make
+  // the HUD change size every time the region is nudged -- the opposite of
+  // what that rule exists for, and a small region would render it unreadable.
+  function paintHudWindow() {
+    var hud = document.getElementById('videoHud');
+    var blk = document.getElementById('hudCvBlock');
+    if (!hud || !blk) return;
+    // Back to the frame's own corner, which is what the stylesheet says:
+    //   no region drawn, or it is not APPLIED to detection (the panel's
+    //     "Detect everywhere") -- the detector's window IS the frame;
+    //   stretched to fill, where the region already occupies the whole
+    //     player, so following it would mean following the frame anyway --
+    //     and videoRect() is pre-transform, so the sums below would be
+    //     wrong by exactly that zoom. Same condition paintRoi uses to drop
+    //     the region outline, for the same reason.
+    var follow = roiCur && (roiOn || roiArmed)
+                 && !(fitRoi && maskOn && !roiArmed);
+    if (!follow) {
+      blk.style.left = blk.style.bottom = blk.style.maxWidth = '';
+      return;
+    }
+    var r = videoRect(), h = hud.getBoundingClientRect();
+    if (!(r.width > 0 && r.height > 0 && h.width > 0)) return;
+    // .video-hud is already inset from the wrap on all four sides, so these
+    // are measured against ITS box -- the same origin left:0/bottom:0 mean
+    // in the stylesheet, which is what makes clearing them a true reset.
+    var left = (r.left - h.left) + roiCur.x * r.width;
+    var bottom = h.bottom - (r.top + (roiCur.y + roiCur.h) * r.height);
+    // Clamped into the HUD box. A region can legitimately sit flush against
+    // the picture's edge, which is OUTSIDE .video-hud's inset edge, and
+    // overflow:hidden would then clip the line it was meant to carry. The
+    // detector window is where the text points, not a cage to lose it in.
+    blk.style.left = Math.max(0, Math.min(left, h.width)) + 'px';
+    blk.style.bottom = Math.max(0, Math.min(bottom, h.height)) + 'px';
+    // Wrap inside the region rather than running out of it: these two lines
+    // are as long as the detector's state makes them, and a narrow region
+    // would otherwise push them straight back over the picture it is
+    // supposed to have excluded.
+    blk.style.maxWidth = Math.max(0, roiCur.w * r.width) + 'px';
+  }
+
   function toggleFitRoi() {
     fitRoi = !fitRoi;
     try { localStorage.setItem('fitRoi', fitRoi); } catch (e) {}
@@ -6240,15 +6312,25 @@ function eleProbe() {
     // The box persists after Set: visible whenever a region is applied,
     // not only while editing. The layer has to stay up to carry it, so it
     // goes non-interactive rather than hidden -- see .roi-layer.locked.
-    var showBox = !!roiCur && (roiOn || roiArmed);
+    //
+    // And it is hidden outright when DETECTION is off, including when Low
+    // power is holding it off. The rectangle is a statement about where the
+    // detector looks; drawn over the picture while nothing is looking, it
+    // claims a region is being watched that is not. Same reasoning as the
+    // burned-in telemetry: an instrument that reads the same whether or not
+    // it is running is worse than no instrument.
+    var detLive = detectOn && !lowPowerOn;
+    var showBox = !!roiCur && (roiOn || roiArmed) && detLive;
     layer.hidden = !(roiArmed || showBox);
     layer.classList.toggle('locked', !roiArmed);
     box.classList.toggle('locked', !roiArmed);
     paintLed('roi', roiOn);
     var btn = document.getElementById('roiBtn');
-    // Unlit AND unresponsive when there is nothing to apply, rather than a
-    // switch that silently does nothing.
-    if (btn) btn.classList.toggle('na', !roiCur);
+    // No longer dead without a region: pressing it with none MAKES one (see
+    // toggleRoi). It was .na precisely because it could not do anything,
+    // and it can now. Detection still greys the whole row -- the switch sits
+    // in a .detdep pinrow -- which is the dependency that is real.
+    if (btn) btn.classList.remove('na');
     var lab = document.getElementById('roiLabel');
     if (lab) lab.textContent = roiCur
       ? (roiOn ? 'Detect only here' : 'Detect everywhere')
@@ -6274,6 +6356,9 @@ function eleProbe() {
     // The box stays visible while armed even when switched off, so you can
     // see what you are about to replace.
     applyFitRoi();
+    // Geometry moved: the region, the stretch, or the window (this function
+    // is the resize handler too -- see the listener near the bottom).
+    paintHudWindow();
     // Stretched, the region fills the player, so its outline would just trace
     // the edge of the view -- noise describing the frame you are looking at.
     if (!showBox || (fitRoi && maskOn && !roiArmed)) { box.hidden = true; return; }
@@ -6285,11 +6370,47 @@ function eleProbe() {
     box.style.height = (roiCur.h * r.height) + 'px';
   }
 
+  // The whole frame, which is what "no region" already meant -- written
+  // down instead of implied. One definition, so the default, Reset and the
+  // auto-create below cannot drift apart.
+  var ROI_FULL = { x: 0, y: 0, w: 1, h: 1 };
+
   function toggleRoi() {
     // Flips whether the region applies. Sends only {on:...} so the server
     // keeps the box -- that separation is the reason this is cheap.
-    if (!roiCur) return;
+    if (!roiCur) {
+      // No region yet: the switch MAKES one, full frame, rather than being
+      // dead until somebody drags a box. A region is only ever a NARROWING
+      // of what the detector watches, so the full frame is its honest
+      // starting point -- and an absent region and a full-frame one are the
+      // same fact about the detector written two different ways. Requiring
+      // a drag to get from one to the other made the control dead on arrival
+      // on a fresh node, with nothing on the panel saying why.
+      post('/api/detect-roi', JSON.stringify({
+        x: ROI_FULL.x, y: ROI_FULL.y, w: ROI_FULL.w, h: ROI_FULL.h, on: true
+      }), function() { loadRoi(); });
+      return;
+    }
     post('/api/detect-roi', JSON.stringify({ on: !roiOn }), function() { loadRoi(); });
+  }
+
+  // THE DETECTOR WINDOW EXISTS WHENEVER THE DETECTOR DOES.
+  //
+  // Fires at most once per page: loadRoi() fills roiCur from the reply, so
+  // the condition closes behind it, and roiKnown stops this guessing from
+  // the null roiCur starts as before the first GET has landed. Without that
+  // guard the page would write a region to the node every time it opened.
+  var roiEnsured = false, roiKnown = false;
+  function ensureRoiWindow() {
+    if (roiEnsured || !roiKnown || roiCur) return;
+    // Only while the detector is actually running. Creating one for a
+    // detector held off by Low power -- or switched off outright -- would
+    // be writing node state on behalf of a feature nobody has turned on.
+    if (!(detectOn && !lowPowerOn)) return;
+    roiEnsured = true;
+    post('/api/detect-roi', JSON.stringify({
+      x: ROI_FULL.x, y: ROI_FULL.y, w: ROI_FULL.w, h: ROI_FULL.h, on: true
+    }), function() { loadRoi(); });
   }
 
   function armRoi() {
@@ -6320,10 +6441,21 @@ function eleProbe() {
   }
 
   function resetRoi() {
-    // Empty body is Reset, server-side. Clearing locally first so the box
-    // disappears on the press rather than on the reply.
-    roiCur = null; roiOn = false; roiArmed = false; roiOrig = null; paintRoi();
-    post('/api/detect-roi', '', function() { loadRoi(); });
+    // Reset means "watch the whole picture again", which is now a region
+    // rather than the absence of one -- the window has to keep existing
+    // while the detector does. Deleting it instead put the node straight
+    // back into the state this change exists to remove: a live detector
+    // with no window and a switch that could not make one.
+    //
+    // Behaviourally identical either way; the server's _roi_box clamps a
+    // full-frame region to the frame and every pass then runs over the
+    // whole picture, exactly as a None did.
+    roiArmed = false; roiOrig = null;
+    roiCur = { x: ROI_FULL.x, y: ROI_FULL.y, w: ROI_FULL.w, h: ROI_FULL.h };
+    paintRoi();                        // on the press, not on the reply
+    post('/api/detect-roi', JSON.stringify({
+      x: ROI_FULL.x, y: ROI_FULL.y, w: ROI_FULL.w, h: ROI_FULL.h, on: roiOn
+    }), function() { loadRoi(); });
   }
 
   function loadRoi() {
@@ -6335,7 +6467,9 @@ function eleProbe() {
           roiCur = (d && d.w > 0) ? d : null;
           roiOn = !!(roiCur && d.on);
         } catch (e) { roiCur = null; roiOn = false; }
+        roiKnown = true;
         paintRoi();
+        ensureRoiWindow();
       });
   }
 
