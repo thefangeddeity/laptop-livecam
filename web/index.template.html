@@ -4739,10 +4739,11 @@
     if (audioMode === 'two-way' && typeof twoWayOn !== 'undefined' && twoWayOn) stopTwoWay();
     audioMode = m;
     if (m === 'play') {
-      resolveAudioSrc(function () {
-        roomAudio.play().then(paintTransport).catch(paintTransport);
-      });
-    } else {
+      startListen();
+    } else if (audioMode !== 'two-way') {
+      stopListen();
+    }
+    if (m !== 'play') {
       // Talk holds the room rather than mixing it: this node's talkback comes
       // out of a speaker in the same room as the mic, so playing the room
       // while talking is a feedback loop, not a feature.
@@ -4778,8 +4779,16 @@
     if (dirEl) dirEl.textContent = (audioMode === 'two-way') ? 'TWO-WAY'
                                  : (audioMode === 'play') ? 'INBOUND'
                                  : (audioMode === 'talk') ? 'TO ROOM' : 'NONE';
+    // TWO TRANSPORT LAMPS for the room, read exactly like the picture's
+    // pair upstairs: both always present, the lit one says which leg is
+    // carrying. RTC is no longer a Two-way-only lamp -- Monitor uses the
+    // same leg now, so it lights for listening however you started it.
     var rtcLed = document.getElementById('ledRtcA');
-    if (rtcLed) rtcLed.className = 'led' + ((typeof twoWayOn !== 'undefined' && twoWayOn) ? ' on' : '');
+    if (rtcLed) {
+      var rtcListening = (typeof twoWayOn !== 'undefined' && twoWayOn)
+                      || (audioMode === 'play' && listenTransport === 'rtc');
+      rtcLed.className = 'led' + (rtcListening ? ' on' : '');
+    }
     // HLS audio lamp = actually listening over buffered HLS. Off in Silence,
     // and off during Two-way -- roomAudio is paused there and inbound arrives
     // on the RTC leg (see startTwoWay), so the two lamps never both claim the
@@ -4792,7 +4801,10 @@
     // not look like "broken".
     var hlsLed = document.getElementById('ledHlsA');
     if (hlsLed) {
-      var hs = (audioMode !== 'play') ? ''
+      // Only when HLS is the leg actually carrying. In Monitor-over-RTC
+      // roomAudio is paused on purpose, and an unlit HLS lamp there means
+      // "not this one", not "failed".
+      var hs = (audioMode !== 'play' || listenTransport !== 'hls') ? ''
              : roomAudio.error ? 'down'
              : !roomAudio.paused ? 'ok' : '';
       hlsLed.className = 'led' + (hs === 'ok' ? ' on' : hs === 'down' ? ' down' : '');
@@ -4808,7 +4820,11 @@
       // real platform limitation, not a bug here. Flagging it in the HUD
       // rather than silently showing a dead meter with no explanation.
       setHudStatus(audioMode === 'two-way' ? 'RTC AUDIO LIVE'
-                 : audioMode === 'play' ? ((roomHls ? '' : 'NATIVE ') + 'HLS AUDIO LIVE')
+                 : audioMode === 'play'
+                     ? (listenTransport === 'rtc' ? 'RTC AUDIO LIVE'
+                        : listenTransport === 'hls'
+                            ? ((roomHls ? '' : 'NATIVE ') + 'HLS AUDIO LIVE')
+                            : 'CONNECTING')
                  : audioMode === 'talk' ? 'TALK LIVE' : '');
     }
     // Keep the Mute-mic key's enabled/greyed state in step with the call.
@@ -5596,11 +5612,80 @@
         // This automates the manual Silence->Two-way that used to be needed.
         return new Promise(function (resolve) {
           setTimeout(function () {
-            if (gotTrack || attempt >= 4) { resolve(); return; }
+            // Resolves whether media ACTUALLY arrived, so a caller with a
+            // second transport can act on it. Two-way has nowhere else to
+            // go and keeps retrying; Monitor does, and stops after one.
+            if (gotTrack || attempt >= 4) { resolve(gotTrack); return; }
             resolve(startRoomRx(attempt + 1));
           }, 2500);
         });
-      });
+      })
+      .catch(function () { return false; });
+  }
+
+  // ── LISTENING: THE SAME TWO LEGS AS THE PICTURE ────────────────────────
+  //
+  // Monitor used to be HLS and Two-way used to be WebRTC, which made the
+  // transport a property of WHICH KEY you pressed rather than of what was
+  // available. So listening was seven seconds behind unless you also opened
+  // your microphone -- and the only way to hear the room live was to start
+  // talking into it.
+  //
+  // Now both keys want the same thing: the room, live. RTC is tried first
+  // and HLS catches it, exactly as the picture does, and the two lamps in
+  // the Audio panel say which leg is carrying.
+  //
+  // It is ONE WHEP session either way, on the element Two-way already uses.
+  // Monitor and Two-way's inbound are the same leg now, so moving between
+  // them neither renegotiates nor opens a second subscription the node
+  // would have to pay for.
+  var listenTransport = 'none';         // 'rtc' | 'hls' | 'none'
+
+  function setListenTransport(t) {
+    if (listenTransport === t) return;
+    listenTransport = t;
+    paintAudioModes();
+    paintLamps();
+  }
+
+  function startListen() {
+    // forceHls is the node saying it cannot afford a connection per viewer
+    // -- see /api/force-hls. It applies to the room as much as the picture.
+    if (forceHls) { startListenHls(); return; }
+    setListenTransport('none');
+    startRoomRx().then(function (ok) {
+      if (ok) {
+        // The room is on the RTC element; the HLS monitor must not also be
+        // running or the same room arrives twice, seven seconds apart.
+        try { roomAudio.pause(); } catch (e) {}
+        setListenTransport('rtc');
+        applyAudioSilence();
+        return;
+      }
+      stopRoomRx();
+      startListenHls();
+    });
+  }
+
+  function startListenHls() {
+    setListenTransport('hls');
+    resolveAudioSrc(function () {
+      roomAudio.play().then(paintTransport).catch(paintTransport);
+    });
+  }
+
+  function stopListen() {
+    // Two-way owns the RTC leg while a call is up -- tearing it down here
+    // would cut the inbound half of somebody's conversation.
+    if (!(typeof twoWayOn !== 'undefined' && twoWayOn)) stopRoomRx();
+    try { roomAudio.pause(); } catch (e) {}
+    setListenTransport('none');
+  }
+
+  function stopRoomRx() {
+    if (twoWayRxRes) { fetch(twoWayRxRes, { method: 'DELETE' }).catch(function () {}); twoWayRxRes = null; }
+    if (twoWayRxPc) { try { twoWayRxPc.close(); } catch (e) {} twoWayRxPc = null; }
+    if (twoWayRx) { try { twoWayRx.srcObject = null; } catch (e) {} }
   }
 
   function startTwoWay() {
@@ -5615,6 +5700,7 @@
     }
     if (twoWayBtn) twoWayBtn.disabled = true;
     roomAudio.pause();          // HLS monitor stands down; the room arrives on twoWayRx, low-latency
+    setListenTransport('rtc');  // same leg Monitor uses now -- see startListen
     navigator.mediaDevices.getUserMedia({
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
     })
