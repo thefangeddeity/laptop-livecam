@@ -91,6 +91,7 @@ pub fn router(ctx: Arc<Ctx>) -> Router {
         .route("/api/feed-mode", get(feed_mode_get).post(feed_mode_post))
         .route("/api/msg-lock", get(msg_lock_get).post(msg_lock_post))
         .route("/api/low-power", get(low_power_get).post(low_power_post))
+        .route("/api/force-hls", get(force_hls_get).post(force_hls_post))
         .route("/api/bw-mode", get(bw_mode_get).post(bw_mode_post))
         .route("/api/foveal-mode", get(foveal_mode_get).post(foveal_mode_post))
         .route("/api/dark", get(dark_get).post(dark_post))
@@ -320,6 +321,32 @@ async fn msg_lock_post(State(ctx): State<Arc<Ctx>>) -> Response {
     bool_text(ctx.state.toggle_msg_lock())
 }
 
+/// FORCE HLS. See state.rs for what it is and why it is not a fallback
+/// switch. Explicit true/false only, like the other fleet switches.
+async fn force_hls_get(State(ctx): State<Arc<Ctx>>) -> Response {
+    bool_text(ctx.state.force_hls())
+}
+
+async fn force_hls_post(State(ctx): State<Arc<Ctx>>, body: String) -> Response {
+    let want = match body.trim().to_ascii_lowercase().as_str() {
+        "true" => true,
+        "false" => false,
+        _ => {
+            return build(
+                StatusCode::BAD_REQUEST,
+                FLASK_TEXT,
+                FLASK_400.as_bytes().to_vec(),
+                false,
+                false,
+            )
+        }
+    };
+    // Nothing to restart: this changes which transport VIEWERS pick, not
+    // anything this node publishes. mediamtx goes on offering both.
+    ctx.state.set_force_hls(want);
+    bool_text(ctx.state.force_hls())
+}
+
 /// LOW POWER. See state.rs for what it buys on this node and why that is
 /// narrower than on the macOS branch.
 ///
@@ -508,6 +535,7 @@ async fn api_pipeline(State(ctx): State<Arc<Ctx>>) -> Response {
         "rtsp": rtsp,
         "mic": mic,
         "low_power": low_power,
+        "force_hls": ctx.state.force_hls(),
         "mode_effective": ctx.state.effective_feed_mode(),
     });
     build(

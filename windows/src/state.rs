@@ -28,6 +28,22 @@ pub struct AppState {
     pub dark: Mutex<bool>,
     /// In-memory only, by design. See module docs.
     pub bw_mode: Mutex<bool>,
+    /// FORCE HLS -- pin every viewer to the HLS transport.
+    ///
+    /// NOT "turn HLS off", and not a fallback switch: the fallback is
+    /// automatic and needs no setting. The opposite -- never negotiate
+    /// WebRTC. One PeerConnection per viewer is held open for as long as
+    /// they watch and this node pays for each; HLS is a directory of
+    /// segments any number of people can pull without the node knowing
+    /// they are there. Sub-second is the better trade for a household and
+    /// the wrong one for an audience, so the choice can be made before the
+    /// viewers arrive rather than discovered afterwards. It covers the room
+    /// as well as the picture, because it is the same arithmetic.
+    ///
+    /// Persisted, and node-wide rather than per-viewer: the point is to
+    /// protect the node, so one browser must not opt itself back onto the
+    /// expensive path.
+    pub force_hls: Mutex<bool>,
     /// LOW POWER -- one switch for a node that cannot keep up.
     ///
     /// Ported from the macOS branch, where it was measured: the CV render
@@ -76,6 +92,9 @@ impl AppState {
         // has never heard of this switch is a node nobody has asked to
         // give anything up.
         let low_power = matches!(read(&dir, "low_power"), Some(ref v) if v.trim() == "true");
+        // Absent means OFF: a node nobody has prepared for an audience
+        // should take the low-latency path.
+        let force_hls = matches!(read(&dir, "force_hls"), Some(ref v) if v.trim() == "true");
 
         let dark = dir.join("dark").exists();
 
@@ -88,6 +107,7 @@ impl AppState {
             dark: Mutex::new(dark),
             bw_mode: Mutex::new(false),
             low_power: Mutex::new(low_power),
+            force_hls: Mutex::new(force_hls),
             notches,
             audio,
         }
@@ -129,6 +149,16 @@ impl AppState {
         *g = !*g;
         let _ = std::fs::write(self.dir.join("msg_lock"), if *g { "true" } else { "false" });
         *g
+    }
+
+    pub fn force_hls(&self) -> bool {
+        *self.force_hls.lock().unwrap()
+    }
+
+    pub fn set_force_hls(&self, on: bool) -> bool {
+        *self.force_hls.lock().unwrap() = on;
+        let _ = std::fs::write(self.dir.join("force_hls"), if on { "true" } else { "false" });
+        on
     }
 
     pub fn low_power(&self) -> bool {
