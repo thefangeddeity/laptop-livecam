@@ -39,6 +39,7 @@ added the new keys yet.
 import json
 import os
 import threading
+import sys
 import time
 from collections import deque
 
@@ -662,6 +663,25 @@ class CVProcessor:
 
     def __init__(self, denv=None):
         denv = denv or {}
+        # -- AUTOTHROTTLE (ported from the macOS branch) ----------------
+        # The default CV path runs a whole image-ENHANCEMENT pipeline every
+        # frame -- Farneback optical flow, a temporal blend, tone
+        # correction, an unsharp pass, edge drawing. The sharpie note below
+        # measures three of those at ~70ms of the frame. None of it is
+        # DETECTION, which runs on its own thread off the observe prefix,
+        # upstream of all of it.
+        #
+        # Measured on ariana, where this was built: detection cost 0.04ms of
+        # a 55ms frame. When the node cannot afford the other 55, the right
+        # trade is an honest picture that arrives on time. Hysteresis
+        # because a skipped stage is also an unmeasured one -- with a single
+        # threshold this would oscillate at the sample rate.
+        self._eco = False
+        self._eco_hist = deque(maxlen=45)       # ~3s at 15fps
+        try:
+            self._budget_ms = 1000.0 / max(1, int(denv.get('FRAMERATE', 15)))
+        except Exception:
+            self._budget_ms = 1000.0 / 15
         self._last_luma = None  # denoised L channel, kept by _tone_correct
         self._frames = deque(maxlen=self.HISTORY)  # raw RGB frames, newest last
         self._gray_small = deque(maxlen=self.HISTORY)  # matching downscaled gray, for flow
@@ -1272,9 +1292,40 @@ class CVProcessor:
                 'history': len(self._frames),
             }
 
-        small_gray = cv2.cvtColor(
-            cv2.resize(frame, None, fx=_FLOW_SCALE, fy=_FLOW_SCALE, interpolation=cv2.INTER_AREA),
-            cv2.COLOR_RGB2GRAY,
+        # ECO: the detector's picture, on time, with nothing cosmetic.
+        # Everything skipped below improves how the frame LOOKS; detection
+        # has already happened in the observe prefix. The HUD and the target
+        # boxes still draw -- those are the instrument, not the polish.
+        #
+        # .copy() is not optional: the writer loop hands us a read-only view
+        # over the capture buffer (np.frombuffer) and _detect_and_hud draws
+        # into its canvas in place.
+        if self._eco:
+            t6 = time.perf_counter()
+            out, hud_tracks = self._detect_and_hud(frame, np.ascontiguousarray(frame).copy())
+            t['detect'] = time.perf_counter() - t6
+            t['total'] = time.perf_counter() - t0
+            self._note_frame_cost(t['total'])
+            return out, {
+                'motion': 0.0,
+                'sharpness': 0.0,
+                'edge_weight': 0.0,
+                'eco': True,
+                'artifact_mask': self._artifact_mask is not None,
+                'artifact_learning': False,
+                'tracks': len(hud_tracks),
+                'timings_ms': {k: round(v * 1000, 3) for k, v in t.items()},
+                'history': len(self._frames),
+            }
+
+        # GRAY FIRST, THEN RESIZE -- it was resizing three channels at full
+        # resolution to produce one. RGB2GRAY is a weighted sum and
+        # INTER_AREA is an average, both linear, so they commute and the
+        # result is the same image to within rounding. Measured on ariana:
+        # 6.45ms -> 3.95ms.
+        small_gray = cv2.resize(
+            cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY), None,
+            fx=_FLOW_SCALE, fy=_FLOW_SCALE, interpolation=cv2.INTER_AREA,
         )
         t['downscale_gray'] = time.perf_counter() - t0
 
@@ -1346,7 +1397,9 @@ class CVProcessor:
         # in code this phase already had to touch.
 
         t['total'] = time.perf_counter() - t0
+        self._note_frame_cost(t['total'])
         metadata = {
+            'eco': False,
             'motion': motion_mean,
             'sharpness': round(sharpness, 2),
             'edge_weight': round(edge_weight, 3),
@@ -1357,6 +1410,36 @@ class CVProcessor:
             'history': len(self._frames),
         }
         return edged, metadata
+
+    def _note_frame_cost(self, total_s):
+        """One rendered frame's cost, and the eco decision that follows.
+
+        MEDIAN, not mean: one long frame is a scheduler hiccup and must not
+        flip the pipeline, while a pipeline genuinely over budget is over
+        budget in the middle of its distribution too. Thresholds are ratios
+        of the frame budget, so no re-tuning at another framerate -- the
+        same reasoning as the e% HUD rule. ENTER at the budget, LEAVE at
+        0.6 of it; the gap is deliberate, because eco's own cost is not the
+        full path's and a single threshold would switch straight back.
+        """
+        self._eco_hist.append(total_s * 1000.0)
+        if len(self._eco_hist) < self._eco_hist.maxlen:
+            return
+        xs = sorted(self._eco_hist)
+        med = xs[len(xs) // 2]
+        if not self._eco and med > self._budget_ms:
+            self._eco = True
+            self._eco_hist.clear()
+            print('CV: render is %.1fms against a %.1fms budget -- dropping '
+                  'the enhancement pipeline (flow, denoise, tone, sharpen, '
+                  'edges). Detection and the HUD are unaffected.'
+                  % (med, self._budget_ms), file=sys.stderr, flush=True)
+        elif self._eco and med < self._budget_ms * 0.6:
+            self._eco = False
+            self._eco_hist.clear()
+            print('CV: render is %.1fms against a %.1fms budget -- '
+                  'enhancement pipeline back on.'
+                  % (med, self._budget_ms), file=sys.stderr, flush=True)
 
     def _measure_sharpness(self, luma):
         """Variance of the Laplacian on a quarter-scale luminance image.
@@ -2376,16 +2459,27 @@ class CVProcessor:
         runs first so CLAHE's local histogram equalization has real headroom
         to work with in a tile that's mostly blown out, instead of a flat
         plateau of saturated values with nothing left to redistribute."""
+        # IN PLACE on the L plane, not split/merge. Measured on ariana at
+        # 17.9ms of a 55ms frame, and most of that was memory rather than
+        # maths: cv2.split allocates and fills three full planes, cv2.merge
+        # allocates a fourth and copies all three back -- six 900KB copies
+        # per frame to touch one of them. a and b are never read here, which
+        # is the whole reason they never needed extracting. 17.9ms -> 10.0ms.
         lab = cv2.cvtColor(frame, cv2.COLOR_RGB2LAB)
-        l, a, b = cv2.split(lab)
+        l = lab[:, :, 0]
         # Kept for the sharpness metric: this is the denoised luminance,
         # before CLAHE stretches local contrast. Measuring after CLAHE would
         # report the enhancement rather than the underlying focus, and the
         # decision to draw edges has to be made about the source image.
-        self._last_luma = l
-        l = cv2.LUT(l, self._highlight_lut)
-        l2 = self._clahe.apply(l)
-        return cv2.cvtColor(cv2.merge((l2, a, b)), cv2.COLOR_LAB2RGB)
+        #
+        # .copy() is load-bearing now: `l` is a VIEW into lab and the line
+        # below writes through that same memory. Without it _last_luma would
+        # silently become the post-CLAHE luminance -- the exact confound the
+        # comment above exists to prevent -- and it would be a strided view,
+        # which cv2.resize in _measure_sharpness does not want.
+        self._last_luma = l.copy()
+        lab[:, :, 0] = self._clahe.apply(cv2.LUT(l, self._highlight_lut))
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
 
     def _sharpen(self, frame, moving_mask):
         """Unsharp mask via OpenCV's fused addWeighted, skipped wherever the

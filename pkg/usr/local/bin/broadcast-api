@@ -59,6 +59,7 @@ NOTIFY_PRESENCE_FILE = "/var/lib/hls-livecam/notify_presence_pause"
 DETECT_ROI_FILE    = "/var/lib/hls-livecam/detect_roi"
 PRIVACY_MASK_FILE  = "/var/lib/hls-livecam/privacy_mask"
 MASK_STYLE_FILE    = "/var/lib/hls-livecam/mask_style"
+LOW_POWER_FILE     = "/var/lib/hls-livecam/low_power"
 GALLERY_DIR        = "/var/lib/hls-livecam/gallery"
 
 
@@ -624,7 +625,78 @@ _detect_always_lock = threading.Lock()
 
 def _detect_always_on():
     with _detect_always_lock:
-        return _detect_always
+        # Low power wins and deliberately does NOT rewrite the stored
+        # setting: the panel keeps showing what Detection is set to, greys
+        # the row, and switching Low power off restores it. The detect tap
+        # already sleeps when this is false, so one line stops the detector.
+        return _detect_always and not _low_power_on()
+
+
+# -- LOW POWER -------------------------------------------------------------
+#
+# One switch for a node that cannot keep up. Ported from the macOS branch,
+# where it was measured on ariana (2-core i5-6287U, 15fps): the CV render
+# alone took 62.7ms of the 66.7ms frame budget and the capture tree ran at
+# 173% of one core.
+#
+# What it stops here:
+#   the CV render     cv_proc.process() in the writer loop; the feed falls
+#                     back to the Show passthrough -- the same camera with
+#                     nothing drawn over it
+#   detection         _detect_tap_loop parks itself (see _detect_always_on)
+#   the evidence      _to_rec stops being fed, so the x264 leg goes idle --
+#   recorder          measured on tanzania at 38.5% of one core
+#   room audio        the Opus leg _roomaudio_supervise keeps alive
+#   blur              a render modifier, and the render is what went
+#
+# What it does NOT stop:
+#   the privacy mask  applied in _drain_loop, upstream of every consumer,
+#                     so it is structurally out of low power's reach here --
+#                     unlike the macOS branch, where the mask shares the
+#                     frame stage low power is trying to drop. Only the
+#                     STYLE is forced to black, which is both cheaper than
+#                     the cloak and stronger than it.
+#   Hide              already the cheapest branch: a generated black frame.
+#   the control plane messages, the node note, buzz, snapshots.
+#
+# NOT a picture-quality control: resolution, framerate and bitrate are
+# untouched. The render is what costs, not the encode.
+def _read_low_power():
+    try:
+        with open(LOW_POWER_FILE) as f:
+            return f.read().strip() == 'true'
+    except Exception:
+        return False
+
+
+def _write_low_power(enabled):
+    """Raises on failure -- the caller turns that into a 500. Swallowing is
+    how a setting ends up with a lamp that moves and a node that did not."""
+    os.makedirs(os.path.dirname(LOW_POWER_FILE), exist_ok=True)
+    tmp = LOW_POWER_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write('true' if enabled else 'false')
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, LOW_POWER_FILE)
+
+
+_low_power = _read_low_power()
+_low_power_lock = threading.Lock()
+
+
+def _low_power_on():
+    with _low_power_lock:
+        return _low_power
+
+
+def _effective_mode(mode):
+    """What the pipeline is ACTUALLY doing, which is not always what was
+    asked. Low power cannot afford CV, so it is served as Show; the stored
+    mode is left alone so switching back needs no re-selection. Hide passes
+    through untouched -- it is a privacy control and already the cheapest
+    branch there is."""
+    return 'show' if (mode == 'cv' and _low_power_on()) else mode
 
 
 # -- "Include video" with the snapshots --
@@ -900,6 +972,15 @@ def _roomaudio_supervise():
     global _room_proc
     while True:
         try:
+            # LOW POWER: the room is not published. Polled rather than
+            # event-driven because this loop has no generation counter to
+            # wait on -- a second of latency on a switch nobody flips twice
+            # a day, against a thread that would otherwise hold an encoder
+            # open for a feature that is off.
+            if _low_power_on():
+                _room_proc = None
+                time.sleep(1)
+                continue
             _room_proc = _start_roomaudio()
             _room_proc.wait()
         except Exception as e:
@@ -1414,9 +1495,16 @@ def _mask_style():
     """
     try:
         with open(MASK_STYLE_FILE) as f:
-            return 'pixel' if f.read().strip() == 'pixel' else 'black'
+            style = 'pixel' if f.read().strip() == 'pixel' else 'black'
     except Exception:
+        style = 'black'
+    # The one override low power is allowed to make to a privacy setting,
+    # because it goes the safe way on both counts: black is cheaper (a
+    # zeros() fill instead of a block-art pass every frame) AND stronger
+    # (the cloak leaves coarse structure, this does not).
+    if style == 'pixel' and _low_power_on():
         return 'black'
+    return style
 
 
 def _mask_cloak(arr):
@@ -1867,8 +1955,17 @@ def _writer_loop():
 
             # The real frame, before the branch below decides what to render.
             # Every mode feeds the recorder the same picture of the room.
-            _to_rec(raw)
+            # LOW POWER: the evidence recorder stops being fed. The x264
+            # leg stays alive with nothing to read, which costs nothing --
+            # and alert clips have nothing left to be cut for anyway, since
+            # detection is parked (see _detect_always_on).
+            if not _low_power_on():
+                _to_rec(raw)
             _rec_prune()
+
+            # Low power serves CV as Show: the render is the expensive
+            # thing on this loop and the passthrough is free.
+            mode = _effective_mode(mode)
 
             if mode == 'show':
                 frame_arr = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
@@ -1890,7 +1987,10 @@ def _writer_loop():
             # A modifier over whatever the feed is doing, not a mode: Show
             # blurred and CV blurred are both meaningful. Hide is already
             # black and has nothing left to protect.
-            if mode != 'hide':
+            # Blur is a RENDER modifier, and low power is the decision not
+            # to render. Left switched on in its own state so it comes back
+            # with everything else, exactly like the feed mode above.
+            if mode != 'hide' and not _low_power_on():
                 with _blur_lock:
                     _blur_now = _blur_enabled
                 if _blur_now:
@@ -2327,6 +2427,17 @@ def pipeline_get():
                      else 'ok'),
         'hls':      'pending',
     }
+    # Low power serves CV as Show, so the panel is told what is RUNNING,
+    # not what was asked for. A card reporting 'cv' while no detector is
+    # running is the lamp-that-cannot-fail problem with extra steps.
+    try:
+        _lp = _low_power_on()
+        out['low_power'] = _lp
+        out['mode_effective'] = _effective_mode(_read_feed_mode())
+        if _lp:
+            out['cv'] = False
+    except Exception:
+        pass
     _PIPELINE_CACHE['at'] = now
     _PIPELINE_CACHE['val'] = out
     return out, 200
@@ -2989,6 +3100,37 @@ def detect_always_post():
     except Exception:
         abort(500)
     return ('true' if enabled else 'false'), 200
+
+@app.route('/api/low-power', methods=['GET'])
+def low_power_get():
+    return ('true' if _low_power_on() else 'false'), 200
+
+
+@app.route('/api/low-power', methods=['POST'])
+def low_power_post():
+    global _low_power
+    val = request.get_data(as_text=True).strip().lower()
+    # Explicit true/false only, same as /api/detect-always: a body that
+    # could not be read must change nothing rather than flip the switch.
+    if val not in ('true', 'false'):
+        abort(400)
+    enabled = val == 'true'
+    # Persist BEFORE the global moves, so a write that fails leaves a node
+    # whose behaviour still matches its state file.
+    try:
+        _write_low_power(enabled)
+    except Exception:
+        abort(500)
+    with _low_power_lock:
+        _low_power = enabled
+    # Every branch that reads it is per-frame or per-second, so there is no
+    # publisher to rebuild here -- unlike the macOS branch, where the mode
+    # decides which devices ffmpeg opens. Only the cached readings have to
+    # be dropped so the panel does not report the old pipeline for 2s.
+    _PIPELINE_CACHE['at'] = 0.0
+    _mask_cache['at'] = 0.0
+    return ('true' if enabled else 'false'), 200
+
 
 @app.route('/api/foveal-mode', methods=['GET'])
 def foveal_mode_get():
