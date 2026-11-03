@@ -99,11 +99,57 @@ def disk_write_mbs():
     last_disk_time = now_time
     return (delta_bytes / elapsed) / (1024 * 1024)
 
-def proc(name):
+# ONE SWEEP OF THE PROCESS TABLE PER REFRESH, NOT SIX.
+#
+# proc() used to walk psutil.process_iter(['name','cmdline']) from scratch on
+# every call, and sample_metrics() calls it three times (ffmpeg, mediamtx,
+# broadcast-api) with two more behind camera_busy() and the service check --
+# so one dashboard refresh enumerated every process on the machine up to six
+# times and read each one's full command line each time.
+#
+# Measured with cProfile on ariana, 25s of a running camdash: 101,146 calls
+# to psutil's proc_cmdline (3.3s of CPU), 81,461 process_iter steps, 12.8s
+# cumulative inside process_iter -- against a total process cost of about
+# 22% of a core. The dashboard's own bookkeeping was the most expensive
+# thing it did, by a wide margin, and none of it was the camera.
+#
+# cmdline is the expensive half and it cannot be dropped: broadcast-api runs
+# as `python3 /usr/local/bin/broadcast-api`, so its NAME is python3 and the
+# only place the identity appears is the command line. What can go is doing
+# it over and over -- the answers all come from one table, so read it once.
+#
+# TTL rather than per-refresh plumbing: callers are spread across the
+# rendering code and a cache needs no argument passed through all of them.
+# One second is shorter than the UI's own refresh, so nothing on screen is
+# older than it would have been.
+_proc_cache = {"at": -1e9, "rows": []}
+_PROC_TTL = 1.0
+
+def _proc_table():
+    """[(name, cmdline), ...] for every visible process. Cached briefly."""
+    now = time.monotonic()
+    if now - _proc_cache["at"] < _PROC_TTL:
+        return _proc_cache["rows"]
+    rows = []
     for p in psutil.process_iter(['name', 'cmdline']):
         try:
-            cmdline = p.info['cmdline'] or []
-            pname = p.info['name'] or ""
+            rows.append((p.info['name'] or "", p.info['cmdline'] or []))
+        except Exception:
+            # A process that exits mid-sweep is normal, not an error. Skip it
+            # rather than abandoning the whole table and reporting the node's
+            # services as absent.
+            pass
+    # Only adopt a sweep that actually saw something. An empty table would
+    # otherwise be cached for a second and every lamp on the dashboard would
+    # go dark, which looks exactly like the node having died.
+    if rows:
+        _proc_cache["at"] = now
+        _proc_cache["rows"] = rows
+    return _proc_cache["rows"]
+
+def proc(name):
+    for pname, cmdline in _proc_table():
+        try:
             if name == "ffmpeg":
                 if "ffmpeg" in pname or any("ffmpeg" in x for x in cmdline):
                     if any("8554" in x for x in cmdline):
@@ -113,7 +159,7 @@ def proc(name):
                 return True
             if any(name in x for x in cmdline):
                 return True
-        except:
+        except Exception:
             pass
     return False
 
