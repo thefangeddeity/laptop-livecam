@@ -633,7 +633,7 @@ async fn api_info(State(ctx): State<Arc<Ctx>>) -> Response {
     // drift from what actually got built (Cargo.toml is the one place
     // the version is written down).
     let body = format!(
-        "{{\"hostname\": \"{}\", \"tailscale\": \"{}\", \"version\": \"{}\", \"audio_restart\": true, \"low_power\": {}}}\n",
+        "{{\"hostname\": \"{}\", \"tailscale\": \"{}\", \"version\": \"{}\", \"os\": \"windows\", \"audio_restart\": true, \"low_power\": {}}}\n",
         json_escape(&host),
         json_escape(&ts),
         env!("CARGO_PKG_VERSION"),
