@@ -3061,15 +3061,28 @@
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
     var build = info.version || '@VERSION@';
-    // ONE format across the fleet. The hostname beside this already says
-    // which machine you are looking at, so a platform prefix said it twice:
-    // "mac-v1.8.0 @ariana" against "7.0.31 @tanzania" -- the same field,
-    // formatted two ways, because the two lineages tag differently
-    // (mac-v1.8.0, win-v1.0.0) and only one of them fed this label a raw
-    // version. Strip a platform prefix and a leading v, so every node reads
-    // the same way and a future platform needs no new rule here.
-    // The full tag, prefix and all, stays in the hover title.
-    build = String(build).replace(/^[a-z]+-/, '').replace(/^v/, '');
+    // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
+    // and "linux-v7.0.50" (requirement).
+    //
+    // The platform comes from /api/info's `os`, not from whatever prefix the
+    // tag happened to carry -- the lineages tag differently (mac-v1.8.2-11,
+    // win-v1.0.0, bare 7.0.50) and reading the prefix off the tag is how one
+    // field ended up formatted three ways. Derived from what the node SAYS it
+    // is, so a new platform needs one entry here and nothing else.
+    //
+    // THE COMMIT HASH GOES. `git describe` ends in -g<sha>, which is the
+    // longest part of the string, the least readable, and the part nobody
+    // reads off a header -- it cost the label its room on a phone for no
+    // benefit. The untrimmed tag stays in the hover title for when it
+    // actually matters.
+    var _rawBuild = String(build || '');
+    var _core = _rawBuild
+        .replace(/^[a-z]+-/i, '')              // any platform prefix the tag had
+        .replace(/^v/i, '')                    // and its leading v
+        .replace(/-g[0-9a-f]{7,}(-dirty)?$/i, '');   // the describe hash
+    var _plat = ({ macos: 'mac', darwin: 'mac', windows: 'win', win32: 'win' })
+                [String(info.os || '').toLowerCase()] || 'linux';
+    build = _plat + '-v' + _core;
     // Split across the two spans above. The leading space belongs to the
     // HOST half so that buildLabel.textContent still reads exactly as it
     // did when this was one node -- "1.8.2 @ariana", one space, no change.
@@ -3081,7 +3094,11 @@
     // The suffix is only hidden (CSS, mobile), never dropped, so
     // buildLabel.textContent is still the whole label on every viewport and
     // the hover title still carries the untrimmed tag.
-    var _bm = /^([0-9][0-9.]*)(.*)$/.exec(build || '');
+    // Split for the header's width ladder: the dotted version is what must
+    // survive, the "-11" commits-since-tag is what a narrow header drops
+    // first. Anchored past the platform prefix so "mac-v1.8.2-11" splits as
+    // "mac-v1.8.2" + "-11" rather than at the first digit it finds.
+    var _bm = /^([a-z]+-v[0-9][0-9.]*)(.*)$/i.exec(build || '');
     var bv = document.getElementById('buildVer');
     var bd = document.getElementById('buildDev');
     var bh = document.getElementById('buildHost');
