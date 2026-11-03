@@ -4,6 +4,20 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.51
+
+- The header shows `linux-v7.0.51` instead of a bare `7.0.51` with a commit
+  hash hanging off it. One shape on every node -- `mac-v1.8.2-12`,
+  `linux-v7.0.51`, `win-v1.0.0` -- with the platform taken from what the
+  node reports as its `os`, not from whichever prefix its tag happened to
+  carry. The untrimmed tag stays in the hover title.
+- **VERSION and DEBIAN/control are two places the version is written down,
+  and the viewer reads VERSION.** 7.0.49 and 7.0.50 bumped control alone, so
+  tina served "7.0.48" in its header while dpkg reported 7.0.50. Both are
+  corrected, and deploy_tina.sh now refuses a deploy where they disagree --
+  the same class of check as the untagged-release and dirty-tree ones it
+  already makes.
+
 ## 7.0.50
 
 - **The detection thread no longer leaks.** CVProcessor starts a daemon
