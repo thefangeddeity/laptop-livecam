@@ -64,6 +64,7 @@ NOTIFY_PRESENCE_FILE = os.path.join(STATE_DIR, "notify_presence_pause")
 DETECT_ROI_FILE     = os.path.join(STATE_DIR, "detect_roi")
 PRIVACY_MASK_FILE   = os.path.join(STATE_DIR, "privacy_mask")
 MASK_STYLE_FILE     = os.path.join(STATE_DIR, "mask_style")
+FORCE_HLS_FILE      = os.path.join(STATE_DIR, "force_hls")
 LOW_POWER_FILE      = os.path.join(STATE_DIR, "low_power")
 GALLERY_DIR         = os.path.join(STATE_DIR, "gallery")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
@@ -362,6 +363,51 @@ _low_power = _read_low_power()
 
 def _low_power_on():
     return _low_power
+
+
+# -- FORCE HLS -------------------------------------------------------------
+#
+# Pin every viewer to the HLS transport and skip WebRTC entirely.
+#
+# This is NOT "turn HLS off" and it is not a fallback switch -- the fallback
+# is automatic and needs no setting. It is the opposite: a way to stop the
+# node negotiating WebRTC at all.
+#
+# The reason is arithmetic. WebRTC is one PeerConnection per viewer, held
+# open for as long as they watch, and the node pays for every one of them.
+# HLS is a directory of segments that any number of viewers can pull without
+# the node knowing they exist. For an ordinary household audience RTC is the
+# better trade -- sub-second instead of a seven-second window. For a
+# MASS DISTRIBUTION EVENT (requirement) it is the wrong one, and the switch
+# exists so that choice can be made before the viewers arrive rather than
+# discovered afterwards.
+#
+# Node state, not per-viewer: the point is to protect the node, so one
+# person's browser must not be able to opt back into the expensive path.
+def _read_force_hls():
+    try:
+        with open(FORCE_HLS_FILE) as f:
+            return f.read().strip() == 'true'
+    except Exception:
+        return False
+
+
+def _write_force_hls(enabled):
+    """Raises on failure -- the caller turns that into a 500."""
+    os.makedirs(os.path.dirname(FORCE_HLS_FILE), exist_ok=True)
+    tmp = FORCE_HLS_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write('true' if enabled else 'false')
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, FORCE_HLS_FILE)
+
+
+_force_hls = _read_force_hls()
+
+
+def _force_hls_on():
+    return _force_hls
 
 
 def _effective_mode(mode=None):
@@ -3274,6 +3320,30 @@ def detect_always_post():
     return ('true' if _detect_always else 'false'), 200
 
 
+@app.route('/api/force-hls', methods=['GET'])
+def force_hls_get():
+    return ('true' if _force_hls else 'false'), 200
+
+
+@app.route('/api/force-hls', methods=['POST'])
+def force_hls_post():
+    global _force_hls
+    want = request.get_data(as_text=True).strip().lower()
+    if want not in ('true', 'false'):
+        abort(400)
+    if want == ('true' if _force_hls else 'false'):
+        return want, 200
+    try:
+        _write_force_hls(want == 'true')
+    except Exception:
+        abort(500)
+    _force_hls = (want == 'true')
+    # No pipeline rebuild: this changes which transport VIEWERS choose, not
+    # anything the node is publishing. mediamtx goes on offering both.
+    _pipeline_cache['at'] = 0.0
+    return ('true' if _force_hls else 'false'), 200
+
+
 @app.route('/api/low-power', methods=['GET'])
 def low_power_get():
     return ('true' if _low_power else 'false'), 200
@@ -4048,6 +4118,7 @@ def pipeline():
         # and say why, rather than showing live controls over a pipeline
         # that is ignoring them.
         'low_power': low_power,
+        'force_hls': _force_hls_on(),
         'mode_effective': eff_mode,
         # Measured, per stage, from the last rendered frame -- and the
         # median the autothrottle actually decides on, so the threshold and
@@ -4381,6 +4452,25 @@ def _webrtc_proxy(path):
 @app.route('/talk/<path:rest>', methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'])
 def talk_proxy(rest):
     return _webrtc_proxy('talkback/' + rest)
+
+
+# THE PICTURE'S OWN WHEP LEG.
+#
+# mediamtx already serves the camera over WebRTC at /cam/whep on
+# WEBRTC_PORT; nothing reached it from the viewer's origin, so the viewer
+# had no way to play it. /roomaudio and /talk have had this route for a
+# while and the picture never got one.
+#
+# Mounted at the SAME path mediamtx uses, unlike /talk (which maps to
+# mediamtx's /talkback), so the Location header WHEP returns for the
+# session resource is already correct and needs no rewriting. There is no
+# web/cam directory, so nothing static is shadowed -- and this rule is more
+# specific than the '/<path:path>' catch-all below it, which until now
+# answered /cam/whep with a 200 and an Allow: GET, HEAD, OPTIONS. A WHEP
+# POST to it got a 405.
+@app.route('/cam/<path:rest>', methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'])
+def cam_webrtc_proxy(rest):
+    return _webrtc_proxy('cam/' + rest)
 
 
 @app.route('/roomaudio/<path:rest>', methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'])

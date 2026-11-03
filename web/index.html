@@ -2127,7 +2127,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v1.8.2-11-g8133f4d"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-12-ga54209c"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2165,8 +2165,8 @@
             <div class="led" id="ledCamera"><span class="bulb"></span><span class="n">Camera</span></div>
             <div class="led" id="ledMtxV"><span class="bulb"></span><span class="n">MediaMTX</span></div>
             <div class="led" id="ledRtspV"><span class="bulb"></span><span class="n">RTSP</span></div>
-            <div class="led" id="ledHlsV"><span class="bulb"></span><span class="n">HLS</span></div>
-            <div class="led" id="ledRtcV" title="Video WebRTC leg (not wired yet)"><span class="bulb"></span><span class="n">RTC</span></div>
+            <div class="led" id="ledHlsV" title="The picture is arriving over buffered HLS -- the fallback, about seven seconds behind"><span class="bulb"></span><span class="n">HLS</span></div>
+            <div class="led" id="ledRtcV" title="The picture is arriving over WebRTC -- sub-second, no buffer window"><span class="bulb"></span><span class="n">RTC</span></div>
           </div>
         </div>
         <div class="pdiv"></div>
@@ -2849,6 +2849,25 @@
           <span class="eng rstlab">Disable buzz</span>
         </div>
         
+        <!-- NOT a fallback switch. The fallback is automatic and needs no
+             setting: RTC carries the picture, HLS catches it, and the two
+             lamps on the Video panel say which is doing it.
+             This is the other direction -- skip RTC entirely. WebRTC is one
+             PeerConnection per viewer, held open for as long as they watch,
+             and the node pays for every one; HLS is a directory of segments
+             any number of people can pull without the node knowing they are
+             there. Sub-second is the better trade for a household and the
+             wrong one for an audience, so the choice can be made before the
+             viewers arrive rather than discovered afterwards. -->
+        <div class="pinrow">
+          <button type="button" class="pinled" id="forceHlsBtn" onclick="toggleForceHls()"
+                  aria-pressed="false" aria-label="Force HLS"
+                  title="Serve every viewer over HLS and never negotiate WebRTC. For a large audience: WebRTC costs this node one connection per viewer, HLS costs it nothing per viewer. The picture runs about seven seconds behind.">
+            <span class="bulb" id="forceHlsLamp"></span>
+          </button>
+          <span class="eng rstlab">Force HLS <span class="cap2">(for an audience)</span></span>
+        </div>
+
         <!-- One switch for a node that cannot keep up. Measured on ariana
              (2-core i5-6287U, 15fps): the CV render alone took 62.7ms of the
              66.7ms frame budget -- 94% -- with broadcast-api at ~80% of a
@@ -3060,7 +3079,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-11-g8133f4d';
+    var build = info.version || 'mac-v1.8.2-12-ga54209c';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -3873,7 +3892,17 @@
     fetch('/api/pipeline', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.json() : null; })
       .catch(function() { return null; })
-      .then(function(p) { pipeline = p; paintLamps(); applyCvCapability(); });
+      .then(function(p) {
+        pipeline = p;
+        // Node state, so it can change under a viewer that is already
+        // watching -- an operator turning it on before an event should not
+        // need everyone to reload. Re-pick the transport when it flips.
+        if (p && typeof p.force_hls === 'boolean' && p.force_hls !== forceHls) {
+          forceHls = p.force_hls;
+          if (feedModeKnown && feedMode !== 'hide') initVideo();
+        }
+        paintLamps(); applyCvCapability();
+      });
   }
   pollPipeline();
   pollEvery(pollPipeline, 4000);
@@ -3923,11 +3952,20 @@
     // Hidden video == silenced audio -> dark, not 'ok'. (The stream is still
     // packaging black frames, but the operator is not watching a feed, exactly
     // as a silenced room is still being published but not heard.)
-    var hls = (feedModeKnown && feedMode === 'hide') ? ''
-            : live ? 'ok'
-            : (!feedModeKnown) ? ''
-            : (pipeline ? 'down' : '');
-    set('ledHlsV', hls);
+    // TWO TRANSPORT LAMPS, BOTH ALWAYS PRESENT, and the lit one says which
+    // is carrying the picture (requirement: keep it retro -- the LEDs
+    // switch, nothing disappears). Neither is health: they are a readout of
+    // WHICH LEG, and a dark one means "not this one", not "broken".
+    //
+    // 'down' goes only on the leg currently being ATTEMPTED, because that is
+    // the only one that has been measured and failed. Lighting the idle leg
+    // red would report a fault in something nobody asked to run.
+    var tx = (feedModeKnown && feedMode === 'hide') ? ''
+           : live ? 'ok'
+           : (!feedModeKnown) ? ''
+           : (pipeline ? 'down' : '');
+    set('ledHlsV', videoTransport === 'hls' ? tx : '');
+    set('ledRtcV', videoTransport === 'rtc' ? tx : '');
     // ledHlsA (the AUDIO panel's HLS lamp) is NOT server health: it means
     // "listening over buffered HLS", the inbound audio SOURCE, so it is
     // driven by audioMode in paintAudioModes and goes dark the moment the
@@ -4396,6 +4434,11 @@
   }
 
   function seekToLiveEdge() {
+    // HLS ONLY. An RTC stream has no seekable window -- there is nothing to
+    // be behind -- and video.seekable on a MediaStream is empty, so this
+    // would be a no-op anyway. Guarded explicitly so it reads as a decision
+    // rather than an accident of the API.
+    if (videoTransport === 'rtc') return false;
     var drift = liveEdgeDrift();
     if (drift === null) return false;
     // Only when it is actually worth it. A seek flushes the decoder, so
@@ -4426,7 +4469,122 @@
   // feed ends up several seconds old with every lamp on the page green.
   pollEvery(seekToLiveEdge, 5000);
 
-  function reloadStream() { initHLS(); seekToLiveEdgeSoon(); }
+  // ── THE PICTURE'S TRANSPORT ────────────────────────────────────────────
+  //
+  // Two ways to carry the same camera, and they fail differently:
+  //
+  //   RTC   mediamtx's WHEP leg. Sub-second, no buffer window, so it cannot
+  //         drift and go stale. Costs the NODE one PeerConnection per
+  //         viewer, held open the whole time they watch.
+  //   HLS   a directory of segments. Seven seconds behind by construction,
+  //         survives restrictive networks and browsers that cannot
+  //         negotiate WebRTC, and costs the node nothing per viewer.
+  //
+  // RTC is tried first and HLS catches it. Both lamps stay on the panel and
+  // the lit one tells you which is carrying -- the switching is the readout
+  // (requirement), not a reason to hide a lamp.
+  //
+  // Except when the node says otherwise: force_hls skips RTC entirely. See
+  // the note on /api/force-hls in broadcast-api -- that is for the event
+  // where the per-viewer cost is the thing that matters.
+  var WHEP_URL = window.location.origin + '/cam/whep';
+  var videoTransport = 'none';          // 'rtc' | 'hls' | 'none'
+  var vidRtcPc = null, vidRtcRes = null;
+  var forceHls = false;                 // from /api/pipeline
+
+  function setVideoTransport(t) {
+    if (videoTransport === t) return;
+    videoTransport = t;
+    paintLamps();
+  }
+
+  function stopVideoRtc() {
+    // DELETE the WHEP session as well as closing the peer connection: the
+    // node holds the resource until told, and a viewer that merely navigated
+    // away would leave it paying for a connection nobody is watching. Same
+    // reasoning as startRoomRx's own teardown.
+    if (vidRtcRes) { fetch(vidRtcRes, { method: 'DELETE' }).catch(function () {}); vidRtcRes = null; }
+    if (vidRtcPc) { try { vidRtcPc.close(); } catch (e) {} vidRtcPc = null; }
+  }
+
+  // Resolves TRUE only if media actually arrived.
+  //
+  // A clean SDP exchange is not evidence: mediamtx answers /cam/whep even
+  // when the path has no publisher yet -- routine in the seconds after a
+  // restart -- so the offer/answer can succeed and the track never fire.
+  // startRoomRx learned this on the audio leg and retries; here the right
+  // answer is to stop waiting and let HLS take the picture, because unlike
+  // audio there is a second transport that works.
+  function startVideoRtc() {
+    if (!window.RTCPeerConnection) return Promise.resolve(false);
+    var gotTrack = false;
+    stopVideoRtc();
+    try {
+      vidRtcPc = new RTCPeerConnection({ iceServers: [] });
+    } catch (e) { return Promise.resolve(false); }
+    var pc = vidRtcPc;
+    // VIDEO ONLY, deliberately. Sound already has its own arrangement --
+    // roomaudio over WHEP for Two-way, the HLS rendition for Play -- and
+    // pulling audio in here would quietly change which leg the room is
+    // heard on. One thing at a time: this replaces how the PICTURE arrives.
+    pc.addTransceiver('video', { direction: 'recvonly' });
+    pc.addEventListener('track', function (ev) {
+      if (pc !== vidRtcPc) return;              // a superseded attempt
+      gotTrack = true;
+      try {
+        video.removeAttribute('src');           // drop any HLS source first
+        video.load();
+      } catch (e) {}
+      video.srcObject = ev.streams[0];
+      video.play().catch(function () {});
+      setStatus('LIVE', 'live');
+    });
+    return pc.createOffer()
+      .then(function (o) { return pc.setLocalDescription(o); })
+      .then(function () { return talkIceReady(pc); })   // mediamtx is non-trickle
+      .then(function () {
+        return fetch(WHEP_URL, {
+          method: 'POST', headers: { 'Content-Type': 'application/sdp' },
+          body: pc.localDescription.sdp
+        });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error('WHEP ' + res.status);
+        vidRtcRes = res.headers.get('Location');
+        return res.text();
+      })
+      .then(function (sdp) { return pc.setRemoteDescription({ type: 'answer', sdp: sdp }); })
+      .then(function () {
+        return new Promise(function (resolve) {
+          setTimeout(function () { resolve(gotTrack && pc === vidRtcPc); }, 2500);
+        });
+      })
+      .catch(function () { return false; });
+  }
+
+  // THE ONE ENTRY POINT. Everything that used to call reloadStream() still
+  // does; what changed is that it now chooses a transport first.
+  function initVideo() {
+    stopVideoRtc();
+    if (forceHls) {
+      setVideoTransport('hls');
+      initHLS(); seekToLiveEdgeSoon();
+      return;
+    }
+    setStatus('CONNECTING');
+    startVideoRtc().then(function (ok) {
+      if (ok) { setVideoTransport('rtc'); return; }
+      // RTC did not deliver. Release whatever it reserved on the node before
+      // asking HLS for the same picture -- otherwise a node that just failed
+      // to send us anything goes on paying for the attempt.
+      stopVideoRtc();
+      setVideoTransport('hls');
+      try { video.srcObject = null; } catch (e) {}
+      initHLS(); seekToLiveEdgeSoon();
+    });
+  }
+
+  function reloadStream() { initVideo(); }
 
   // ── ROOM AUDIO ──
   // No second stream is fetched. The variant hls.js is already playing
@@ -6291,6 +6449,9 @@ function eleProbe() {
   // it changes what the camera is doing, so every viewer must see the same
   // answer. (Contrast fitRoi below, which changes only your own screen.)
   var lowPowerOn = false;
+  // Mirrors the node's /api/force-hls. `forceHls` (declared with the
+  // transport code) is what the player reads; this is the Settings lamp,
+  // painted from the same answer so the two cannot disagree.
   // Per-viewer and remembered: a display preference, not node state.
   var fitRoi = false;
   try { fitRoi = localStorage.getItem('fitRoi') === 'true'; } catch (e) {}
@@ -6341,6 +6502,7 @@ function eleProbe() {
     // looks exactly like a broken camera.
     var pm = document.getElementById('privacyMaskBtn');
     if (pm) pm.classList.toggle('na', !roiCur);
+    paintLed('forceHls', forceHls);
     paintLed('lowPower', lowPowerOn);
     // Low power switches the detector off WITHOUT rewriting its setting, so
     // Detection keeps showing what it is set to and goes inert instead --
@@ -6416,6 +6578,17 @@ function eleProbe() {
   // comes back after an ffmpeg teardown rather than instantly. post() paints
   // from the reply, which is what keeps the lamp honest across that gap
   // instead of lighting on the click and hoping.
+  // Node state, not per-viewer: the point is to protect the node, so one
+  // browser must not be able to opt itself back onto the expensive path.
+  // initVideo() re-runs on the reply, so the operator who flips it sees the
+  // transport change rather than having to reload.
+  function toggleForceHls() {
+    post('/api/force-hls', forceHls ? 'false' : 'true', function (v) {
+      forceHls = v.trim() === 'true';
+      if (feedModeKnown && feedMode !== 'hide') initVideo();
+    });
+  }
+
   function toggleLowPower() {
     post('/api/low-power', lowPowerOn ? 'false' : 'true',
          function(v) { lowPowerOn = v.trim() === 'true'; });
@@ -7163,6 +7336,10 @@ function eleProbe() {
       fetch('/api/presence-pause', { cache: 'no-store' })
         .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
         .then(function(v) { if (v !== null && ePres === alertsEpoch) presenceOn = v.trim() === 'true'; paintAll(); });
+    var eFh = alertsEpoch;
+    fetch('/api/force-hls', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null && eFh === alertsEpoch) forceHls = v.trim() === 'true'; paintAll(); });
     var eLp = alertsEpoch;
     fetch('/api/low-power', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
