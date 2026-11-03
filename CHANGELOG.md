@@ -4,6 +4,34 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.50
+
+- **The detection thread no longer leaks.** CVProcessor starts a daemon
+  detection thread whose spawn site assumed "this instance lives for the
+  life of the writer-loop process". It does not: /api/cv-reset replaces the
+  detecting instance, and the replaced one's thread had no way to be told
+  to stop, so it went on running YOLO forever against a frame slot nobody
+  reads. The capability probe built a second detecting instance and
+  abandoned it the same way.
+- Found by measurement on tina, not by reading: five detection threads
+  alive at once, burning 195% of a core between them while the writer loop
+  itself used 6.5%, on a node sitting at 84C against an 85C critical.
+  Toggling Detection off changed the load by six points, because the switch
+  gates the tap that FEEDS the detector and not the orphaned threads
+  already running.
+- The viewer's Reload button posts /api/cv-reset, so every press
+  permanently added another one. That closed a loop: a feed that looks
+  stale makes someone press Reload, which makes the node slower, which
+  makes the feed more likely to look stale.
+- CVProcessor.stop() retires the thread and releases its last frame, and
+  both sites call it. Deliberately named stop() to match the macOS branch,
+  which has had this exact method and fix for some time -- its comment
+  names the symptom ("what made 'detection off' keep producing
+  detections"). This lineage simply never received the port. The
+  capability probe now also builds with detection disabled: it measures how
+  long observe() and process() take on the calling thread, and the detector
+  thread was never part of either reading -- only of the noise.
+
 ## 7.0.49
 
 - **Low power**, in Settings under This device. One switch for a node that

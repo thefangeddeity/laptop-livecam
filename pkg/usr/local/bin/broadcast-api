@@ -1905,6 +1905,18 @@ def _writer_loop():
                 # Reset exists to reload ONNX weights and drop stale detector
                 # state, so it rebuilds the detecting instance. The display
                 # processor has no detector to reset.
+                # Release the OUTGOING instance first. Its detection
+                # thread is a daemon with no stop of its own until now, and
+                # it holds a reference to the instance -- so without this,
+                # every reset left another thread running YOLO forever
+                # against a frame slot nobody reads. Measured on tina: five
+                # of them at once, 195% of a core, on a node already at its
+                # thermal limit. Done before the replacement so a failure to
+                # build the new one still frees the old.
+                try:
+                    det_holder[0].stop()
+                except Exception:
+                    pass
                 det_holder[0] = _cvp.CVProcessor(denv)
                 _cv_proc = det_holder[0]
                 print('broadcast-api: CV model reset (reloaded)', flush=True)
@@ -2273,7 +2285,17 @@ def _cv_capability():
                                (40 + _i * 25, 90, 160 - _i * 18), -1)
             _cv2.circle(frame, (w // 2, h // 2), 110, (200, 190, 170), -1)
             frame = _cv2.add(frame, (_np.random.rand(h, w, 3) * 12).astype(_np.uint8))
-            proc = _cvp.CVProcessor(denv)
+            # Detection OFF for the probe, and closed when it is done.
+            # This measures how long observe() and process() take, which is
+            # frame work on this thread; the detector's background thread is
+            # not part of either reading. Leaving it enabled started a YOLO
+            # thread that outlived the probe and then competed with the very
+            # pipeline the probe exists to characterise -- the comment below
+            # about seeing "a quieter machine" was describing a quiet it was
+            # itself about to spoil.
+            _probe_denv = dict(denv)
+            _probe_denv['CV_DETECT_ENABLED'] = '0'
+            proc = _cvp.CVProcessor(_probe_denv)
 
             def _med(fn, n=15):
                 fn(frame.copy())                 # warm: first call pays setup
@@ -2288,6 +2310,10 @@ def _cv_capability():
 
             obs = _med(proc.observe)
             ren = _med(proc.process)
+            try:
+                proc.stop()         # belt and braces: detection was off above
+            except Exception:
+                pass
             # 60% of the frame budget, and the margin is doing real work.
             # This probe is a FLOOR, biased low twice over:
             #   * a synthetic frame is cheaper than a real one (58ms vs 71ms

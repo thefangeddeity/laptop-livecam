@@ -676,8 +676,23 @@ class CVProcessor:
         # trade is an honest picture that arrives on time. Hysteresis
         # because a skipped stage is also an unmeasured one -- with a single
         # threshold this would oscillate at the sample rate.
+        # Stop flag for the detection thread. It exists because the
+        # assumption at the spawn site below -- "this instance lives for the
+        # life of the writer-loop process" -- is not true: broadcast-api
+        # REPLACES the detecting processor on every /api/cv-reset, and the
+        # replaced instance's thread had no way to be told. Each one carried
+        # on running YOLO forever.
+        #
+        # Measured on tina (2011 i3, 4 threads): FIVE detection threads
+        # alive at once -- the writer loop's, the capability probe's, and
+        # one per cv-reset -- burning 195% of a core between them while the
+        # writer loop itself used 6.5%. The node sat at 84C against an 85C
+        # critical. The Reload button in the viewer posts /api/cv-reset, so
+        # every press of it permanently added another one: a feed that looks
+        # stale makes someone press Reload, which makes the node slower,
+        # which makes the feed more likely to look stale.
+        self._detect_stop = threading.Event()
         self._eco = False
-        self._eco_hist = deque(maxlen=45)       # ~3s at 15fps
         try:
             self._budget_ms = 1000.0 / max(1, int(denv.get('FRAMERATE', 15)))
         except Exception:
@@ -2110,7 +2125,7 @@ class CVProcessor:
         the accumulation state machine. How often an actual detect()
         forward pass fires is governed inside _detection_step by
         CV_DETECT_HZ, not by this loop's poll rate."""
-        while True:
+        while not self._detect_stop.is_set():
             with self._detect_slot_lock:
                 slot = self._detect_slot
             if slot is not None:
@@ -2128,7 +2143,40 @@ class CVProcessor:
                 except Exception as exc:
                     print(f"CV SCENE: staleness check error: "
                           f"{type(exc).__name__}: {exc}", flush=True)
-            time.sleep(_DETECT_POLL_INTERVAL_S)
+            # wait(), not sleep(): a stopped processor should release its
+            # thread now rather than after one more poll interval and one
+            # more detection step.
+            if self._detect_stop.wait(_DETECT_POLL_INTERVAL_S):
+                break
+
+    def stop(self):
+        """Retire this processor's detection thread.
+
+        NAMED stop(), matching the macOS branch, which has had exactly this
+        method and this fix for some time -- and whose comment names the
+        symptom it cured: "Dropping alone left the daemon running on a stale
+        frame, which is what made 'detection off' keep producing
+        detections." This lineage never received the port, so every
+        /api/cv-reset here left another thread inferring forever.
+
+        MUST be called before dropping a CVProcessor that has one: the
+        thread holds a reference to the instance and goes on running against
+        a frame slot nobody reads. Idempotent, and safe on an instance that
+        never started one.
+
+        The slot is cleared as well as the flag, so the retired thread's
+        last frame is released rather than pinned for the life of the
+        process.
+        """
+        try:
+            self._detect_stop.set()
+        except Exception:
+            pass
+        try:
+            with self._detect_slot_lock:
+                self._detect_slot = None
+        except Exception:
+            pass
 
     def _reset_accum(self):
         self._accum_box = None
