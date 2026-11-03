@@ -2059,7 +2059,7 @@
   <div class="brand">
     <img src="/brand.png" alt="" class="brand-mark">
     <span class="eng brand-name" id="brandName">Laptop LiveCam</span>
-    <span class="hdr-vfd" title="mac-v1.8.2-2-gf1264a2"><span class="vlit" id="buildLabel"></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-6-gd2578c5"><span class="vlit" id="buildLabel"></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2778,9 +2778,34 @@
                   title="Opt out of buzz entirely -- neither sent nor received">
             <span class="bulb" id="muteBuzzLamp"></span>
           </button>
-          <span class="eng rstlab">Buzz</span>
+          <span class="eng rstlab">Disable buzz</span>
         </div>
         
+        <!-- One switch for a node that cannot keep up. Measured on ariana
+             (2-core i5-6287U, 15fps): the CV render alone took 62.7ms of the
+             66.7ms frame budget -- 94% -- with broadcast-api at ~80% of a
+             core and five ffmpeg children beside it.
+
+             Deliberately NOT a picture-quality control: resolution,
+             framerate and bitrate are untouched, because the measurement
+             says they are not what is saturating the node -- the two
+             libx264 encodes cost 14% and 9% of a core while the Python CV
+             stage cost most of one.
+
+             It also does not touch the privacy mask (see "Hide the rest").
+             A background switch that quietly undoes a privacy control is a
+             bug with a nice name; the mask keeps its frame stage, and the
+             only thing low power changes about it is forcing the style to
+             black -- cheaper AND stronger than the cloak. -->
+        <div class="pinrow">
+          <button type="button" class="pinled" id="lowPowerBtn" onclick="toggleLowPower()"
+                  aria-pressed="false" aria-label="Low power"
+                  title="For a node that cannot keep up: stops the CV render, detection and its alerts, the evidence recording and room audio, and serves the plain camera only. The picture keeps its resolution and framerate. Detection and the privacy mask are remembered, not rewritten -- switching this off puts them back.">
+            <span class="bulb" id="lowPowerLamp"></span>
+          </button>
+          <span class="eng rstlab">Low power</span>
+        </div>
+
         <!-- TEST-ONLY: mute the server's physical speaker/headset while a
              call is live, without touching anything else in the pipeline
              (mic capture, roomaudio, RTC signaling all keep running) -- lets
@@ -2967,7 +2992,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-2-gf1264a2';
+    var build = info.version || 'mac-v1.8.2-6-gd2578c5';
     // ONE format across the fleet. The hostname beside this already says
     // which machine you are looking at, so a platform prefix said it twice:
     // "mac-v1.8.0 @ariana" against "7.0.31 @tanzania" -- the same field,
@@ -3078,12 +3103,20 @@
 
   function updateMuteBtn() {
     if (!muteBuzzBtn) return;
-    // Lit = buzz is LIVE. Three of ten lamps used to mean the opposite of
-    // the other seven, so "lit" could not be learned -- it had to be read
-    // per row. The stored state and the API are unchanged; only what the
-    // lamp claims is inverted, along with the label above it.
-    muteBuzzBtn.classList.toggle('pressed', !buzzMuted);
-    muteBuzzBtn.setAttribute('aria-pressed', !buzzMuted ? 'true' : 'false');
+    // Lit = buzz is DISABLED, matching the label "Disable buzz".
+    //
+    // This row was inverted in HALF. An earlier pass flipped the pressed
+    // state and the aria to mean "lit = buzz is live" and left the LAMP on
+    // buzzMuted -- so the one element its own comment said it had inverted
+    // was the one element it had not. The button then read as pressed while
+    // its lamp was dark, and a screen reader announced the opposite of the
+    // pilot light sighted users were looking at.
+    //
+    // Resolved towards the lamp rather than away from it, because the lamp
+    // is the thing the name is attached to: "Disable buzz", lit, means buzz
+    // is disabled. Nothing about the stored state or the API moves.
+    muteBuzzBtn.classList.toggle('pressed', buzzMuted);
+    muteBuzzBtn.setAttribute('aria-pressed', buzzMuted ? 'true' : 'false');
     // Opting out is opting out of the CHANNEL. The old control silenced
     // incoming alerts and left the key that sends them fully live, so a
     // viewer who had "muted buzzes" could still shake everyone else's
@@ -5995,6 +6028,10 @@ function eleProbe() {
                  cat: 'clsCat', dog: 'clsDog', bird: 'clsBird',
                  other: 'clsOther', plant: 'clsPlant' };
   var clsOn = {}, detectOn = false, videoOn = false, shotsOn = false, presenceOn = false, maskOn = false, maskPixel = false;
+  // Node state like the rest of this block, NOT a per-viewer preference:
+  // it changes what the camera is doing, so every viewer must see the same
+  // answer. (Contrast fitRoi below, which changes only your own screen.)
+  var lowPowerOn = false;
   // Per-viewer and remembered: a display preference, not node state.
   var fitRoi = false;
   try { fitRoi = localStorage.getItem('fitRoi') === 'true'; } catch (e) {}
@@ -6039,12 +6076,28 @@ function eleProbe() {
     // looks exactly like a broken camera.
     var pm = document.getElementById('privacyMaskBtn');
     if (pm) pm.classList.toggle('na', !roiCur);
+    paintLed('lowPower', lowPowerOn);
+    // Low power switches the detector off WITHOUT rewriting its setting, so
+    // Detection keeps showing what it is set to and goes inert instead --
+    // same treatment the rows under it already get. Greyed rather than
+    // hidden: a control that vanishes reads as a feature this node does not
+    // have, and the title says which switch is holding it down.
+    var db = document.getElementById('detectBtn');
+    if (db) {
+      db.classList.toggle('na', lowPowerOn);
+      db.title = lowPowerOn
+        ? 'Held off by Low power -- switch that off to watch the room again. Your Detection setting is remembered.'
+        : 'Watch for people and pets, whatever the feed is showing -- off stops detection and alerts entirely';
+    }
+    // Nothing below the detector can fire while it is held off either, so
+    // the dependent groups follow the EFFECTIVE state, not the stored one.
+    var detLive = detectOn && !lowPowerOn;
     var g = document.getElementById('alertGroup');
-    if (g) g.classList.toggle('inactive', !detectOn);
+    if (g) g.classList.toggle('inactive', !detLive);
     // The lifted groups dim with Detection too -- see .detdep.
     var dd = document.querySelectorAll('.detdep');
     for (var i = 0; i < dd.length; i++) {
-      dd[i].classList.toggle('inactive', !detectOn);
+      dd[i].classList.toggle('inactive', !detLive);
     }
   }
   // Bumped by every local mutation. A poll GET issued BEFORE a toggle can
@@ -6083,8 +6136,17 @@ function eleProbe() {
     sendCls();
   }
   function toggleDetect() {
+    if (lowPowerOn) return;      // inert, and says so -- see paintAll
     post('/api/detect-always', detectOn ? 'false' : 'true',
          function(v) { detectOn = v.trim() === 'true'; });
+  }
+  // The server rebuilds the whole capture pipeline on this, so the answer
+  // comes back after an ffmpeg teardown rather than instantly. post() paints
+  // from the reply, which is what keeps the lamp honest across that gap
+  // instead of lighting on the click and hoping.
+  function toggleLowPower() {
+    post('/api/low-power', lowPowerOn ? 'false' : 'true',
+         function(v) { lowPowerOn = v.trim() === 'true'; });
   }
   // ── DETECTION REGION ──────────────────────────────────────────────────
   // The box is stored as FRACTIONS of the frame and drawn on an element whose
@@ -6708,6 +6770,10 @@ function eleProbe() {
       fetch('/api/presence-pause', { cache: 'no-store' })
         .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
         .then(function(v) { if (v !== null && ePres === alertsEpoch) presenceOn = v.trim() === 'true'; paintAll(); });
+    var eLp = alertsEpoch;
+    fetch('/api/low-power', { cache: 'no-store' })
+      .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })
+      .then(function(v) { if (v !== null && eLp === alertsEpoch) lowPowerOn = v.trim() === 'true'; paintAll(); });
     var e3 = alertsEpoch;
     fetch('/api/notify-classes', { cache: 'no-store' })
       .then(function(r) { return r.ok ? r.text() : null; }).catch(function() { return null; })

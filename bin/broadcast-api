@@ -64,6 +64,7 @@ NOTIFY_PRESENCE_FILE = os.path.join(STATE_DIR, "notify_presence_pause")
 DETECT_ROI_FILE     = os.path.join(STATE_DIR, "detect_roi")
 PRIVACY_MASK_FILE   = os.path.join(STATE_DIR, "privacy_mask")
 MASK_STYLE_FILE     = os.path.join(STATE_DIR, "mask_style")
+LOW_POWER_FILE      = os.path.join(STATE_DIR, "low_power")
 GALLERY_DIR         = os.path.join(STATE_DIR, "gallery")
 DARK_PY        = os.path.join(BIN_DIR, "livecam-dark")
 MAX_LEN        = 120
@@ -286,7 +287,131 @@ def _write_detect_always(enabled):
 _detect_always = _read_detect_always()
 
 def _detect_always_on():
-    return _detect_always
+    # Low power wins, and deliberately does NOT rewrite the stored setting:
+    # the panel keeps showing what Detection is set to, greys the row, and
+    # switching Low power off restores it. A switch that silently edits
+    # another switch leaves the two fighting over one file.
+    return _detect_always and not _low_power_on()
+
+
+# -- LOW POWER -------------------------------------------------------------
+#
+# One switch for a node that cannot keep up. Measured on ariana (i5-6287U,
+# 2 cores, 15fps) in CV mode: CVProcessor.process() took 62.7ms of the
+# 66.7ms frame budget -- 94% of it -- with this process at ~80% of a core
+# and five ffmpeg children beside it.
+#
+# What it stops, in the order the cost was measured:
+#   the CV render     the 62.7ms/frame Python stage. The feed falls back to
+#                     byte-for-byte passthrough: the same camera, nothing
+#                     drawn over it.
+#   detection         no YOLO, no MOG2 -- so no alerts either. That is a
+#                     consequence, not a second switch.
+#   the evidence      the second libx264 encode (9.2% of a core) and the
+#   recorder          rolling write to disk. Alert clips have nothing left
+#                     to be cut from once detection is off anyway.
+#   room audio        the SoX capture and its Opus/AAC/MP3 encoder legs,
+#                     ~16% of a core combined. The feed goes silent.
+#
+# What it does NOT stop, deliberately:
+#   the privacy mask  a background feature that quietly undoes a privacy
+#                     control is a bug with a nice name. The mask is applied
+#                     in the Python frame stage, so where one is in force
+#                     that stage KEEPS RUNNING -- masking a frame is two
+#                     numpy slices, not a detector. Low power only forces
+#                     the style to black, which is both the cheaper and the
+#                     stronger of the two (see _mask_style).
+#   Hide              still closes the devices and publishes generated
+#                     black, already the cheapest branch there is.
+#   the control plane messages, the node note, buzz, manual snapshots.
+#
+# NOT a picture-quality control. Resolution, framerate and bitrate are
+# untouched, because the measurement says they are not the problem: the two
+# libx264 encodes at ultrafast cost 14% and 9% of a core while the Python CV
+# stage cost the better part of a whole one. Dropping the framerate would
+# make the feed worse without touching what is actually saturating the node.
+def _read_low_power():
+    try:
+        with open(LOW_POWER_FILE) as f:
+            return f.read().strip() == 'true'
+    except Exception:
+        return False
+
+
+def _write_low_power(enabled):
+    """Raises on failure -- the caller turns that into a 500.
+
+    Same shape as _write_detect_always, for the same reason: swallowing here
+    is how a setting ends up with a lamp that moves and a node that never
+    changed.
+    """
+    os.makedirs(os.path.dirname(LOW_POWER_FILE), exist_ok=True)
+    tmp = LOW_POWER_FILE + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write('true' if enabled else 'false')
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, LOW_POWER_FILE)
+
+
+# Module-level and read once, so the GET answers from the same place the
+# pipeline reads -- see the note on _detect_always for what happens when a
+# GET and a POST disagree about where the truth lives.
+_low_power = _read_low_power()
+
+
+def _low_power_on():
+    return _low_power
+
+
+def _effective_mode(mode=None):
+    """What the pipeline is ACTUALLY doing, which is not always what was asked.
+
+    Low power cannot honour CV -- the render is the single most expensive
+    thing on the node -- so it is served as Show. The stored mode is left
+    alone, so switching Low power off puts CV back without anyone having to
+    re-select it.
+
+    Hide passes through untouched: it is a privacy control, and it is
+    already the cheapest branch in the writer loop.
+    """
+    m = _mode if mode is None else mode
+    if m == 'cv' and _low_power_on():
+        return 'show'
+    return m
+
+
+def _mask_in_force():
+    """Whether a privacy mask would alter the picture.
+
+    This is what decides whether low power may drop the Python frame stage
+    altogether. A node that never drew a box reads False here, which is most
+    of them; True means the stage has to stay, because the combined
+    publisher has no seam to apply a mask in and dropping it would publish
+    the very room the switch says is hidden.
+    """
+    try:
+        on, box = _privacy_mask_box()
+    except Exception:
+        return True      # fail closed: keep the stage, keep the mask
+    if not on:
+        return False
+    # (True, None) is the fail-closed case -- the region file exists and
+    # would not parse, and _apply_privacy_mask blanks the whole frame for
+    # it. That absolutely needs the stage.
+    if box is None:
+        return True
+    # A region covering the WHOLE frame masks nothing: _apply_privacy_mask
+    # copies every pixel back over the black it just made. Measured on
+    # ariana, where the region had been reset to 0,0,1,1 -- low power kept
+    # a capture, a pipe and a 2.7MB-per-frame Python copy alive to perform
+    # a no-op, which is the exact cost this switch exists to remove. The
+    # switch is still ON and still honoured; there is simply nothing for it
+    # to do, so the frame stage is not needed to do it.
+    x, y, w, h = box
+    covers_all = (x <= 0.001 and y <= 0.001
+                  and x + w >= 0.999 and y + h >= 0.999)
+    return not covers_all
 # Blur: a modifier on CV mode, reusing the old Cloak mode's block-art render
 # (block_art.render_cloak_vec, via CVProcessor.set_blur()) now that CV mode
 # has a real frame to put it in. Foveal Layer never grew past this same
@@ -795,9 +920,17 @@ def _mask_style():
     """
     try:
         with open(MASK_STYLE_FILE) as f:
-            return 'pixel' if f.read().strip() == 'pixel' else 'black'
+            style = 'pixel' if f.read().strip() == 'pixel' else 'black'
     except Exception:
+        style = 'black'
+    # The one override low power is allowed to make to a privacy setting,
+    # because it goes the safe way on both counts: black is cheaper (a
+    # zeros() fill instead of a cv2 block-art pass every frame) AND stronger
+    # (the cloak leaves coarse structure, this does not). An override that
+    # weakened privacy to save CPU would not belong anywhere in this file.
+    if style == 'pixel' and _low_power_on():
         return 'black'
+    return style
 
 
 def _mask_cloak(arr):
@@ -1137,6 +1270,19 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
             # feeds the recorder the same picture of the room.
             _to_rec(raw)
             _prune()
+
+            # LOW POWER: the only reason this stage is still running is the
+            # privacy mask, and that has already been applied above. Write
+            # the masked frame through and do nothing else -- no reshape, no
+            # observe, no render. Read per frame like the mode and the blur
+            # flag, so the switch lands on the next frame rather than on the
+            # next restart. (The writer loop normally takes hide to the
+            # combined publisher instead, so the hide arm here is only for
+            # the frames in flight while that rebuild happens.)
+            if _low_power_on():
+                dst.write(_BLACK_FRAME if _mode == 'hide' else raw)
+                continue
+
             frame = np.frombuffer(raw, np.uint8).reshape(FRAME_H, FRAME_W, 3)
 
             # Plain Show: the viewer asked for the unaltered camera, so render
@@ -1290,6 +1436,12 @@ def _start_cv_publisher(mode='cv'):
     proc = _cvp.CVProcessor(_proc_cfg)
     _cv_proc_instance = proc
 
+    # In low power this publisher exists ONLY to carry the privacy mask, so
+    # it is built without the two things that make it expensive: the
+    # microphone muxed into B, and the evidence recorder. What is left is
+    # one capture, one encode, and a frame stage that copies two rectangles.
+    low = _low_power_on()
+
     a = subprocess.Popen([
         FFMPEG, '-hide_banner', '-loglevel', 'error',
         '-f', 'avfoundation', '-thread_queue_size', '1024',
@@ -1353,13 +1505,17 @@ def _start_cv_publisher(mode='cv'):
         '-s', f'{FRAME_W}x{FRAME_H}', '-framerate', str(fr),
         '-use_wallclock_as_timestamps', '1',
         '-i', 'pipe:0',
-        *_mic_input_args(audio_idx),
-        '-map', '0:v:0', '-map', '1:a:0',
+        # Low power drops the microphone input entirely rather than muting
+        # it: an -an on a mapped avfoundation input still OPENS the device
+        # and still pays for the capture session this comment block spent a
+        # day learning to be careful with.
+        *([] if low else _mic_input_args(audio_idx)),
+        '-map', '0:v:0', *([] if low else ['-map', '1:a:0']),
         '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
         '-vf', 'format=yuv420p', '-profile:v', 'high', '-level', '4.0',
         '-b:v', '1500k', '-g', str(fr),
-        '-c:a', 'aac', '-b:a', '96k',
-        *audio_filter_args(),
+        *(['-an'] if low else ['-c:a', 'aac', '-b:a', '96k',
+                               *audio_filter_args()]),
         '-rtsp_transport', 'tcp', '-f', 'rtsp', rtsp_url,
         # NO second output here: roomaudio is published by its own leg (the
         # SoX -> libopus publisher), and two publishers on one mediamtx path
@@ -1392,10 +1548,14 @@ def _start_cv_publisher(mode='cv'):
     # THE COST IS REAL AND IT IS CPU: this is a second libx264 encode on a
     # node that also runs YOLO. ultrafast/zerolatency keeps it cheap, but if
     # the CV budget starts being missed, this is the first thing to look at.
+    #
+    # And it is the first thing low power takes away, for exactly the reason
+    # written above: measured at 9.2% of a core on ariana, feeding clips for
+    # a detector that low power has already switched off.
     rec_root = (str(_cfg.get('RECORD_DIR', '')).strip()
                 or os.path.join(STATE_DIR, 'rec', 'cam'))
     os.makedirs(rec_root, exist_ok=True)
-    r = subprocess.Popen([
+    r = None if low else subprocess.Popen([
         FFMPEG, '-hide_banner', '-loglevel', 'error',
         '-f', 'rawvideo', '-pix_fmt', 'rgb24',
         '-s', f'{FRAME_W}x{FRAME_H}', '-framerate', str(fr),
@@ -1428,9 +1588,11 @@ def _start_cv_publisher(mode='cv'):
                                   daemon=True, name='cv-pump')
     _cv_thread.start()
 
-    _cv_procs[:] = [a, b, r]
+    _cv_procs[:] = [p for p in (a, b, r) if p is not None]
     print(f'broadcast-api: CV capture: camera={video_idx} -> CVProcessor -> '
-          f'{rtsp_url} (audio={audio_idx})', file=sys.stderr, flush=True)
+          f'{rtsp_url} '
+          + ('(LOW POWER: mask only, no microphone, no recorder)' if low
+             else f'(audio={audio_idx})'), file=sys.stderr, flush=True)
     return b        # B holds the RTSP socket, so B is what the watchdog polls
 
 
@@ -2092,6 +2254,25 @@ def _mic_publisher_loop():
                 mode = _mode
                 gen = _mode_generation
 
+            # LOW POWER: the microphone is not opened at all. This loop owns
+            # the SoX capture and two or three encoder legs -- about 16% of
+            # a core between them on ariana -- and every bit of it exists to
+            # make the room audible. Low power spends that on the picture.
+            #
+            # It WAITS on the generation rather than returning: the toggle
+            # bumps _mode_generation, so coming back out of low power brings
+            # the room back without restarting the service. The finally arm
+            # below has already cleared _mic_proc, which is what puts the
+            # MIC lamp out honestly instead of leaving it lit over a device
+            # nothing is holding.
+            if _low_power_on():
+                while True:
+                    time.sleep(0.5)
+                    with _mode_lock:
+                        if _mode_generation != gen:
+                            break
+                continue
+
             _mic_proc = subprocess.Popen(
                 _mic_capture_cmd(mode),
                 stdin=subprocess.DEVNULL,
@@ -2303,7 +2484,19 @@ def _writer_loop():
             # (the only seam with a Python frame stage) while _mode stays
             # 'show'. cv_blur_post() bumps _mode_generation on toggle so
             # this reconsiders it the same way a real mode change does.
-            if spawn_mode == 'cv' or (
+            if _low_power_on():
+                # One question, and it is not about features: does this node
+                # still need a Python frame stage at all? Detection, blur and
+                # the CV render are all off, so the privacy mask is the only
+                # thing that can still require one. With no mask in force the
+                # frames never enter this process and the whole pipeline
+                # becomes one capture into one encoder.
+                eff = _effective_mode(spawn_mode)
+                if eff != 'hide' and _mask_in_force():
+                    proc = _start_cv_publisher('show')
+                else:
+                    proc = _start_combined_av_publisher(eff)
+            elif spawn_mode == 'cv' or (
                     spawn_mode in ('show', 'hide')
                     and (_cv_blur_mode or _detect_always_on())):
                 proc = _start_cv_publisher(spawn_mode)
@@ -3075,6 +3268,38 @@ def detect_always_post():
     return ('true' if _detect_always else 'false'), 200
 
 
+@app.route('/api/low-power', methods=['GET'])
+def low_power_get():
+    return ('true' if _low_power else 'false'), 200
+
+
+@app.route('/api/low-power', methods=['POST'])
+def low_power_post():
+    global _low_power, _mode_generation
+    want = request.get_data(as_text=True).strip().lower()
+    # Explicit true/false only, same as /api/detect-always: a body that
+    # could not be read must change nothing rather than flip the switch.
+    if want not in ('true', 'false'):
+        abort(400)
+    if want == ('true' if _low_power else 'false'):
+        return want, 200          # already there; do not rebuild the pipeline
+    # Persist BEFORE the globals move, so a write that fails leaves a node
+    # whose behaviour still matches its state file.
+    try:
+        _write_low_power(want == 'true')
+    except Exception:
+        abort(500)
+    with _mode_lock:
+        _low_power = (want == 'true')
+        # Which publisher runs, whether the recorder is spawned and whether
+        # the microphone is opened all turn on this, and none of them can be
+        # changed inside a running ffmpeg -- so the switch IS a rebuild.
+        _mode_generation += 1
+    _mask_cache['at'] = 0.0       # _mask_style() answers differently now
+    _pipeline_cache['at'] = 0.0   # and so does /api/pipeline
+    return ('true' if _low_power else 'false'), 200
+
+
 @app.route('/api/cv-foveal-mode', methods=['GET'])
 def cv_foveal_get():
     return ('true' if _cv_foveal_mode else 'false'), 200
@@ -3744,6 +3969,11 @@ def pipeline():
     # hardware the operator can see.
     with _mode_lock:
         mode_now = _mode
+    # Low power serves CV as Show. Every lamp below reads the EFFECTIVE
+    # mode, because a panel that reports 'cv' while no detector is running
+    # is the lamp-that-cannot-fail problem with extra steps.
+    low_power = _low_power_on()
+    eff_mode = _effective_mode(mode_now)
     if mode_now == 'hide':
         capture = 'off'
         detail = 'feed hidden; publishing black'
@@ -3761,7 +3991,7 @@ def pipeline():
     # lands, this gets a real value instead of the control quietly
     # disappearing and reappearing.
     cvp = _cv_proc_instance
-    if cvp is not None and mode_now == 'cv':
+    if cvp is not None and eff_mode == 'cv':
         mog2 = getattr(cvp, '_fg_mask', None) is not None
         foveal = bool(getattr(cvp, '_foveal_enabled', False)) and mog2
         scene = 'registered' if getattr(cvp, '_scene_registered', False) else 'none'
@@ -3781,7 +4011,13 @@ def pipeline():
     # rather than the camera's state. poll() rather than "is the object
     # there": a dead child still answers to pid_exists and friends.
     _mp = _mic_proc
-    mic_state = 'ok' if (_mp is not None and _mp.poll() is None) else 'down'
+    # 'off', not 'down'. The viewer paints 'down' red -- measured and failed
+    # -- and dark for 'off', which is what a microphone nobody opened on
+    # purpose deserves. Reporting a fault here would send someone looking
+    # for a broken mic that is working fine.
+    mic_state = ('off' if low_power
+                 else 'ok' if (_mp is not None and _mp.poll() is None)
+                 else 'down')
 
     # Same treatment for the camera: read the process that holds the device,
     # not the mode. poll() rather than "is the object there" -- a dead child
@@ -3792,12 +4028,23 @@ def pipeline():
     if mode_now == 'hide' and cam_live:
         detail = 'feed hidden; publishing black -- camera and microphone OPEN'
 
+    # Nothing is encoding the room in low power, so the figures are
+    # cleared rather than describing a stream that is not running -- the
+    # same rule the capture!='ok' line above follows.
+    if low_power:
+        audio_rate = audio_ch = audio_kbps = None
+
     _cap = _cv_capability()
     data = {
+        # The switch itself, so the viewer can grey what it has made inert
+        # and say why, rather than showing live controls over a pipeline
+        # that is ignoring them.
+        'low_power': low_power,
+        'mode_effective': eff_mode,
         'cv_capable':    _cap['state'],
         'cv_capability': _cap,
         'mode':     mode_now,
-        'cv':       mode_now == 'cv',
+        'cv':       eff_mode == 'cv',
         'cv_mog2':  mog2,
         'cv_foveal': foveal,
         'cv_scene': scene,
@@ -3873,6 +4120,7 @@ def info():
         'product':       _cfg.get('PRODUCT_NAME',   'Laptop LiveCam'),
         'os': _os_short(),
         'product_short': _cfg.get('PRODUCT_SHORT',  'LLC'),
+        'low_power':     _low_power,
     }
 
 

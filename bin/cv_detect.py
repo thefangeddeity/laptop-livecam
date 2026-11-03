@@ -639,84 +639,50 @@ def hud_banner_text(tracks):
     return text
 
 
-def draw_hud(canvas, tracks, ink=(220, 220, 220), capabilities=None):
-    """SHAKey HUD: confidence-weighted, collision-aware target annotations."""
+def draw_hud(canvas, tracks, ink=(220, 220, 220), capabilities=None):  # noqa: ARG001
+    """SHAKey HUD: confidence-weighted, collision-aware target annotations.
+
+    `ink` and `capabilities` are accepted and unused: the telemetry strip
+    they coloured and filled is painted by the viewer now (see the note at
+    the top of the body). They stay in the signature because callers on
+    three branches pass them, and a keyword that disappears is a TypeError
+    at the worst possible moment -- inside the capture thread.
+    """
     out = canvas
     h, w = out.shape[:2]
 
-    text = hud_banner_text(tracks)
-
-    # macOS-light-inspired telemetry:
-    # smaller, lighter, quieter, and using the same visual weight as the
-    # floating target labels rather than the old heavy surveillance text.
-    telemetry_ink = tuple(
-        max(1, min(255, int(round(channel * 0.88))))
-        for channel in ink
-    )
-
-    # THE e% RULE (requirement: "ignore her previous setting; e% is the rule for all
-    # text"), replacing the fixed telemetry_scale=0.52 this carried before.
-    # Fleet-wide: HUD cap height = e% of frame height, identical on every
-    # node and every resolution, so nothing needs re-tuning when a camera
-    # changes -- the exact reasoning tanzania's cv_detect.draw_hud documents,
-    # now applied here too rather than living as a Linux-only convention.
-    # _CAP_AT_UNIT_SCALE (measured: cv2.getTextSize(..., 1.0, 1)[0][1]) is a
-    # property of the Hershey font rasterizer itself, not of this camera, so
-    # the same constant Tanzania measured transfers here unchanged.
+    # THE TELEMETRY STRIP IS NO LONGER BURNED IN.
+    #
+    # It used to be drawn here AND painted by the viewer over the picture
+    # (broadcast-api serves the same words from _hud_text /
+    # _hud_capability_text; see hud_banner_text's note on one source). With
+    # both live you got each line twice, a few pixels apart, in two slightly
+    # different sizes -- unreadable, and visibly a bug rather than a style.
+    #
+    # The CLIENT one wins, and not by coin toss: it is selectable, it scales
+    # with the window instead of with the frame, it can be themed and
+    # hidden, it costs the encoder nothing, and it is not baked into the
+    # recording and every alert clip cut from it. What is burned in from
+    # here on is only what is genuinely about the PICTURE -- the target
+    # boxes and their tags, which have to be in frame coordinates because
+    # that is what they point at.
+    #
+    # hud_banner_text() stays and is still called every frame by
+    # CVProcessor._detect_and_hud, which is what feeds the client. Removing
+    # the drawing does not remove the words.
+    #
+    # THE e% RULE (requirement: "ignore her previous setting; e% is the rule
+    # for all text"). Fleet-wide: HUD cap height = e% of frame height,
+    # identical on every node and every resolution, so nothing needs
+    # re-tuning when a camera changes. _CAP_AT_UNIT_SCALE (measured:
+    # cv2.getTextSize(..., 1.0, 1)[0][1]) is a property of the Hershey font
+    # rasterizer itself, not of this camera, so tanzania's constant
+    # transfers here unchanged. Still computed because the target TAGS are
+    # sized from it -- see tag_scale below.
     HUD_CAP_FRACTION = math.e / 100.0
     _CAP_AT_UNIT_SCALE = 27.0
     hud_cap = HUD_CAP_FRACTION * h
     hud_scale = hud_cap / _CAP_AT_UNIT_SCALE
-
-    telemetry_font = cv2.FONT_HERSHEY_SIMPLEX
-    telemetry_scale = hud_scale
-    telemetry_thickness = 1
-    telemetry_spacing = 3
-
-    # Position as multiples of cap height, not fixed pixels, so the strip
-    # keeps its place proportionally as the frame scales -- same tx/row
-    # ratios tanzania's draw_hud uses for its own telemetry block.
-    tx = int(round(1.64 * hud_cap))
-    ty = h - int(round(2.00 * hud_cap))
-
-    # Right-aligned companion to the DETECTING banner: which CV tools are
-    # actually running. Same ink, size and baseline so the two read as one
-    # telemetry strip rather than two unrelated overlays.
-    if capabilities:
-        cap = str(capabilities)
-        cap_w = 0
-        for ch_ in cap:
-            (cw_, _), _ = cv2.getTextSize(ch_, telemetry_font, telemetry_scale,
-                                          telemetry_thickness)
-            cap_w += cw_ + telemetry_spacing
-        cx_ = max(18, w - 18 - cap_w)
-        for ch_ in cap:
-            (cw_, _), _ = cv2.getTextSize(ch_, telemetry_font, telemetry_scale,
-                                          telemetry_thickness)
-            cv2.putText(out, ch_, (cx_, ty), telemetry_font, telemetry_scale,
-                        telemetry_ink, telemetry_thickness, cv2.LINE_AA)
-            cx_ += cw_ + telemetry_spacing
-
-    for char in text:
-        (cw, ch), _ = cv2.getTextSize(
-            char,
-            telemetry_font,
-            telemetry_scale,
-            telemetry_thickness,
-        )
-
-        cv2.putText(
-            out,
-            char,
-            (tx, ty),
-            telemetry_font,
-            telemetry_scale,
-            telemetry_ink,
-            telemetry_thickness,
-            cv2.LINE_AA,
-        )
-
-        tx += cw + telemetry_spacing
 
     tag_font = cv2.FONT_HERSHEY_SIMPLEX
     tag_scale = hud_scale   # same e%-derived scale as the telemetry banner (requirement: one rule for all text)
