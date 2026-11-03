@@ -4,6 +4,59 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.49
+
+- **Low power**, in Settings under This device. One switch for a node that
+  cannot keep up: it stops the CV render (the feed falls back to the Show
+  passthrough), detection and therefore alerts, the evidence recorder, blur
+  and the room-audio Opus leg. Resolution, framerate and bitrate are
+  untouched, because the render is what costs, not the encode. Nothing it
+  stops is rewritten on disk, so switching it off restores the node exactly.
+  The privacy mask is out of its reach by construction here -- _drain_loop
+  applies it upstream of every consumer -- and only the mask STYLE is forced
+  to black, which is both cheaper than the cloak and stronger than it.
+- **The CV render is roughly 40% cheaper.** Per-stage timings, which
+  process() always computed and the pipeline always discarded, are now
+  measured and served on /api/pipeline. They said where the frame went:
+  tone was round-tripping through cv2.split/cv2.merge -- six 900KB plane
+  copies per frame to touch one of them -- and downscale_gray was resizing
+  three channels at full resolution to produce one. Measured on ariana:
+  tone 17.9ms -> 10.0ms, downscale_gray 6.5ms -> 4.0ms, whole frame
+  55.2ms -> 35.3ms. For scale, detection itself costs 0.04ms; all the rest
+  is cosmetic enhancement.
+- **Autothrottle** for when that is still not enough. The median rendered
+  frame cost is measured live, and over budget the processor drops the
+  enhancement pipeline -- flow, denoise, tone, sharpen, edges -- keeping
+  detection and the HUD. Thresholds are ratios of the frame budget so they
+  need no re-tuning at another framerate, with hysteresis because eco's own
+  cost is not the full path's. It reports itself rather than throttling
+  silently.
+- **camdash costs about half what it did.** It was among the most expensive
+  things on every node -- 42.6% of a core on tanzania, more than
+  broadcast-api itself. Not the preview: proc() walked the whole process
+  table from scratch on every call and read every process's command line
+  each time, and a refresh calls it up to seven times. One cached sweep
+  instead. Measured: ariana 32.6% -> 13.5%, tanzania 21.3% -> 11.3%,
+  tina 33.8% -> 17.0%.
+- **The detector window always exists while the detector does.** Pressing
+  the switch with none drawn makes one at full frame instead of being dead
+  until somebody drags a box; Reset returns it to full frame rather than
+  deleting it. The outline is hidden whenever detection is not running.
+- **A stale feed fixes itself.** The playlist is a seven-second window and
+  every second of it is a legitimate place to play from, so a reload landed
+  you back where you were and only a server restart helped. The viewer now
+  seeks to the live edge on attach and whenever it drifts more than 4.5s --
+  no restart, and no other viewer affected.
+- The mobile header no longer overflows: the product name stayed on two
+  lines and the theme switch was cut off mid-word. The build strip now
+  sheds the git-describe suffix under 720px and the version under 430px,
+  and the node name -- which camera is this -- is never the part cut.
+- The burned-in CV telemetry is gone from the client overlay's corner on
+  the macOS branch; this lineage had already removed its own.
+- The Settings buzz row was inverted in half -- the lamp said one thing and
+  the pressed state and screen reader said the other. Resolved towards the
+  lamp and renamed "Disable buzz".
+
 ## 7.0.48
 
 - The Messages card no longer lets a sender's name size the message
