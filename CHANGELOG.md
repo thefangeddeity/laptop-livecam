@@ -13,12 +13,22 @@ release tags on 2026-10-20, having been skipped as they shipped; the older
   to stop, so it went on running YOLO forever against a frame slot nobody
   reads. The capability probe built a second detecting instance and
   abandoned it the same way.
-- Found by measurement on tina, not by reading: five detection threads
-  alive at once, burning 195% of a core between them while the writer loop
-  itself used 6.5%, on a node sitting at 84C against an 85C critical.
-  Toggling Detection off changed the load by six points, because the switch
-  gates the tap that FEEDS the detector and not the orphaned threads
-  already running.
+- **Correction to this entry as first written.** It claimed five leaked
+  detection threads burning 195% of a core on tina. That was a misreading
+  of /proc: `comm` truncates at 15 characters, and OpenCV's ONNX inference
+  workers are spawned from inside the detection thread and INHERIT its
+  name, so four threads all read "Thread-24 (_det". Measured directly
+  afterwards: a processor shows 1 such thread before any inference and 4
+  after, and stop() takes it back to 3 -- the Python loop exits, the three
+  native workers stay, because they belong to OpenCV's shared pool. tina's
+  five were one detection loop, three inference workers and one
+  _detect_tap_loop. The 195% is mostly the legitimate cost of running YOLO
+  on a 2011 i3, not a leak.
+- The leak is real but smaller than that: one orphaned thread per
+  /api/cv-reset, plus one from the capability probe. Toggling Detection off
+  moved the load by only six points, which is what first pointed here --
+  the switch gates the tap that FEEDS the detector, not threads already
+  running.
 - The viewer's Reload button posts /api/cv-reset, so every press
   permanently added another one. That closed a loop: a feed that looks
   stale makes someone press Reload, which makes the node slower, which
