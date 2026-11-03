@@ -63,6 +63,14 @@ say "Preflight"
     || die "could not read Package/Version out of pkg/DEBIAN/control"
 git -C "$REPO" diff --quiet HEAD -- pkg/ \
     || die "pkg/ has uncommitted changes -- commit first so the .deb matches a commit"
+# VERSION is a SECOND place the version is written down, and the viewer reads
+# it rather than the package database -- so when a release bumped
+# DEBIAN/control alone, every node served the previous version in its header
+# while dpkg reported the new one. Found on tina at 7.0.50 reporting 7.0.48.
+# Two files, one number, checked rather than remembered.
+VERFILE="$REPO/pkg/usr/share/hls-livecam-server/VERSION"
+[ "$(cat "$VERFILE" 2>/dev/null)" = "$VER" ] \
+    || die "VERSION says '$(cat "$VERFILE" 2>/dev/null)' but DEBIAN/control says '$VER' -- the viewer reads VERSION, so they must match"
 
 # Refuse to reinstall the version already there. Not a safety rule -- dpkg
 # would do it happily -- but a deploy that silently does nothing new is how
