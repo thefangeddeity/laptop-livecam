@@ -28,6 +28,20 @@ pub struct AppState {
     pub dark: Mutex<bool>,
     /// In-memory only, by design. See module docs.
     pub bw_mode: Mutex<bool>,
+    /// LOW POWER -- one switch for a node that cannot keep up.
+    ///
+    /// Ported from the macOS branch, where it was measured: the CV render
+    /// there took 62.7ms of a 66.7ms frame budget. This node is cheaper by
+    /// construction -- CV is a read-only sidecar (cv.rs) rather than a
+    /// render in the publish path -- so what it buys here is narrower and
+    /// honest about it: the sidecar is not spawned (it is the ~130% of a
+    /// core cv.rs's own module docs name) and the room-audio Opus leg is
+    /// not kept alive.
+    ///
+    /// Persisted, unlike bw_mode: a node switched to low power because it
+    /// could not cope must not come back from a reboot unable to cope
+    /// again.
+    pub low_power: Mutex<bool>,
     /// The notch-filter comb applied to the room-audio leg. Its own
     /// persistence (notches.json in this same state dir) -- see
     /// notches.rs module docs.
@@ -58,6 +72,11 @@ impl AppState {
             None => true,
         };
 
+        // Absent means OFF, the opposite of msg_lock above: a node that
+        // has never heard of this switch is a node nobody has asked to
+        // give anything up.
+        let low_power = matches!(read(&dir, "low_power"), Some(ref v) if v.trim() == "true");
+
         let dark = dir.join("dark").exists();
 
         Self {
@@ -68,6 +87,7 @@ impl AppState {
             msg_lock: Mutex::new(msg_lock),
             dark: Mutex::new(dark),
             bw_mode: Mutex::new(false),
+            low_power: Mutex::new(low_power),
             notches,
             audio,
         }
@@ -109,6 +129,30 @@ impl AppState {
         *g = !*g;
         let _ = std::fs::write(self.dir.join("msg_lock"), if *g { "true" } else { "false" });
         *g
+    }
+
+    pub fn low_power(&self) -> bool {
+        *self.low_power.lock().unwrap()
+    }
+
+    pub fn set_low_power(&self, on: bool) -> bool {
+        *self.low_power.lock().unwrap() = on;
+        let _ = std::fs::write(self.dir.join("low_power"), if on { "true" } else { "false" });
+        on
+    }
+
+    /// What the pipeline is ACTUALLY doing, which is not always what was
+    /// asked. Low power cannot afford CV, so it is served as Show; the
+    /// stored mode is left alone, so switching back needs no re-selection.
+    /// Hide passes through untouched -- it is a privacy control, and
+    /// already the cheapest branch there is.
+    ///
+    /// Every reader that gates on "is this node in CV mode" must come
+    /// through here rather than reading feed_mode directly, or the sidecar
+    /// starts anyway and the switch does nothing.
+    pub fn effective_feed_mode(&self) -> String {
+        let m = self.feed_mode.lock().unwrap().clone();
+        if m == "cv" && self.low_power() { "show".to_string() } else { m }
     }
 
     pub fn toggle_bw_mode(&self) -> bool {

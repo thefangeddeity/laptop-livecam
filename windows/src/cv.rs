@@ -176,7 +176,7 @@ impl Cv {
             .lock()
             .unwrap()
             .as_ref()
-            .map(|s| s.feed_mode.lock().unwrap().as_str() == "cv")
+            .map(|s| s.effective_feed_mode() == "cv")
             .unwrap_or(false);
         if in_cv && self.enabled.load(Ordering::Relaxed) {
             let fresh = self
@@ -249,7 +249,9 @@ fn spawn_supervisor(
     std::thread::spawn(move || loop {
         // CV runs only while the picture is in CV mode. Outside it there
         // is no child at all -- no detector, no encoder, no cost.
-        if state.feed_mode.lock().unwrap().as_str() != "cv" {
+        // effective_, not the stored mode: low power serves CV as Show,
+        // and the whole point of that is that this sidecar never starts.
+        if state.effective_feed_mode() != "cv" {
             std::thread::sleep(Duration::from_millis(500));
             continue;
         }
@@ -313,7 +315,7 @@ fn spawn_supervisor(
                     if killer.done() {
                         return;
                     }
-                    if st.feed_mode.lock().unwrap().as_str() != "cv" {
+                    if st.effective_feed_mode() != "cv" {
                         killer.kill();
                         return;
                     }

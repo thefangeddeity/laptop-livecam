@@ -90,6 +90,7 @@ pub fn router(ctx: Arc<Ctx>) -> Router {
         .route("/api/buzz", post(api_buzz))
         .route("/api/feed-mode", get(feed_mode_get).post(feed_mode_post))
         .route("/api/msg-lock", get(msg_lock_get).post(msg_lock_post))
+        .route("/api/low-power", get(low_power_get).post(low_power_post))
         .route("/api/bw-mode", get(bw_mode_get).post(bw_mode_post))
         .route("/api/foveal-mode", get(foveal_mode_get).post(foveal_mode_post))
         .route("/api/dark", get(dark_get).post(dark_post))
@@ -300,7 +301,13 @@ async fn feed_mode_post(State(ctx): State<Arc<Ctx>>, body: String) -> Response {
     // still in flight), then drive the actual source swap. "cloak" fails
     // safe to the same black source as "hide" this run -- see pipeline.rs.
     ctx.state.set_feed_mode(&mode);
-    ctx.pipeline.apply_feed_mode(&mode).await;
+    // EFFECTIVE, not the stored mode: with low power on, selecting CV must
+    // not start the source low power exists to avoid. What is RETURNED is
+    // still what was asked for -- the choice is remembered and honoured the
+    // moment low power goes off (see AppState::effective_feed_mode).
+    ctx.pipeline
+        .apply_feed_mode(&ctx.state.effective_feed_mode())
+        .await;
     flask_text(mode)
 }
 
@@ -311,6 +318,47 @@ async fn msg_lock_get(State(ctx): State<Arc<Ctx>>) -> Response {
 
 async fn msg_lock_post(State(ctx): State<Arc<Ctx>>) -> Response {
     bool_text(ctx.state.toggle_msg_lock())
+}
+
+/// LOW POWER. See state.rs for what it buys on this node and why that is
+/// narrower than on the macOS branch.
+///
+/// Explicit true/false only, like the fleet's other switches: a body that
+/// could not be read must change nothing rather than flip the setting. The
+/// Linux and macOS handlers reject anything else with a 400 and this does
+/// the same, which is why it is not simply a toggle like msg_lock above --
+/// a retried or truncated POST that FLIPS a switch is how a client that
+/// believed it was turning something off turns it on.
+async fn low_power_get(State(ctx): State<Arc<Ctx>>) -> Response {
+    bool_text(ctx.state.low_power())
+}
+
+async fn low_power_post(State(ctx): State<Arc<Ctx>>, body: String) -> Response {
+    let want = match body.trim().to_ascii_lowercase().as_str() {
+        "true" => true,
+        "false" => false,
+        _ => {
+            return build(
+                StatusCode::BAD_REQUEST,
+                FLASK_TEXT,
+                FLASK_400.as_bytes().to_vec(),
+                false,
+                false,
+            )
+        }
+    };
+    if want == ctx.state.low_power() {
+        return bool_text(want);          // already there; nothing to restart
+    }
+    ctx.state.set_low_power(want);
+    // The CV sidecar gates on effective_feed_mode() and will start or stop
+    // itself on its next supervision tick; the room-audio supervisor does
+    // the same. Re-applying the feed mode is still worth doing so the
+    // publisher is consistent with what the panel now reports, and it is a
+    // no-op when the source did not actually change.
+    let mode = ctx.state.effective_feed_mode();
+    ctx.pipeline.apply_feed_mode(&mode).await;
+    bool_text(ctx.state.low_power())
 }
 
 async fn bw_mode_get(State(ctx): State<Arc<Ctx>>) -> Response {
@@ -444,13 +492,23 @@ async fn api_pipeline(State(ctx): State<Arc<Ctx>>) -> Response {
     // encoder has an open RTSP push to mediamtx, so both alive together
     // is the honest signal an actual connection exists.
     let rtsp = if p.capture_alive && p.mediamtx_alive { "ok" } else { "down" };
-    let mic = ctx.pipeline.audio_status();
+    // Low power does not open the room-audio leg, so the mic lamp reports
+    // "disabled" -- dark, not red. The viewer paints "down" as a measured
+    // fault, and sending someone to look for a broken microphone that was
+    // never opened is the wrong kind of wrong.
+    let low_power = ctx.state.low_power();
+    let mic = if low_power { "disabled" } else { ctx.pipeline.audio_status() };
 
+    // Low power serves CV as Show, so the panel is told what is RUNNING
+    // rather than what was asked for: a card reporting 'cv' while no
+    // detector is running is a lamp that cannot fail.
     let body = json!({
         "camera": camera,
         "mediamtx": mediamtx,
         "rtsp": rtsp,
         "mic": mic,
+        "low_power": low_power,
+        "mode_effective": ctx.state.effective_feed_mode(),
     });
     build(
         StatusCode::OK,
@@ -563,10 +621,11 @@ async fn notches_sort(State(ctx): State<Arc<Ctx>>) -> Response {
     }
 }
 
-async fn api_info() -> Response {
+async fn api_info(State(ctx): State<Arc<Ctx>>) -> Response {
     let (host, ts) = tokio::task::spawn_blocking(|| (hostname(), tailscale_ip()))
         .await
         .unwrap_or_else(|_| (String::new(), String::new()));
+    let low_power = ctx.state.low_power();
 
     // Flask's jsonify spacing, trailing newline included. `version` feeds
     // the viewer's header/tab build label (windows-v<version>) -- see
@@ -574,10 +633,11 @@ async fn api_info() -> Response {
     // drift from what actually got built (Cargo.toml is the one place
     // the version is written down).
     let body = format!(
-        "{{\"hostname\": \"{}\", \"tailscale\": \"{}\", \"version\": \"{}\", \"audio_restart\": true}}\n",
+        "{{\"hostname\": \"{}\", \"tailscale\": \"{}\", \"version\": \"{}\", \"audio_restart\": true, \"low_power\": {}}}\n",
         json_escape(&host),
         json_escape(&ts),
         env!("CARGO_PKG_VERSION"),
+        low_power,
     );
     build(
         StatusCode::OK,

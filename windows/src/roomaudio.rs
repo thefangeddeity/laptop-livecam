@@ -25,6 +25,7 @@
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::Arc;
 use std::time::Duration;
 
 const ROOM_URL: &str = "rtsp://127.0.0.1:8554/roomaudio";
@@ -70,8 +71,17 @@ fn start(ffmpeg: &PathBuf) -> std::io::Result<std::process::Child> {
 /// respawns keeps this from busy-looping while it's momentarily absent.
 /// Persistent, not bounded like the talkback leg -- WHEP subscribers
 /// expect it ready, not started on demand.
-pub fn spawn_supervisor(ffmpeg: PathBuf) {
+pub fn spawn_supervisor(ffmpeg: PathBuf, state: Arc<crate::state::AppState>) {
     std::thread::spawn(move || loop {
+        // LOW POWER: the room is not published, so the Opus leg is not
+        // kept alive. Polled rather than event-driven because this loop
+        // has nothing to wait on -- a second of latency on a switch
+        // nobody flips twice a day, against an encoder held open for a
+        // feature that is off.
+        if state.low_power() {
+            std::thread::sleep(Duration::from_secs(1));
+            continue;
+        }
         if let Ok(mut child) = start(&ffmpeg) {
             let _ = child.wait();
         }

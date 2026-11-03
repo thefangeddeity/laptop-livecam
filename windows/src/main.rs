@@ -155,7 +155,7 @@ fn main() {
             // Optional by construction -- returns a dark Cv rather than
             // failing if Python or the model is absent (see cv.rs).
             let cv = cv::Cv::start(state.dir().to_path_buf(), state.clone(), ffmpeg_for_cv);
-            roomaudio::spawn_supervisor(ffmpeg_for_roomaudio);
+            roomaudio::spawn_supervisor(ffmpeg_for_roomaudio, state.clone());
             // Disabled 2026-09-11 per dev -- ran, but the PnP-cycle-based
             // recovery didn't hold (see mic_watchdog.rs); pending code
             // audit Monday before re-enabling or redesigning.
