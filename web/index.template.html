@@ -4335,6 +4335,15 @@
   }
 
   function scheduleRetry(ms) {
+    // NOT while RTC is carrying the picture. Two ways a stale HLS retry can
+    // be queued after the transport has moved on: hls.js's own error
+    // handler, and the native path's one-shot 'error' listener, which fires
+    // when the element is load()ed on the way to attaching a MediaStream --
+    // an element briefly without a source looks exactly like a broken one.
+    // Either would land an initHLS() on top of a working RTC stream
+    // seconds later, and the viewer would see the picture replaced by a
+    // reconnecting HLS player for no reason it could observe.
+    if (videoTransport === 'rtc') return;
     if (retryTimer) clearTimeout(retryTimer);
     // Neutral, not warning-coloured: nothing is wrong during a cover.
     if (switching) setStatus('SWITCHING');
@@ -4513,6 +4522,16 @@
     paintLamps();
   }
 
+  // Tear down the HLS player. initHLS() does this at its own start, which
+  // is enough when HLS is replacing HLS -- it is NOT enough when RTC takes
+  // over, because then initHLS() is never called again and an hls.js
+  // instance stays attached to this very element over MSE, fetching
+  // segments and filling a buffer nobody will ever watch.
+  function stopHls() {
+    if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+    if (hls) { try { hls.destroy(); } catch (e) {} hls = null; }
+  }
+
   function stopVideoRtc() {
     // DELETE the WHEP session as well as closing the peer connection: the
     // node holds the resource until told, and a viewer that merely navigated
@@ -4520,6 +4539,11 @@
     // reasoning as startRoomRx's own teardown.
     if (vidRtcRes) { fetch(vidRtcRes, { method: 'DELETE' }).catch(function () {}); vidRtcRes = null; }
     if (vidRtcPc) { try { vidRtcPc.close(); } catch (e) {} vidRtcPc = null; }
+    // AND release the element. srcObject OUTRANKS src: a media element that
+    // still holds a MediaStream ignores any src assigned afterwards, so
+    // leaving one behind makes the HLS fallback attach to an element that
+    // will never display it -- a black player with every lamp green.
+    try { if (video.srcObject) video.srcObject = null; } catch (e) {}
   }
 
   // Resolves TRUE only if media actually arrived.
@@ -4546,6 +4570,12 @@
     pc.addEventListener('track', function (ev) {
       if (pc !== vidRtcPc) return;              // a superseded attempt
       gotTrack = true;
+      // Destroy the HLS player BEFORE touching the element. Two reasons:
+      // hls.js is still attached over MSE and would go on fetching
+      // segments for a picture nobody is watching, and load() on an
+      // element it owns makes it error on a source we are abandoning
+      // anyway.
+      stopHls();
       try {
         video.removeAttribute('src');           // drop any HLS source first
         video.load();
