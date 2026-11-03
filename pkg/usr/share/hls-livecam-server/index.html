@@ -4265,7 +4265,12 @@
           video.removeEventListener('click', handler);
         });
       });
-      video.addEventListener('loadedmetadata', function() { setStatus('LIVE', 'live'); }, { once: true });
+      video.addEventListener('loadedmetadata', function() {
+        setStatus('LIVE', 'live');
+        // Safari enters near the BACK of the seven-second window; this is
+        // the moment it first has a seekable range to be moved within.
+        seekToLiveEdgeSoon();
+      }, { once: true });
       video.addEventListener('error', function() { showError(); scheduleRetry(5000); }, { once: true });
       return;
     }
@@ -4289,7 +4294,7 @@
     });
     hls.loadSource(HLS_URL);
     hls.attachMedia(video);
-    hls.on(Hls.Events.MANIFEST_PARSED, function() { setStatus('BUFFERING'); video.play().catch(function(){}); });
+    hls.on(Hls.Events.MANIFEST_PARSED, function() { setStatus('BUFFERING'); video.play().catch(function(){}); seekToLiveEdgeSoon(); });
     hls.on(Hls.Events.FRAG_LOADED, function() { if (liveInd.textContent !== 'LIVE') setStatus('LIVE', 'live');; });
     hls.on(Hls.Events.ERROR, function(e, data) {
       if (!data.fatal) { scheduleRetry(3000); return; }
@@ -4302,7 +4307,77 @@
     });
   }
 
-  function reloadStream() { initHLS(); }
+  // ── THE LIVE EDGE ──────────────────────────────────────────────────────
+  //
+  // THE FAILURE THIS FIXES (reported from a phone): the picture is moving,
+  // it looks completely real, and it is several seconds old. Refreshing the
+  // browser gives you the SAME old picture, so the only thing that helps is
+  // the Reload button -- which restarts the whole node to fix a problem the
+  // node does not have.
+  //
+  // It is not a fault at all, it is where the player chose to sit. mediamtx
+  // serves hlsSegmentCount 7 at hlsSegmentDuration 1s, so the playlist is a
+  // SEVEN SECOND WINDOW, and every one of those seconds is a legitimate
+  // place to be playing from. Safari's native HLS enters near the back of
+  // it, and a reload enters at the back again -- the window still holds the
+  // same segments, so "fresh page" and "fresh picture" are not the same
+  // thing. Restarting the server worked only because it rebuilt the window
+  // from empty, which is a very expensive way to seek.
+  //
+  // So: seek. The browser already knows where live is -- seekable.end() --
+  // and moving there costs nothing and interrupts nobody else.
+  //
+  // Sit a little BEHIND the edge rather than exactly on it: the last moments
+  // of a live window are still being written, and a player parked on the end
+  // stalls every time it catches up. 1.5s is comfortably inside one segment.
+  var LIVE_EDGE_TARGET_S = 1.5;   // where we aim to sit, behind the edge
+  var LIVE_EDGE_SLACK_S  = 3.0;   // how far adrift before it is worth a jump
+
+  function liveEdgeDrift() {
+    // Seconds behind the live edge, or null when the question has no answer
+    // yet (no buffer, no metadata, a still-attaching player). Null is not
+    // zero, and callers must not treat it as "we are live".
+    try {
+      var sk = video.seekable;
+      if (!sk || !sk.length) return null;
+      var edge = sk.end(sk.length - 1);
+      if (!isFinite(edge) || !isFinite(video.currentTime)) return null;
+      return edge - video.currentTime;
+    } catch (e) { return null; }
+  }
+
+  function seekToLiveEdge() {
+    var drift = liveEdgeDrift();
+    if (drift === null) return false;
+    // Only when it is actually worth it. A seek flushes the decoder, so
+    // correcting a quarter-second of drift would cost a visible hitch to
+    // fix something nobody can see.
+    if (drift <= LIVE_EDGE_TARGET_S + LIVE_EDGE_SLACK_S) return false;
+    try {
+      var sk = video.seekable;
+      video.currentTime = sk.end(sk.length - 1) - LIVE_EDGE_TARGET_S;
+      video.play().catch(function () {});
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // After an attach, seekable is not populated on the first tick and the
+  // window is still filling, so one immediate attempt would always miss.
+  // A few spaced tries cost nothing and cover both the native and hls.js
+  // paths without either of them needing to announce itself.
+  function seekToLiveEdgeSoon() {
+    [400, 1200, 2500].forEach(function (ms) {
+      setTimeout(seekToLiveEdge, ms);
+    });
+  }
+
+  // And keep it there. Drift is not a one-off: a stall, a backgrounded tab
+  // or a slow network all leave the player further back than it started,
+  // and nothing before this ever walked it forward again -- which is how a
+  // feed ends up several seconds old with every lamp on the page green.
+  pollEvery(seekToLiveEdge, 5000);
+
+  function reloadStream() { initHLS(); seekToLiveEdgeSoon(); }
 
   // ── ROOM AUDIO ──
   // No second stream is fetched. The variant hls.js is already playing
@@ -4799,8 +4874,19 @@
       // Hide publishes black on purpose and attaches no player; there is
       // nothing stale about a feed that is off.
       if (feedMode === 'hide') return;
+      // CHEAPEST REMEDY FIRST, and it is the one that usually applies.
+      // "Playing, but several seconds old" is the common complaint and it
+      // is not a fault at all -- it is where in the seven-second window the
+      // player happened to enter. A seek fixes it outright and costs
+      // nobody else anything, so it is tried before the page even decides
+      // whether anything is wrong. See seekToLiveEdge.
+      seekToLiveEdge();
+
       var live = !!(liveInd && liveInd.textContent === 'LIVE');
       var moved = t0 !== null && video.currentTime > t0 + 0.2;
+      // Deliberately NOT a drift test. Drift is handled above and by the
+      // 5s watchdog, continuously, without restarting anything. What is
+      // left for this check is the harder failure: no frames at all.
       if (live && moved) return;              // arrived healthy; leave it alone
 
       fetch('/api/pipeline', { cache: 'no-store' })
