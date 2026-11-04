@@ -47,6 +47,12 @@ LOG_DIR="$STATE_DIR/logs"
 VENDOR="$ROOT/vendor"
 WEB_DIR="$ROOT/web"
 CONFIG="$ROOT/config.env"
+# No .pyc beside the source. When this runs from the installed .app that is
+# inside Contents/, and one added file there invalidates the bundle's seal --
+# which costs the cdhash-pinned camera grant the next time the signature is
+# repaired. Exported AND passed as -B at the call sites, because an export can
+# be dropped by anything that scrubs the environment and a flag cannot.
+export PYTHONDONTWRITEBYTECODE=1
 VENV_PY="$ROOT/.venv/bin/python"
 MEDIAMTX_BIN="$VENDOR/mediamtx"
 MEDIAMTX_YML="$STATE_DIR/mediamtx.yml"
@@ -68,7 +74,7 @@ mkdir -p "$STATE_DIR" "$LOG_DIR"
 
 G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'; B='\033[1m'; N='\033[0m'
 
-[ -x "$VENV_PY" ] || VENV_PY="$(command -v python3)"
+[ -x "$VENV_PY" -B ] || VENV_PY="$(command -v python3)"
 
 # ── config helpers ───────────────────────────────────────────────
 cfg() { # cfg KEY DEFAULT — value read to EOL, inline "# ..." and surrounding space stripped
@@ -225,7 +231,7 @@ start_mediamtx() {
 start_api() {
   if pid_alive "$API_PID"; then echo "  broadcast-api already running"; return; fi
   rotate_log "$LOG_DIR/broadcast-api.log"
-  nohup "$VENV_PY" "$BIN_DIR/broadcast-api" >>"$LOG_DIR/broadcast-api.log" 2>&1 &
+  nohup "$VENV_PY" -B "$BIN_DIR/broadcast-api" >>"$LOG_DIR/broadcast-api.log" 2>&1 &
   echo $! > "$API_PID"
   echo -e "  ${G}broadcast-api started${N} (pid $(cat "$API_PID"))"
 }
@@ -306,7 +312,7 @@ export LIVECAM_CONFIG="$CONFIG"
 
 SUPERVISOR_LOCK_PID="$STATE_DIR/supervisor.lock/pid"
 
-lp() { "$VENV_PY" -c "
+lp() { "$VENV_PY" -B -c "
 import sys; sys.path.insert(0, '$BIN_DIR')
 import livecam_platform as P
 $1"; }
@@ -323,7 +329,7 @@ supervisor_running() {
 start_supervisor() {
   supervisor_running && return 0
   mkdir -p "$LOG_DIR"
-  nohup "$VENV_PY" "$BIN_DIR/livecam-supervisor" >>"$LOG_DIR/supervisor.log" 2>&1 &
+  nohup "$VENV_PY" -B "$BIN_DIR/livecam-supervisor" >>"$LOG_DIR/supervisor.log" 2>&1 &
   sleep 1
 }
 
@@ -333,7 +339,7 @@ start_supervisor() {
 # the supervisor from immediately undoing a manual stop.
 # Why the livecam is off, from the note its yield left.
 yielded_line() {
-  "$VENV_PY" - "$YIELDED" <<'PY' 2>/dev/null || echo "off -- the organism has the camera; \`livecam start\` takes it back"
+  "$VENV_PY" -B - "$YIELDED" <<'PY' 2>/dev/null || echo "off -- the organism has the camera; \`livecam start\` takes it back"
 import json, sys, time
 d = json.load(open(sys.argv[1]))
 when = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(d.get("at", 0))))
@@ -471,7 +477,7 @@ cmd_stop() {
 cmd_restart() { cmd_stop; sleep 1; cmd_start; }
 
 port_open() { # port_open PORT
-  "$VENV_PY" - "$1" <<'PY' 2>/dev/null
+  "$VENV_PY" -B - "$1" <<'PY' 2>/dev/null
 import socket, sys
 s = socket.socket()
 s.settimeout(1)
@@ -532,9 +538,9 @@ cmd_repair() {
   fi
 }
 
-cmd_dark() { "$VENV_PY" "$BIN_DIR/livecam-dark"; }
+cmd_dark() { "$VENV_PY" -B "$BIN_DIR/livecam-dark"; }
 
-cmd_monitor() { exec "$VENV_PY" "$BIN_DIR/camdash" "$@"; }
+cmd_monitor() { exec "$VENV_PY" -B "$BIN_DIR/camdash" "$@"; }
 
 cmd_logs() {
   local svc="${1:-}"

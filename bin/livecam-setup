@@ -20,8 +20,14 @@ ROOT="$(dirname "$BIN_DIR")"
 STATE_DIR="$ROOT/state"
 WEB_DIR="$ROOT/web"
 CONFIG="$ROOT/config.env"
+# No .pyc beside the source. When this runs from the installed .app that is
+# inside Contents/, and one added file there invalidates the bundle's seal --
+# which costs the cdhash-pinned camera grant the next time the signature is
+# repaired. Exported AND passed as -B at the call sites, because an export can
+# be dropped by anything that scrubs the environment and a flag cannot.
+export PYTHONDONTWRITEBYTECODE=1
 VENV_PY="$ROOT/.venv/bin/python"
-[ -x "$VENV_PY" ] || VENV_PY="$(command -v python3)"
+[ -x "$VENV_PY" -B ] || VENV_PY="$(command -v python3)"
 
 G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; C='\033[0;36m'; B='\033[1m'; N='\033[0m'
 
@@ -110,7 +116,7 @@ echo -e "${B}Seeding state...${N}"
 [ -f "$STATE_DIR/buzz.txt" ]      || : > "$STATE_DIR/buzz.txt"
 [ -f "$WEB_DIR/cams/cams.json" ]  || echo '[]' > "$WEB_DIR/cams/cams.json"
 # Black placeholder / backup dark.png (block-art replaces it on hide).
-"$VENV_PY" - "$STATE_DIR" "$VIDEO_SIZE" <<'PY'
+"$VENV_PY" -B - "$STATE_DIR" "$VIDEO_SIZE" <<'PY'
 import sys, os, struct, zlib
 state, size = sys.argv[1], sys.argv[2]
 w, h = (int(x) for x in size.split('x'))
@@ -130,7 +136,7 @@ echo -e "  ${G}state seeded${N}"
 # uses must be handled here as well as in scripts/build-macos-dmg.sh -- one
 # left unsubstituted ships a viewer with "@VERSION@" printed in its header.
 if [ -f "$WEB_DIR/index.template.html" ]; then
-  SETUP_VERSION_LABEL="$("$BIN_DIR/../.venv/bin/python" -c "
+  SETUP_VERSION_LABEL="$("$BIN_DIR/../.venv/bin/python" -B -c "
 import sys; sys.path.insert(0, '$BIN_DIR')
 import livecam_platform as P
 print(P.version_label())" 2>/dev/null || echo "unknown")"

@@ -299,10 +299,10 @@ mkdir -p "$LOGS"
 # First-run setup: permissions, Login Item, autologin, supervisor. Marker-
 # guarded, so this is a cheap no-op on every launch after the first. Never let
 # it block the GUI from opening -- the GUI is also where you go to diagnose.
-"$PY" "$ROOT/bin/livecam-firstrun" >>"$LOGS/firstrun.log" 2>&1 || true
+"$PY" -B "$ROOT/bin/livecam-firstrun" >>"$LOGS/firstrun.log" 2>&1 || true
 
 cd "$ROOT"
-exec "$PY" -m gui.app "$@"
+exec "$PY" -B -m gui.app "$@"
 LAUNCHER
 
 chmod +x "$MACOS/hls-livecam"
