@@ -1309,8 +1309,20 @@ def _drain_to_latest(src, n, first):
     old ones either: the detector wants now, the recorder wants now, and
     the viewer certainly does.
 
-    Non-blocking, so this never waits for a frame that has not arrived --
-    it only takes what is ALREADY sitting in the pipe.
+    Nearly non-blocking, and the "nearly" is worth stating because the
+    obvious reading is wrong twice over:
+
+      * select() asks the KERNEL, and cannot see this reader's OWN buffer.
+        Bytes already buffered in Python report as nothing to read, so the
+        drain UNDER-drains and leaves them for the next call. Nothing is
+        lost; it is simply less effective than it looks.
+      * a ready fd promises ONE byte, while a sized read wants a whole
+        frame. So a select that fires mid-frame does wait for the rest --
+        bounded by one frame interval, but it waits.
+
+    Both err toward keeping data rather than dropping it, which is the right
+    direction for this to be wrong in. The guarantee that actually matters
+    is the one above: delay is bounded at a frame instead of growing.
     """
     latest = first
     dropped = 0
