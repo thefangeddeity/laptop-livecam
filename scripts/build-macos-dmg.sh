@@ -129,6 +129,15 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <key>CFBundleExecutable</key><string>hls-livecam</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleIconFile</key><string>AppIcon</string>
+<!-- LSEnvironment is applied by LaunchServices to the app and everything it
+     spawns, however it was started -- which is the part the launcher's own
+     export cannot promise. A .pyc written anywhere under Contents/ breaks
+     the bundle's seal, and TCC pins the camera and microphone grants to the
+     cdhash, so repairing that seal silently drops the permissions. The
+     entry points set sys.dont_write_bytecode themselves as well; this is
+     the outermost of the three nets. -->
+<key>LSEnvironment</key>
+<dict><key>PYTHONDONTWRITEBYTECODE</key><string>1</string></dict>
 <key>CFBundleShortVersionString</key><string>${SHORT_VERSION}</string>
 <key>CFBundleVersion</key><string>${SHORT_VERSION}</string>
 <key>LivecamBuildLabel</key><string>${VERSION} · ${BUILD_STAMP} · ${GIT_COMMIT}</string>
