@@ -88,7 +88,7 @@ pub struct Cv {
     state: StdMutex<Option<Arc<crate::state::AppState>>>,
     /// Foveal Layer toggle (Tanzania's AUDIO_TUNABLES-style live modifier
     /// on CV Mode, ported here once CV Mode itself was actually running
-    /// detection rather than just telemetry -- dev: "Foveal button isn't
+    /// detection rather than just telemetry -- requirement: "Foveal button isn't
     /// active in 7elwe" caught that this was still stubbed out). The
     /// AUTHORITY for the value: survives a sidecar restart (mode toggled
     /// off and back on) and is what a freshly-spawned child gets told on

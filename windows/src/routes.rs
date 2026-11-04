@@ -776,7 +776,7 @@ async fn proxy_hls(method: Method, OriginalUri(uri): OriginalUri, headers: Heade
     // Tanzania's real ones: this route was passing mediamtx's header
     // through unchanged with no no-store at all, which iOS Safari's HTTP
     // cache is known to treat more aggressively than desktop/Android --
-    // dev: "Unable to hear inbound audio from iOS" on 7elwe traced to
+    // requirement: "Unable to hear inbound audio from iOS" on 7elwe traced to
     // exactly this gap (video kept working because its own rendition
     // fetch cycle happened to revalidate anyway; the audio-only rendition
     // is what iOS was serving stale). append(), not insert(), to match
