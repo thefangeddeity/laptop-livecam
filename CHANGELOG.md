@@ -4,6 +4,21 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.1.5
+
+- **Leave mesh.** Signing in from the Messages card was one-way: the session
+  cookie is HttpOnly so no page could clear it, and nothing on the mesh ended
+  a session, so the only way out was clearing site data.
+  **Needs ele-messenger 1.5.7**, which adds `POST /v1/logout` (it forgets the
+  token server-side as well as expiring the cookie -- expiring the cookie
+  alone only stops this browser sending a token that stays valid for anyone
+  holding a copy) and drops the session lifetime from thirty days to seven.
+  The control sits where the passphrase row sits when signed out, so the card
+  keeps one shape in both states; only ever one of the two is visible, which
+  is what makes the pair readable. Two presses rather than a dialog, and it
+  disarms after five seconds. Against an older mesh the POST 404s and the
+  card says so rather than looking like it did nothing.
+
 ## 7.1.4
 
 - **The region box no longer claims a watch the gate has parked.** The box is
