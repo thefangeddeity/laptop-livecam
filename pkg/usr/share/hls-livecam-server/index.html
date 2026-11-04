@@ -1860,6 +1860,13 @@
     /* 11px and a real hit box: these are the only controls on the overlay and
        on a phone they are the whole interaction. */
     .galprev-acts .pbtn { font-size: 11px; padding: 8px 16px; white-space: nowrap; }
+    /* The known names. Wraps, because a household can have more of them
+       than fit on a phone, and centred to sit under the picture rather
+       than under one edge of it. */
+    .galprev-names { display: flex; flex-wrap: wrap; gap: 6px;
+                     justify-content: center; max-width: 92vw; }
+    .galprev-names:empty { display: none; }
+    .galprev-names .pbtn { font-size: 11px; padding: 7px 13px; white-space: nowrap; }
     .roster-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
     .roster-name { flex: 1 1 auto; min-width: 0; font-size: 11px; color: var(--text); }
     .roster-count { font: 9px/1 var(--mono); color: var(--text-muted); }
@@ -2130,6 +2137,12 @@
             <div class="vrow"><span class="vlab">Host</span><span class="vval"><span class="vghost">888.888.88.8</span><span class="vlit" id="hostVal"></span></span></div>
             <div class="vrow"><span class="vlab">Res</span><span class="vval"><span class="vghost">8888×888</span><span class="vlit" id="resVal"></span></span></div>
             <div class="vrow"><span class="vlab">Fps</span><span class="vval"><span class="vghost">88.8</span><span class="vlit" id="fpsVal"></span></span></div>
+            <!-- LAG, measured rather than asserted. On RTC it is the real
+                 receiver-side figure out of getStats(); on HLS it is how far
+                 behind the live edge this player is sitting. Two different
+                 measurements of the same question, which is why the row says
+                 which one it is rather than pretending to one number. -->
+            <div class="vrow"><span class="vlab">Lag</span><span class="vval"><span class="vghost">8.88s</span><span class="vlit" id="lagVal"></span></span></div>
             <div class="vind">
               <i id="indLive">LIVE</i><i id="indRec">REC</i><i id="indAv">A/V</i><i id="indCv">CV</i><i id="indFallbackV" class="vfb" title="The picture is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FALLBACK</i>
             </div>
@@ -2981,8 +2994,13 @@
               aria-label="Next picture" title="Next (right arrow)">&#8250;</button>
     </div>
     <div class="galprev-cap" id="galPrevCap"></div>
+    <!-- NAMING IS A CLUSTER, NOT A PROMPT. Every picture here is one of a
+         handful of the same faces, so the common case is picking a name you
+         already have -- and the old flow made you type it again each time,
+         through a modal that closed the preview to get out of its own way. -->
+    <div class="galprev-names" id="galPrevNames"></div>
     <div class="galprev-acts">
-      <button type="button" class="pbtn" id="galPrevName">Name</button>
+      <button type="button" class="pbtn" id="galPrevName">New name…</button>
       <button type="button" class="pbtn" id="galPrevClose">Close</button>
       <button type="button" class="pbtn guarded" id="galPrevDel">Delete</button>
     </div>
@@ -3927,6 +3945,62 @@
   // about THIS moment.
   var REC_FLASH_S = 6;
 
+  // ── LAG ────────────────────────────────────────────────────────────────
+  //
+  // What the viewer can honestly know about how old its picture is.
+  //
+  // RTC: jitterBufferDelay / jitterBufferEmittedCount out of getStats() is
+  // the mean time a frame waited in the receiver's buffer before being
+  // handed to the decoder. It is NOT glass-to-glass -- capture, encode and
+  // the network are not in it -- so it is reported as what it is. It is
+  // also the part that actually varies, and the part a viewer can act on.
+  //
+  // HLS: distance from the live edge, which this page already computes for
+  // the live-edge seek. That one IS most of the delay on that transport,
+  // because the seven-second window dominates everything else in it.
+  //
+  // Deliberately not one blended number: they measure different things, and
+  // a single figure that silently changes meaning with the transport is the
+  // kind of readout this panel keeps removing.
+  var lagMs = null, lagKind = '';
+  function pollLag() {
+    var el = document.getElementById('lagVal');
+    if (!el) return;
+    if (videoTransport === 'rtc' && vidRtcPc && vidRtcPc.getStats) {
+      vidRtcPc.getStats(null).then(function (stats) {
+        var d = null, n = null;
+        stats.forEach(function (r) {
+          if (r.type === 'inbound-rtp' && r.kind === 'video') {
+            if (typeof r.jitterBufferDelay === 'number') d = r.jitterBufferDelay;
+            if (typeof r.jitterBufferEmittedCount === 'number') n = r.jitterBufferEmittedCount;
+          }
+        });
+        if (d !== null && n) { lagMs = (d / n) * 1000; lagKind = 'buffer'; }
+        else { lagMs = null; lagKind = ''; }
+        paintLag();
+      }).catch(function () {});
+      return;
+    }
+    if (videoTransport === 'hls') {
+      var drift = liveEdgeDrift();
+      lagMs = (drift === null) ? null : drift * 1000;
+      lagKind = 'edge';
+    } else { lagMs = null; lagKind = ''; }
+    paintLag();
+  }
+  function paintLag() {
+    var el = document.getElementById('lagVal');
+    if (!el) return;
+    if (lagMs === null) { el.textContent = ''; el.title = ''; return; }
+    el.textContent = (lagMs < 1000)
+      ? Math.round(lagMs) + 'ms'
+      : (lagMs / 1000).toFixed(1) + 's';
+    el.title = (lagKind === 'buffer')
+      ? 'Receiver jitter-buffer delay over WebRTC. Capture, encode and network time are not included -- this is the part that varies.'
+      : 'How far this player is sitting behind the live edge of the HLS window.';
+  }
+  pollEvery(pollLag, 2000);
+
   function paintLamps() {
     var live = (liveInd && liveInd.textContent === 'LIVE');
     // '' is dark and means UNKNOWN -- nothing has measured this stage.
@@ -4634,6 +4708,41 @@
   }
 
   function reloadStream() { initVideo(); }
+
+  // ── COMING BACK FROM THE FALLBACK ──────────────────────────────────────
+  //
+  // The fallback was ONE WAY, which made it a trap rather than a safety
+  // net. initVideo() ran on the first feed-mode answer, on a mode change,
+  // and on Reload -- so a single transient RTC failure latched HLS in
+  // permanently and the viewer sat on a seven-second window until somebody
+  // reloaded the page. A node restart is enough to cause it, and during a
+  // working session that is not rare.
+  //
+  // So: while HLS is carrying and nobody asked for it, try RTC again every
+  // so often. The probe is safe to run against a working HLS picture --
+  // startVideoRtc only touches the video element from its 'track' handler,
+  // so a failed attempt changes nothing and a successful one is exactly the
+  // switch we want. It tears its own session down either way.
+  //
+  // Not aggressive: a node that genuinely cannot do WebRTC (a restrictive
+  // network, a browser that will not negotiate) must not be asked every few
+  // seconds for the rest of the session. Slow and quiet.
+  var RTC_RETRY_S = 45;
+  function retryRtcFromFallback() {
+    if (forceHls) return;                       // deliberate, not a fallback
+    if (videoTransport !== 'hls') return;       // only when we fell back
+    if (!feedModeKnown || feedMode === 'hide') return;
+    if (vidRtcPc) return;                       // an attempt is already live
+    startVideoRtc().then(function (ok) {
+      if (ok) {
+        setVideoTransport('rtc');
+        console.info('viewer: RTC is answering again -- off the HLS fallback.');
+      } else {
+        stopVideoRtc();                         // leave HLS exactly as it was
+      }
+    });
+  }
+  pollEvery(retryRtcFromFallback, RTC_RETRY_S * 1000);
 
   // ── ROOM AUDIO ──
   // No second stream is fetched. The variant hls.js is already playing
@@ -7194,7 +7303,17 @@ function eleProbe() {
   // the two checks, not the only one.
   function galImg(folder, id) { return '/api/gallery/img/' + encodeURIComponent(folder) + '/' + encodeURIComponent(id); }
 
+  // The names already in use, for the preview's cluster. Taken from the
+  // same answer the roster is drawn from, so a name appears as a button the
+  // moment it exists and disappears when its last picture is forgotten.
+  var galNames = [];
+
   function renderGallery(g) {
+    galNames = ((g && g.labels) || []).map(function (l) { return l.name; })
+                 .filter(Boolean).sort(function (a, b) {
+                   return a.toLowerCase().localeCompare(b.toLowerCase());
+                 });
+    renderGalPrevNames();
     var panel = document.getElementById('rosterPanel');
     var list = document.getElementById('rosterList');
     var strip = document.getElementById('rosterUnlabelled');
@@ -7321,8 +7440,56 @@ function eleProbe() {
     if (back) { back.hidden = n < 2; back.disabled = galPrevIdx === 0; }
     if (fwd) { fwd.hidden = n < 2; fwd.disabled = galPrevIdx === n - 1; }
   }
+    // The cluster hides the folder this picture is already in, so it has
+    // to be rebuilt as the preview moves -- otherwise stepping onto one of
+    // Bruce's pictures still offers a Bruce button that does nothing.
+    renderGalPrevNames();
 
   function galPrevStep(d) { if (galPrevList.length) galPrevShow(galPrevIdx + d); }
+
+  // One button per known name. Pressing one files THIS picture and moves to
+  // the next, which is what the Delete key already does -- culling and
+  // naming are the same motion through a set, and stopping after each one
+  // to re-open and re-navigate is what made naming a chore.
+  function renderGalPrevNames() {
+    var wrap = document.getElementById('galPrevNames');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    var t = galPrevTarget;
+    galNames.forEach(function (n) {
+      // Not the folder it is already in: that button would be a no-op
+      // dressed as a choice.
+      if (t && t.folder === n) return;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pbtn';
+      b.textContent = n;
+      b.onclick = function () { nameAndAdvance(n); };
+      wrap.appendChild(b);
+    });
+  }
+
+  function nameAndAdvance(who) {
+    var t = galPrevTarget;
+    if (!t) return;
+    var at = galPrevIdx;
+    fetch('/api/gallery/label', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: t.id, from: t.folder || 'unlabelled', label: who })
+    }).then(function (r) {
+      if (!r.ok) {
+        window.alert('That name was refused. Letters, numbers, spaces, - and _ only.');
+        return;
+      }
+      // Drop the one just filed and show whatever slid into its place, so a
+      // run of the same face is a run of single presses. The set shrinks
+      // under us, hence working from the list rather than re-deriving it.
+      galPrevList.splice(at, 1);
+      if (!galPrevList.length) { closeGalPreview(); }
+      else { galPrevShow(Math.min(at, galPrevList.length - 1)); }
+      pollGallery();
+    }).catch(function () {});
+  }
 
   // list: array of entries. idx: where to start. title: the set's name.
   function openGalPreviewList(list, idx, title) {
@@ -7357,8 +7524,14 @@ function eleProbe() {
     if (closeBtn) closeBtn.onclick = closeGalPreview;
     if (nameBtn) nameBtn.onclick = function () {
       var t = galPrevTarget;
-      closeGalPreview();                  // the prompt is modal; get out first
-      if (t) labelPicture(t.id, t.cls);
+      if (!t) return;
+      // prompt() is modal and used to force the preview shut to get out of
+      // its own way. It does not any more: the preview stays up behind it,
+      // and naming continues through the set exactly as the buttons do.
+      var who = window.prompt('Who is this ' + (t.cls || 'picture') + '?');
+      if (who === null) return;
+      who = who.trim();
+      if (who) nameAndAdvance(who);
     };
     var back = document.getElementById('galPrevBack');
     var fwd  = document.getElementById('galPrevFwd');
