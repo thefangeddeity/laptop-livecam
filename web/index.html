@@ -2140,7 +2140,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.2"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.3"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3137,7 +3137,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.2';
+    var build = info.version || 'mac-v7.1.3';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -3977,6 +3977,10 @@
       .catch(function() { return null; })
       .then(function(p) {
         pipeline = p;
+        if (p && typeof p.detect_gated === 'boolean') {
+          detectGated = p.detect_gated;
+          detectGateWhy = p.detect_gate_reason || '';
+        }
         // Node state, so it can change under a viewer that is already
         // watching -- an operator turning it on before an event should not
         // need everyone to reload. Re-pick the transport when it flips.
@@ -7336,6 +7340,15 @@ function eleProbe() {
   // it changes what the camera is doing, so every viewer must see the same
   // answer. (Contrast fitRoi below, which changes only your own screen.)
   var lowPowerOn = false;
+  // THE THIRD WAY DETECTION CAN BE OFF. The switch is one, Low power is two,
+  // and the CPU capability gate is three -- a node below the hardware class
+  // has the detector parked server-side however the switch is set. The
+  // server reports it on /api/pipeline and nothing here read it, so a gated
+  // node showed Detection lit, the dependent rows live, and the region box
+  // drawn over the picture, all claiming a watch that was not happening.
+  // Measured on tina: detect_always stored `true`, detect_gated `True`.
+  var detectGated = false;
+  var detectGateWhy = '';
   // Mirrors the node's /api/force-hls. `forceHls` (declared with the
   // transport code) is what the player reads; this is the Settings lamp,
   // painted from the same answer so the two cannot disagree.
@@ -7396,16 +7409,30 @@ function eleProbe() {
     // same treatment the rows under it already get. Greyed rather than
     // hidden: a control that vanishes reads as a feature this node does not
     // have, and the title says which switch is holding it down.
+    //
+    // THREE things can hold it down, not two. The capability gate is the
+    // third and it is the only one the viewer cannot switch: it is a fact
+    // about the hardware, so it says so and names the reason the node gave
+    // rather than one invented here. Ordered gate-first because the gate
+    // outranks Low power -- a node below the hardware class stays parked
+    // whether or not Low power is on, and naming the switch somebody CAN
+    // flip would send them to flip it for nothing.
     var db = document.getElementById('detectBtn');
     if (db) {
-      db.classList.toggle('na', lowPowerOn);
-      db.title = lowPowerOn
+      db.classList.toggle('na', lowPowerOn || detectGated);
+      db.title = detectGated
+        ? ('Held off by this node: ' + (detectGateWhy ||
+           'the CPU is below the capability gate') +
+           ' -- your Detection setting is remembered. Set CV_DETECT_IGNORE_GATE=1 to override.')
+        : lowPowerOn
         ? 'Held off by Low power -- switch that off to watch the room again. Your Detection setting is remembered.'
         : 'Watch for people and pets, whatever the feed is showing -- off stops detection and alerts entirely';
     }
     // Nothing below the detector can fire while it is held off either, so
-    // the dependent groups follow the EFFECTIVE state, not the stored one.
-    var detLive = detectOn && !lowPowerOn;
+    // the dependent groups follow the EFFECTIVE state, not the stored one --
+    // and "effective" now includes the capability gate, which parks the
+    // detector on hardware that cannot afford it.
+    var detLive = detectOn && !lowPowerOn && !detectGated;
     var g = document.getElementById('alertGroup');
     if (g) g.classList.toggle('inactive', !detLive);
     // The lifted groups dim with Detection too -- see .detdep.
@@ -7638,7 +7665,7 @@ function eleProbe() {
     // claims a region is being watched that is not. Same reasoning as the
     // burned-in telemetry: an instrument that reads the same whether or not
     // it is running is worse than no instrument.
-    var detLive = detectOn && !lowPowerOn;
+    var detLive = detectOn && !lowPowerOn && !detectGated;
     var showBox = !!roiCur && (roiOn || roiArmed) && detLive;
     layer.hidden = !(roiArmed || showBox);
     layer.classList.toggle('locked', !roiArmed);
