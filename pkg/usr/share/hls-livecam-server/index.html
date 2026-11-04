@@ -782,6 +782,12 @@
   .vind { display: flex; gap: 8px; margin-top: 6px; padding-top: 5px; border-top: 1px solid rgba(255,255,255,.04); }
   .vind i { font-family: var(--mono); font-style: normal; font-size: 7.5px; letter-spacing: .12em; color: var(--phos-ghost); white-space: nowrap; flex: 0 0 auto; }
   .vind i.on { color: var(--phos); text-shadow: 0 0 6px color-mix(in srgb,var(--phos) 52%,transparent); }
+  /* FALLBACK sits at the far end of the strip, away from the words that
+     describe what the node is doing -- it is about how the picture reached
+     THIS browser, which is a different subject, and the gap says so without
+     needing a rule. margin-left:auto rather than a fixed offset so it stays
+     on the right edge whatever the words to its left happen to be. */
+  .vind i.vfb { margin-left: auto; }
 
   .split { display: grid; grid-template-columns: 1fr 86px; gap: 11px; align-items: start; }
   .leds { display: flex; flex-direction: column; gap: 7px; padding-top: 2px; }
@@ -2111,7 +2117,7 @@
             <div class="vrow"><span class="vlab">Res</span><span class="vval"><span class="vghost">8888×888</span><span class="vlit" id="resVal"></span></span></div>
             <div class="vrow"><span class="vlab">Fps</span><span class="vval"><span class="vghost">88.8</span><span class="vlit" id="fpsVal"></span></span></div>
             <div class="vind">
-              <i id="indLive">LIVE</i><i id="indRec">REC</i><i id="indAv">A/V</i><i id="indCv">CV</i>
+              <i id="indLive">LIVE</i><i id="indRec">REC</i><i id="indAv">A/V</i><i id="indCv">CV</i><i id="indFallbackV" class="vfb" title="The picture is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FALLBACK</i>
             </div>
           </div>
           <div class="leds">
@@ -2224,7 +2230,7 @@
             <div class="vrow"><span class="vlab">Bits</span><span class="vval"><span class="vghost" id="audioKbpsGhost">888</span><span class="vlit" id="audioKbps"></span></span></div>
             <div class="vrow"><span class="vlab">Dir</span><span class="vval"><span class="vghost">8888888888888</span><span class="vlit" id="audioDirVal"></span></span></div>
             <div class="vind">
-              <i id="indStereo">STEREO</i><i id="indStop">STOP</i><i id="indMute">MUTE</i><i id="indTalk">TALK</i>
+              <i id="indStereo">STEREO</i><i id="indStop">STOP</i><i id="indMute">MUTE</i><i id="indTalk">TALK</i><i id="indFallbackA" class="vfb" title="The room is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FALLBACK</i>
             </div>
           </div>
           <div class="leds">
@@ -3936,6 +3942,11 @@
     if (typeof setHudCv === 'function') setHudCv(cvState.text, cvState.capability_text);
   }
 
+  // How long REC stays lit after a picture goes out. Long enough to be
+  // seen on a panel somebody glances at, short enough that it is still
+  // about THIS moment.
+  var REC_FLASH_S = 6;
+
   function paintLamps() {
     var live = (liveInd && liveInd.textContent === 'LIVE');
     // '' is dark and means UNKNOWN -- nothing has measured this stage.
@@ -3969,6 +3980,13 @@
            : (pipeline ? 'down' : '');
     set('ledHlsV', videoTransport === 'hls' ? tx : '');
     set('ledRtcV', videoTransport === 'rtc' ? tx : '');
+    // FALLBACK says WHY you are on HLS, which the HLS lamp alone cannot:
+    // lit only when RTC failed to deliver. Force HLS is deliberate, so it
+    // lights nothing -- a node told to serve an audience is not a node in
+    // trouble, and conflating the two would make the word meaningless on
+    // the one day it matters.
+    var fbV = document.getElementById('indFallbackV');
+    if (fbV) fbV.className = 'vfb' + ((videoTransport === 'hls' && !forceHls) ? ' on' : '');
     // ledHlsA (the AUDIO panel's HLS lamp) is NOT server health: it means
     // "listening over buffered HLS", the inbound audio SOURCE, so it is
     // driven by audioMode in paintAudioModes and goes dark the moment the
@@ -3980,6 +3998,24 @@
     set('ledRtspV', stage('rtsp'));    set('ledRtspA', stage('rtsp'));
     var iLive = document.getElementById('indLive');
     if (iLive) iLive.className = live ? 'on' : '';
+    // REC. It had never been lit by anything -- the word was in the markup
+    // and no code referenced it, so it read as a permanently-off feature
+    // rather than a readout.
+    //
+    // Two facts under one word, which is what REC means on a camera: the
+    // evidence recorder is writing segments, or a picture has just gone
+    // out to the chat. The second is a MOMENT rather than a state, so it
+    // is held for a few seconds -- a lamp that is only true for one frame
+    // is a lamp nobody ever sees. The server reports when a still was
+    // actually SENT, not when one was asked for, so a request dropped by a
+    // full queue or a cooldown lights nothing.
+    var iRec = document.getElementById('indRec');
+    if (iRec) {
+      var recOn = !!(pipeline && pipeline.recording);
+      var sAt = (pipeline && pipeline.snapshot_at) || 0;
+      if (sAt && (Date.now() / 1000 - sAt) < REC_FLASH_S) recOn = true;
+      iRec.className = recOn ? 'on' : '';
+    }
     var iAv = document.getElementById('indAv');
     if (iAv) iAv.className = audioReady ? 'on' : '';
     var res = document.getElementById('resVal');
@@ -4822,6 +4858,10 @@
                       || (audioMode === 'play' && listenTransport === 'rtc');
       rtcLed.className = 'led' + (rtcListening ? ' on' : '');
     }
+    // Same rule as the picture's: why, not just which.
+    var fbA = document.getElementById('indFallbackA');
+    if (fbA) fbA.className = 'vfb' +
+      ((audioMode === 'play' && listenTransport === 'hls' && !forceHls) ? ' on' : '');
     // HLS audio lamp = actually listening over buffered HLS. Off in Silence,
     // and off during Two-way -- roomAudio is paused there and inbound arrives
     // on the RTC leg (see startTwoWay), so the two lamps never both claim the

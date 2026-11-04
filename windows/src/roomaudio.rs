@@ -50,6 +50,14 @@ fn start(ffmpeg: &PathBuf) -> std::io::Result<std::process::Child> {
         "1",
         "-application",
         "voip",
+        // LOW LATENCY. ffmpeg's -muxdelay defaults to 0.7s and applies to
+        // RTP/RTSP output, so this publisher held packets for most of a second
+        // before mediamtx saw them -- invisible behind HLS's own window, and
+        // the floor under WebRTC once that window was gone.
+        "-muxdelay",
+        "0",
+        "-muxpreload",
+        "0",
         "-rtsp_transport",
         "tcp",
         "-f",

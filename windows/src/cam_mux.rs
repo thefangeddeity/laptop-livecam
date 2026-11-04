@@ -31,6 +31,11 @@ fn command(ffmpeg: &PathBuf, has_audio: bool) -> Command {
     } else {
         cmd.args(["-map", "0:v", "-c", "copy"]);
     }
+    // LOW LATENCY. ffmpeg's -muxdelay defaults to 0.7s and applies to
+    // RTP/RTSP output, so this publisher held packets for most of a second
+    // before mediamtx saw them -- invisible behind HLS's own window, and
+    // the floor under WebRTC once that window was gone.
+    cmd.args(["-muxdelay", "0", "-muxpreload", "0"]);
     cmd.args(["-rtsp_transport", "tcp", "-f", "rtsp", CAM_URL]);
     cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
