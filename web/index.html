@@ -2140,7 +2140,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v1.8.2-21-gbc38121"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-22-gc163031"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2289,6 +2289,10 @@
             <div class="vrow"><span class="vlab">Rate</span><span class="vval"><span class="vghost" id="audioRateGhost">88.8</span><span class="vlit" id="audioRate"></span></span></div>
             <div class="vrow"><span class="vlab">Bits</span><span class="vval"><span class="vghost" id="audioKbpsGhost">888</span><span class="vlit" id="audioKbps"></span></span></div>
             <div class="vrow"><span class="vlab">Dir</span><span class="vval"><span class="vghost">8888888888888</span><span class="vlit" id="audioDirVal"></span></span></div>
+            <!-- The room has a delay too, and it is not the picture's: it
+                 travels on its own leg, with its own buffer. Measured the
+                 same way and shown the same way. -->
+            <div class="vrow"><span class="vlab">Lag</span><span class="vval"><span class="vghost">8.88s</span><span class="vlit" id="audioLagVal"></span></span></div>
             <div class="vind">
               <i id="indStereo">STEREO</i><i id="indStop">STOP</i><i id="indMute">MUTE</i><i id="indTalk">TALK</i><i id="indFallbackA" class="vfb" title="The room is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FALLBACK</i>
             </div>
@@ -3118,7 +3122,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-21-gbc38121';
+    var build = info.version || 'mac-v1.8.2-22-gc163031';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -4019,7 +4023,7 @@
   // Deliberately not one blended number: they measure different things, and
   // a single figure that silently changes meaning with the transport is the
   // kind of readout this panel keeps removing.
-  var lagMs = null, lagKind = '';
+  var lagMs = null, lagKind = '', lagParts = {};
   // ── IS THE RTC PICTURE STILL MOVING? ───────────────────────────────────
   //
   // A WebRTC track that dies does not raise an error. It simply stops
@@ -4064,16 +4068,50 @@
     if (!el) return;
     if (videoTransport === 'rtc' && vidRtcPc && vidRtcPc.getStats) {
       vidRtcPc.getStats(null).then(function (stats) {
-        var d = null, n = null, fd = null;
+        var d = null, n = null, fd = null, rtt = null;
         stats.forEach(function (r) {
           if (r.type === 'inbound-rtp' && r.kind === 'video') {
             if (typeof r.jitterBufferDelay === 'number') d = r.jitterBufferDelay;
             if (typeof r.jitterBufferEmittedCount === 'number') n = r.jitterBufferEmittedCount;
             if (typeof r.framesDecoded === 'number') fd = r.framesDecoded;
           }
+          // The network leg. Half the round trip is the one-way estimate --
+          // the only part of the path between node and browser that either
+          // end can actually measure.
+          if (r.type === 'candidate-pair' && r.nominated &&
+              typeof r.currentRoundTripTime === 'number') {
+            rtt = r.currentRoundTripTime;
+          }
         });
-        if (d !== null && n) { lagMs = (d / n) * 1000; lagKind = 'buffer'; }
-        else { lagMs = null; lagKind = ''; }
+        // THE WHOLE CHAIN, not the part the browser can see by itself.
+        //
+        // This reported jitter-buffer delay alone and called it the lag,
+        // which on this node understated it about threefold: measured in CV
+        // mode, the NODE holds each frame 140ms in its own frame stage
+        // while the browser's buffer was reporting 34-58ms. A readout that
+        // names the smallest term in a sum is worse than none, because it
+        // reads as good news.
+        //
+        // Three measured parts, each from whoever can actually see it:
+        //   pipeline  the node's own dwell time, served on /api/pipeline
+        //   network   half the ICE round trip
+        //   buffer    the receiver's jitter buffer
+        //
+        // Still not glass-to-glass -- sensor exposure, encode and the
+        // display's own pipeline are not in it and cannot be had from here.
+        // The title says so rather than letting the number imply otherwise.
+        lagParts = {
+          pipeline: (pipeline && typeof pipeline.pipeline_ms === 'number')
+                      ? pipeline.pipeline_ms : null,
+          network: (rtt !== null) ? (rtt * 1000) / 2 : null,
+          buffer: (d !== null && n) ? (d / n) * 1000 : null
+        };
+        var any = false, total = 0;
+        ['pipeline', 'network', 'buffer'].forEach(function (k) {
+          if (lagParts[k] !== null) { total += lagParts[k]; any = true; }
+        });
+        lagMs = any ? total : null;
+        lagKind = 'chain';
         paintLag();
         noteRtcFrames(fd);
       }).catch(function () {});
@@ -4082,22 +4120,110 @@
     if (videoTransport === 'hls') {
       var drift = liveEdgeDrift();
       lagMs = (drift === null) ? null : drift * 1000;
-      lagKind = 'edge';
+      lagKind = 'edge'; lagParts = {};
     } else { lagMs = null; lagKind = ''; }
     paintLag();
   }
   function paintLag() {
     var el = document.getElementById('lagVal');
     if (!el) return;
-    if (lagMs === null) { el.textContent = ''; el.title = ''; return; }
-    el.textContent = (lagMs < 1000)
-      ? Math.round(lagMs) + 'ms'
-      : (lagMs / 1000).toFixed(1) + 's';
-    el.title = (lagKind === 'buffer')
-      ? 'Receiver jitter-buffer delay over WebRTC. Capture, encode and network time are not included -- this is the part that varies.'
-      : 'How far this player is sitting behind the live edge of the HLS window.';
+    if (lagMs === null) { el.innerHTML = ''; el.title = ''; return; }
+    // Same shape as the FPS row above it: value, then the unit small and
+    // dimmed. They are read together, so they should look like one family.
+    var txt, unit;
+    if (lagMs < 1000) { txt = String(Math.round(lagMs)); unit = 'MS'; }
+    else { txt = (lagMs / 1000).toFixed(1); unit = 'S'; }
+    el.innerHTML = txt + '<span class="vunit">' + unit + '</span>';
+    if (lagKind === 'chain') {
+      function part(k, label) {
+        return lagParts[k] === null ? label + ' n/a'
+             : label + ' ' + Math.round(lagParts[k]) + 'ms';
+      }
+      el.title = 'Measured end to end: ' +
+        part('pipeline', 'node') + ' + ' + part('network', 'network') +
+        ' + ' + part('buffer', 'buffer') +
+        '. Not glass-to-glass: sensor exposure, encode and your display are not included.';
+    } else {
+      el.title = 'How far this player is sitting behind the live edge of the HLS window.';
+    }
   }
   pollEvery(pollLag, 2000);
+
+  // ── THE ROOM'S OWN DELAY ───────────────────────────────────────────────
+  //
+  // Audio does not ride the picture's leg -- it has its own WHEP
+  // subscription and its own jitter buffer, so the video figure says
+  // nothing about it. Measured from whoever can see each part, exactly as
+  // the picture is.
+  //
+  // The node's video dwell time is deliberately NOT added here: that is the
+  // frame stage, and the room never goes through it. Sox to Opus to RTSP is
+  // a different path, and borrowing the video number would be inventing a
+  // term rather than measuring one.
+  var audioLagMs = null, audioLagKind = '', audioLagParts = {};
+  function pollAudioLag() {
+    var el = document.getElementById('audioLagVal');
+    if (!el) return;
+    if (audioMode === 'play' && listenTransport === 'rtc' &&
+        twoWayRxPc && twoWayRxPc.getStats) {
+      twoWayRxPc.getStats(null).then(function (stats) {
+        var d = null, n = null, rtt = null;
+        stats.forEach(function (r) {
+          if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+            if (typeof r.jitterBufferDelay === 'number') d = r.jitterBufferDelay;
+            if (typeof r.jitterBufferEmittedCount === 'number') n = r.jitterBufferEmittedCount;
+          }
+          if (r.type === 'candidate-pair' && r.nominated &&
+              typeof r.currentRoundTripTime === 'number') rtt = r.currentRoundTripTime;
+        });
+        audioLagParts = {
+          network: (rtt !== null) ? (rtt * 1000) / 2 : null,
+          buffer: (d !== null && n) ? (d / n) * 1000 : null
+        };
+        var any = false, total = 0;
+        ['network', 'buffer'].forEach(function (k) {
+          if (audioLagParts[k] !== null) { total += audioLagParts[k]; any = true; }
+        });
+        audioLagMs = any ? total : null;
+        audioLagKind = 'chain';
+        paintAudioLag();
+      }).catch(function () {});
+      return;
+    }
+    if (audioMode === 'play' && listenTransport === 'hls' && roomAudio) {
+      // Same question asked of the buffered leg: how far behind the live
+      // edge this element is sitting.
+      try {
+        var sk = roomAudio.seekable;
+        if (sk && sk.length && isFinite(roomAudio.currentTime)) {
+          audioLagMs = (sk.end(sk.length - 1) - roomAudio.currentTime) * 1000;
+          audioLagKind = 'edge'; audioLagParts = {};
+        } else { audioLagMs = null; }
+      } catch (e) { audioLagMs = null; }
+    } else { audioLagMs = null; audioLagKind = ''; audioLagParts = {}; }
+    paintAudioLag();
+  }
+  function paintAudioLag() {
+    var el = document.getElementById('audioLagVal');
+    if (!el) return;
+    if (audioLagMs === null) { el.innerHTML = ''; el.title = ''; return; }
+    var txt, unit;
+    if (audioLagMs < 1000) { txt = String(Math.round(audioLagMs)); unit = 'MS'; }
+    else { txt = (audioLagMs / 1000).toFixed(1); unit = 'S'; }
+    el.innerHTML = txt + '<span class="vunit">' + unit + '</span>';
+    if (audioLagKind === 'chain') {
+      function part(k, label) {
+        return audioLagParts[k] === null ? label + ' n/a'
+             : label + ' ' + Math.round(audioLagParts[k]) + 'ms';
+      }
+      el.title = 'The room, measured: ' + part('network', 'network') + ' + ' +
+        part('buffer', 'buffer') +
+        '. Capture and encode on the node are not included.';
+    } else {
+      el.title = 'How far the room is sitting behind the live edge of the HLS window.';
+    }
+  }
+  pollEvery(pollAudioLag, 2000);
 
   function paintLamps() {
     var live = (liveInd && liveInd.textContent === 'LIVE');

@@ -1324,6 +1324,7 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
         # published dst.write() are all derived from this one buffer, so one
         # call here is what makes the mask a property of the frame rather
         # than of three remembered call sites.
+        _t_dwell = time.perf_counter()
         raw = _apply_privacy_mask(raw)
         try:
             # The real frame, before anything renders over it. Every mode
@@ -1404,6 +1405,8 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
             globals()['_cv_last_timings'] = _meta.get('timings_ms') or {}
             globals()['_cv_eco'] = bool(_meta.get('eco'))
             dst.write(np.ascontiguousarray(out).tobytes())
+            with _cv_obs_lock:
+                _pump_dwell.append((time.perf_counter() - _t_dwell) * 1000.0)
         except BrokenPipeError:
             break                      # B exited; the loop above will notice
         except Exception as exc:
@@ -3753,6 +3756,20 @@ _cv_cap_lock = threading.Lock()
 _CV_OBS_MAX     = 240    # rolling window of per-frame render times (ms)
 _CV_OBS_MIN     = 90     # before this many, we have not seen enough to judge
 _rec_proc = None          # the evidence recorder, when one is running
+# How long a frame spends IN THIS PROCESS: fully-read to fully-written. The
+# browser can measure its own buffer and the network, and nothing could see
+# this part, so a lag readout built only from getStats was reporting the
+# smallest term and calling it the total.
+#
+# Deliberately not the gap between reads -- that is the frame interval, and
+# blocking for the next frame is waiting rather than latency.
+_pump_dwell = collections.deque(maxlen=120)
+
+
+def _pump_dwell_ms():
+    with _cv_obs_lock:
+        xs = sorted(_pump_dwell)
+    return round(xs[len(xs) // 2], 1) if xs else None
 _cv_last_timings = {}     # newest per-stage breakdown from CVProcessor
 _cv_eco          = False  # the processor dropped its enhancement pipeline
 _cv_obs         = collections.deque(maxlen=_CV_OBS_MAX)
@@ -4186,6 +4203,9 @@ def pipeline():
         # or clip having just gone out. Both are "this moment is being
         # kept", which is what REC has always meant on a camera.
         'recording': bool(_rec_proc is not None and _rec_proc.poll() is None),
+        # The node's own contribution to the delay, so the viewer can report
+        # a whole chain instead of the one term it can see by itself.
+        'pipeline_ms': _pump_dwell_ms(),
         'snapshot_at': _last_send_at(),
         'cv_capable':    _cap['state'],
         'cv_capability': _cap,
