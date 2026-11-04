@@ -2140,7 +2140,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.3"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.3-1-ga59fa22"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2611,6 +2611,19 @@
                  maxlength="200" autocomplete="off" aria-label="Mesh passphrase"
                  enterkeyhint="go" title="Enter joins">
           <button class="pbtn" id="eleJoinBtn" onclick="eleJoin()">Join</button>
+        </div>
+        <!-- THE WAY OUT, in the slot the passphrase field occupies when you
+             are not signed in. The card then has one shape in both states and
+             the control costs no new height. Only ever one of the two rows is
+             visible, which is also what makes the pair readable: this row
+             being here IS the statement that you are signed in.
+             Two-step rather than a dialog: a misclick on a screen in the hall
+             should not drop the household's messaging, and this card has no
+             room for a modal. -->
+        <div class="ele-row" id="eleLeaveRow" hidden>
+          <span class="quiet" id="eleLeaveNote">signed in to this mesh</span>
+          <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()"
+                  title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
         </div>
         <div class="ele-err" id="eleErr" hidden></div>
         <div class="msg-actions two" id="eleActions" hidden>
@@ -3137,7 +3150,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.3';
+    var build = info.version || 'mac-v7.1.3-1-ga59fa22';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -6871,6 +6884,7 @@
              actions: document.getElementById('eleActions'),
              invite: document.getElementById('eleInviteBtn'),
              signin: document.getElementById('eleSignInRow'),
+             leave: document.getElementById('eleLeaveRow'),
              me: document.getElementById('eleMe') };
   }
 
@@ -6915,6 +6929,7 @@
     if (p.send) p.send.hidden = true;
     if (p.invite) p.invite.hidden = true;
     if (p.signin) p.signin.hidden = true;   // nothing here to join
+    if (p.leave) p.leave.hidden = true;     // nor to leave
     if (p.actions) p.actions.hidden = false;
   }
 
@@ -6932,7 +6947,55 @@
     if (p.send) p.send.hidden = true;
     if (p.invite) p.invite.hidden = true;
     if (p.signin) p.signin.hidden = false;
+    if (p.leave) p.leave.hidden = true;
     if (p.actions) p.actions.hidden = false;
+  }
+
+  // Two presses, no dialog. The first arms and says so; the second commits.
+  // It disarms itself after a few seconds, because a button left reading
+  // "Leave mesh?" across the room is a trap for the next person to walk past.
+  var eleLeaveArmed = 0;
+  var ELE_LEAVE_ARM_MS = 5000;
+
+  function eleLeave() {
+    var btn = document.getElementById('eleLeaveBtn');
+    var now = Date.now();
+    if (!eleLeaveArmed || now - eleLeaveArmed > ELE_LEAVE_ARM_MS) {
+      eleLeaveArmed = now;
+      if (btn) btn.textContent = 'Leave mesh?';
+      setTimeout(function () {
+        if (!eleLeaveArmed || Date.now() - eleLeaveArmed < ELE_LEAVE_ARM_MS) return;
+        eleLeaveArmed = 0;
+        var b = document.getElementById('eleLeaveBtn');
+        if (b) b.textContent = 'Leave mesh';
+      }, ELE_LEAVE_ARM_MS + 200);
+      return;
+    }
+    eleLeaveArmed = 0;
+    if (btn) { btn.disabled = true; btn.textContent = 'leaving\u2026'; }
+    // The mesh forgets the token AND expires the cookie; this page holds
+    // neither, so there is nothing to clean up on this side. Success is
+    // simply "poll again" -- the next poll gets a 401 and the card falls
+    // back to its signed-out state through the path that already exists,
+    // rather than a second copy of that logic here.
+    fetch('/elem/v1/logout', { method: 'POST', cache: 'no-store' })
+      .then(function (r) { return r.ok; })
+      .catch(function () { return false; })
+      .then(function (ok) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Leave mesh'; }
+        if (!ok) {
+          // SAY SO. The first draft swallowed this, and on a node whose mesh
+          // predates /v1/logout the POST 404s: the next poll would find the
+          // session still good, the card would redraw itself signed in, and
+          // the button would look like it had done nothing at all. A control
+          // that silently fails is worse than one that is missing.
+          eleSay('this mesh is too old to sign out from -- update it, or clear the site data');
+          return;
+        }
+        eleAuthed = false;
+        eleGen++;
+        elePoll(eleGen);
+      });
   }
 
   // POST /v1/login takes {passphrase, invite} and sets an HttpOnly session
@@ -6996,6 +7059,7 @@
     // box for the rest of the session -- asking again for something it had
     // already been given.
     if (p.signin) p.signin.hidden = true;
+    if (p.leave) p.leave.hidden = false;
     if (p.send) p.send.hidden = false;
     if (p.invite) p.invite.hidden = false;
     if (p.actions) p.actions.hidden = false;
