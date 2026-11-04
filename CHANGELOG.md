@@ -4,6 +4,62 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.54
+
+- **The pump catches up to the present instead of queueing the past.** The
+  frame stage is not always faster than the camera, and a pipe does not drop
+  what it cannot read in time, it QUEUES it. Measured on ariana at 75-128ms a
+  frame against a 66ms interval at 15fps, and 150ms in CV: every frame waited
+  behind a backlog that only grew, so the picture fell further behind reality
+  by several frames a second and after a few minutes was tens of seconds
+  stale. That looks exactly like freezing while the viewer still receives a
+  steady 15fps of old pictures -- the FPS counter was telling the truth, it
+  just counts frames presented, not frames that are current.
+
+  This tree's architecture already caches only the newest frame, so a slow
+  RENDER cannot accumulate delay here the way it did on macOS. The read loop
+  itself can still fall behind (it applies the privacy mask inline) and
+  nothing measured that, so it now drains whole frames already queued in the
+  pipe, keeps the newest, and reports both `pipeline_ms` (median per-frame
+  dwell) and `pump_skipped` on /api/pipeline. Against the frame interval,
+  pipeline_ms is the whole question. A rising pump_skipped is not an error: it
+  is the node saying it renders slower than it captures, and choosing a
+  current picture over a complete one.
+
+- **The room's WebRTC leg gets the safety the picture's leg already had.**
+  Four missing protections, each a real defect: no grace window after
+  subscribing (a leg with no packet history was judged against that empty
+  history, which is how a watchdog tears down the leg it is waiting for and
+  does it again forever); no bound and no way out (the picture falls back to
+  HLS, the room resubscribed RTC for the rest of the session); recovery gated
+  by a flat 4s timeout while the resubscribe can take 10s, so two chains ran
+  at once and closed each other's connection; and no connectionstatechange
+  handler at all on the one leg that actually carries the room. The stall
+  threshold also never refreshed its timestamp when it fired, so once one tick
+  was past it, every tick was. The room now falls back to HLS after two
+  stalls, says FLLBCK, and climbs back when RTC answers again.
+
+- **The RTC stall watchdog no longer tears down its own fresh subscription.**
+  A new peer connection publishes no inbound-rtp entry for a second or two,
+  and "no reading yet" is not "a reading that has not moved". Conflating them
+  made the watchdog fire on its own startup, re-subscribe straight back into
+  the window, and hold the last frame for the whole ride.
+
+- **A guard checked before a promise and trusted after it**, found five times
+  while sweeping for the class: pressing Hide during a connect or a climb-back
+  put the room on screen anyway (the same privacy failure already fixed in
+  initVideo, reached through two other doors), choosing Silence mid-subscribe
+  started the room up under a stopped panel, and hanging up a two-way call
+  mid-negotiation let the chain run to its end, set the call live again over a
+  connection that no longer existed, and re-subscribe a room leg nobody had
+  asked for. Every one of these now re-reads the state it is about to act on.
+
+- **/api/clientstat**, which accepts a viewer's WebRTC getStats and keeps the
+  last 40 samples in memory, never on disk. Freezing survived three wrong
+  diagnoses because getStats lives in the browser and nothing on the node
+  could see it: the node could see its own pipeline, the viewer its own jitter
+  buffer, and neither could see the sum.
+
 ## 7.0.53
 
 - **700ms of muxer delay removed from every RTSP publisher.** ffmpeg's

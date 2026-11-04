@@ -6,7 +6,7 @@ Studio model: pyfakewebcam writes frames to v4l2loopback (/dev/video10).
 Publisher ffmpeg reads from loopback, pushes to mediamtx. Non-blocking.
 """
 from flask import Flask, request, abort, Response
-import os, subprocess, time, sys, threading, signal, socket, re, collections, queue, shutil
+import os, subprocess, time, sys, threading, signal, socket, re, collections, queue, shutil, select
 import numpy as np
 sys.path.insert(0, '/usr/share/hls-livecam-server')
 # Prefer a distro-packaged pyfakewebcam (Arch has python-pyfakewebcam); fall
@@ -1709,12 +1709,72 @@ def _detect_tap_loop(det_holder):
         time.sleep(period)
 
 
+# How many whole frames this node threw away because it could not keep up,
+# and how long a frame sits here before it is published. Both are reported on
+# /api/pipeline, because "the node cannot render as fast as it captures" is a
+# fact about this machine that nothing else on the fleet could see.
+#
+# THE BACKLOG IS THE LAG. This architecture already keeps only the newest
+# frame in _cam_frame, so a slow RENDER cannot accumulate delay the way it did
+# on macOS -- but this loop is not free either (it applies the privacy mask
+# inline), and a pipe does not drop what it cannot read in time, it QUEUES it.
+# If this loop ever falls behind the camera, every frame after that waits
+# behind a queue that only grows, and the picture falls further behind reality
+# without any lamp changing colour. On ariana that reached tens of seconds
+# while the FPS counter read a healthy 15: it counts frames presented, not
+# frames that are current.
+#
+# A live camera has no use for a frame it is already late for. Non-blocking,
+# so it never waits for a frame that has not arrived; a zero count means this
+# node keeps up, which is worth knowing too.
+_pump_skipped = [0]
+_pump_dwell      = collections.deque(maxlen=120)
+_pump_dwell_lock = threading.Lock()
+
+def _dwell_record(ms):
+    with _pump_dwell_lock:
+        _pump_dwell.append(ms)
+
+def _pump_dwell_ms():
+    """Median ms this node spends per frame between reading it and publishing
+    it. Against the frame interval (1/FRAMERATE) this is the whole question:
+    above it, the node cannot keep up and the picture is drifting into the
+    past; below it, the node is current."""
+    with _pump_dwell_lock:
+        if not _pump_dwell:
+            return None
+        xs = sorted(_pump_dwell)
+    return round(xs[len(xs) // 2], 1)
+
+def _drain_to_latest(src, n, first):
+    latest, dropped = first, 0
+    try:
+        fd = src.fileno()
+    except Exception:
+        return latest, 0
+    while True:
+        try:
+            r, _, _ = select.select([fd], [], [], 0)
+        except Exception:
+            break
+        if not r:
+            break
+        nxt = src.read(n)
+        if not nxt or len(nxt) != n:
+            break
+        latest, dropped = nxt, dropped + 1
+    return latest, dropped
+
+
 def _drain_loop(cam_holder, denv):
     global _cam_frame, _cam_proc
     while not _shutting_down.is_set():
         try:
             raw = cam_holder[0].stdout.read(FRAME_BYTES)
             if len(raw) == FRAME_BYTES:
+                raw, _sk = _drain_to_latest(cam_holder[0].stdout, FRAME_BYTES, raw)
+                if _sk:
+                    _pump_skipped[0] += _sk
                 # BEFORE the cache, which is the branch point: the display
                 # pipeline, the detector tap and the evidence recorder all
                 # read _cam_frame. Masking here is the only placement where
@@ -2014,12 +2074,18 @@ def _writer_loop():
             _pub_proc = pub_holder[0]
             time.sleep(0.5)
 
+        # Started only once a frame is actually in hand. Starting it at the
+        # loop top would charge the idle wait below to the render cost, so an
+        # idle node would report a dwell of a whole frame interval and look
+        # exactly like one that cannot keep up.
+        _frame_t0 = None
         try:
             with _cam_frame_lock:
                 raw = _cam_frame
             if raw is None:
                 time.sleep(delay)
                 continue
+            _frame_t0 = time.perf_counter()
 
             # The real frame, before the branch below decides what to render.
             # Every mode feeds the recorder the same picture of the room.
@@ -2071,6 +2137,15 @@ def _writer_loop():
         except Exception:
             time.sleep(0.1)
             continue
+        finally:
+            # IN A FINALLY. Recording this on the fall-through path only is a
+            # bug this fleet has now had three times: `continue` skips the
+            # tail of a loop body, so every mode that takes an early exit
+            # contributes nothing and the median silently describes one branch
+            # instead of the loop. The except above continues, so a tail
+            # placement would drop exactly the slow iterations worth measuring.
+            if _frame_t0 is not None:
+                _dwell_record((time.perf_counter() - _frame_t0) * 1000.0)
 
         time.sleep(delay)
 
@@ -2474,6 +2549,38 @@ def _cv_capability():
         return out
 
 
+# WHAT ONLY THE BROWSER CAN MEASURE, handed back to the node.
+#
+# Freezing survived three wrong diagnoses because getStats() lives in the
+# viewer and nothing here could see it. The node could see its own pipeline
+# and the viewer could see its own jitter buffer, and neither could see the
+# sum -- so each one kept reporting that its own half looked fine.
+#
+# In memory only, newest last, and never written to disk: these are numbers
+# about a household camera's viewers, and they are worth exactly one debugging
+# session, not a file that outlives it.
+_client_stats = collections.deque(maxlen=40)
+
+@app.route('/api/clientstat', methods=['POST', 'GET'])
+def clientstat():
+    if request.method == 'GET':
+        return _json.dumps(list(_client_stats)), 200, {'Content-Type': 'application/json'}
+    try:
+        d = request.get_json(force=True, silent=True) or {}
+    except Exception:
+        d = {}
+    if not isinstance(d, dict):
+        return '', 204
+    # Cap what a viewer can push: this is an unauthenticated endpoint on the
+    # LAN and it should not become a way to grow this process's memory.
+    d = {str(k)[:32]: v for k, v in list(d.items())[:32]
+         if isinstance(v, (int, float, str, bool, type(None)))}
+    d['at'] = round(time.time(), 1)
+    d['ip'] = (request.remote_addr or '')[:46]
+    _client_stats.append(d)
+    return '', 204
+
+
 @app.route('/api/pipeline', methods=['GET'])
 def pipeline_get():
     now = time.time()
@@ -2494,6 +2601,13 @@ def pipeline_get():
     out = {
         'cv_capable':    cap['state'],
         'cv_capability': cap,
+        # The node's own honesty about whether it can keep up. pipeline_ms is
+        # the median per-frame dwell; pump_skipped counts whole frames thrown
+        # away as already-late. A rising pump_skipped is not an error -- it is
+        # this node saying it renders slower than it captures, and choosing a
+        # current picture over a complete one.
+        'pipeline_ms':   _pump_dwell_ms(),
+        'pump_skipped':  _pump_skipped[0],
         # Hidden is 'off', not 'down': the camera is deliberately not being
         # published. Calling that a fault would be as wrong as calling it ok.
         # Read the DEVICE, not the mode. The writer loop runs in every mode and
