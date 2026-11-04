@@ -2242,8 +2242,12 @@
             <div class="vrow"><span class="vlab">Rate</span><span class="vval"><span class="vghost" id="audioRateGhost">88.8</span><span class="vlit" id="audioRate"></span></span></div>
             <div class="vrow"><span class="vlab">Bits</span><span class="vval"><span class="vghost" id="audioKbpsGhost">888</span><span class="vlit" id="audioKbps"></span></span></div>
             <div class="vrow"><span class="vlab">Dir</span><span class="vval"><span class="vghost">8888888888888</span><span class="vlit" id="audioDirVal"></span></span></div>
+            <!-- The room has a delay too, and it is not the picture's: it
+                 travels on its own leg, with its own buffer. Measured the
+                 same way and shown the same way. -->
+            <div class="vrow"><span class="vlab">Lag</span><span class="vval"><span class="vghost">8.88s</span><span class="vlit" id="audioLagVal"></span></span></div>
             <div class="vind">
-              <i id="indStereo">STEREO</i><i id="indStop">STOP</i><i id="indMute">MUTE</i><i id="indTalk">TALK</i><i id="indFallbackA" class="vfb" title="The room is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FALLBACK</i>
+              <i id="indStereo">STEREO</i><i id="indStop">STOP</i><i id="indMute">MUTE</i><i id="indTalk">TALK</i><i id="indFallbackA" class="vfb" title="The room is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FLLBCK</i>
             </div>
           </div>
           <div class="leds">
@@ -3728,6 +3732,27 @@
   // Per-node, NOT a fleet constant: macOS switches in under 10 seconds and
   // must not clone this. See PENDING.md.
   var TRANSITION_MIN_MS = 16000;
+  // HOW LONG THE SNOW HOLDS DEPENDS ON WHAT IT IS COVERING.
+  //
+  // The sixteen seconds above were measured against HLS, where they are
+  // honest: the window has to fill and the player has to settle, and
+  // lifting the cover early shows a stalled picture. RTC has no window --
+  // it is playing within a second or two of the track arriving -- so the
+  // same hold is thirteen seconds of snow over a feed that is already
+  // live (requirement: shorter before RTC, full length on fallback or
+  // forced HLS).
+  //
+  // Resolved rather than guessed: the transport is not known when the
+  // cover starts, so this returns the LONG value until it is, and the hold
+  // re-evaluates as it goes (see finish). A cover that guessed short and
+  // then fell back to HLS would lift onto exactly the stalled picture the
+  // sixteen seconds exist to hide.
+  var TRANSITION_MIN_RTC_MS = 2500;
+  function transitionMinMs() {
+    if (forceHls) return TRANSITION_MIN_MS;          // deliberate HLS
+    if (videoTransport === 'rtc') return TRANSITION_MIN_RTC_MS;
+    return TRANSITION_MIN_MS;                        // HLS, or not yet known
+  }
 
   function fadeOut() {
     video.style.opacity = '0';
@@ -3757,11 +3782,15 @@
       // playing already. One pending timer only -- finish() is called from
       // both 'playing' and the fallback, and stacking timers would fire a
       // burst of them at the end.
-      var left = TRANSITION_MIN_MS - (Date.now() - startedAt);
+      var left = transitionMinMs() - (Date.now() - startedAt);
       if (left > 0) {
+        // Re-checked at least twice a second rather than slept through:
+        // the transport usually resolves AFTER the cover starts, and a
+        // single long timer booked against the HLS figure would hold the
+        // snow for sixteen seconds over a picture that went live in two.
         if (!holding) { holding = true; setTimeout(function () {
           holding = false; finish();
-        }, left); }
+        }, Math.min(left, 500)); }
         return;
       }
       done = true;
@@ -3982,44 +4011,301 @@
   // Deliberately not one blended number: they measure different things, and
   // a single figure that silently changes meaning with the transport is the
   // kind of readout this panel keeps removing.
-  var lagMs = null, lagKind = '';
+  var lagMs = null, lagKind = '', lagParts = {};
+  // ── IS THE RTC PICTURE STILL MOVING? ───────────────────────────────────
+  //
+  // A WebRTC track that dies does not raise an error. It simply stops
+  // delivering, and the element goes on showing the last frame it got --
+  // with every lamp green and the pill reading LIVE, because nothing in the
+  // page was watching. That is the lamp-that-cannot-fail problem, and it is
+  // the one failure mode the HLS path had covered and this one did not:
+  // hls.js has error events and a stall watchdog, a MediaStream has
+  // neither.
+  //
+  // Any publisher restart kills the track -- which means every feed-mode
+  // change, every settings-triggered rebuild, and every `livecam restart`.
+  //
+  // framesDecoded is the honest measure: it counts frames the decoder
+  // actually produced, so it stops the moment media stops regardless of
+  // what the connection state claims. Two consecutive polls with no new
+  // frames (4s, against a 15fps stream) is not a hiccup.
+  var lastFramesDecoded = null, rtcStallTicks = 0, lastFrameAdvanceAt = 0;
+  // When the current subscription was established. A fresh peer connection
+  // publishes no inbound-rtp entry for a second or two, and "no reading
+  // yet" is NOT "a reading that has not moved" -- conflating the two is
+  // what turned this watchdog into a teardown loop: two polls inside that
+  // window both read the same sentinel, counted as a stall, tore the
+  // session down, and re-subscribed straight back into the window. The
+  // picture held its last frame for the whole ride.
+  var rtcSubscribedAt = 0;
+  var RTC_STALL_GRACE_MS = 6000;
+  var RTC_STALL_TICKS = 2;
+
+  function noteRtcFrames(n) {
+    // Nothing is judged until the subscription has had time to publish a
+    // first reading. Without this the watchdog fires on its own startup.
+    if (!rtcSubscribedAt || Date.now() - rtcSubscribedAt < RTC_STALL_GRACE_MS) {
+      if (typeof n === 'number') { lastFramesDecoded = n; lastFrameAdvanceAt = Date.now(); }
+      rtcStallTicks = 0;
+      return;
+    }
+    // A MISSING READING IS THE LOUDEST READING THERE IS -- but only once
+    // there has been time for a reading to exist at all.
+    //
+    // This used to bail here, so it only ever counted a stall when frames
+    // were flat but STILL BEING REPORTED. When the track actually dies --
+    // which is what a publisher restart does, and the case this exists for
+    // -- getStats stops returning an inbound-rtp video entry at all, n
+    // arrives as null, and the watchdog returned without counting a thing.
+    // It covered the mild failure and not the real one.
+    if (typeof n !== 'number') { n = -1; }
+    if (lastFramesDecoded !== null && n === lastFramesDecoded) rtcStallTicks++;
+    else { rtcStallTicks = 0; lastFrameAdvanceAt = Date.now(); }
+    lastFramesDecoded = n;
+    if (rtcStallTicks < RTC_STALL_TICKS) return;
+    rtcStallTicks = 0; lastFramesDecoded = null;
+    // NOT exempt in Hide. That exemption was this bug: "nothing is meant to
+    // be moving" is true of the STREAM and false of the element, which goes
+    // on displaying the last frame it decoded. Hide now tears the player
+    // down in initVideo, so there is no RTC session here to stall -- and if
+    // one somehow survives into Hide, recovering it is still right, because
+    // it ends with the picture gone rather than frozen.
+    console.info('viewer: RTC delivered no frames for ' +
+                 (RTC_STALL_TICKS * 2) + 's -- re-subscribing.');
+    // Re-run the whole transport choice rather than just re-subscribing:
+    // if RTC is genuinely gone, this is also how we reach HLS.
+    initVideo();
+  }
   function pollLag() {
     var el = document.getElementById('lagVal');
     if (!el) return;
+    // THE CONNECTION'S OWN VERDICT COMES FIRST. If ICE has given up there
+    // is nothing to wait four seconds for, and polling stats on a dead
+    // peer connection tells us less than the peer connection already has.
+    if (videoTransport === 'rtc' && vidRtcPc) {
+      var cs = vidRtcPc.connectionState || vidRtcPc.iceConnectionState;
+      if (cs === 'failed' || cs === 'closed' || cs === 'disconnected') {
+        console.info('viewer: RTC connection ' + cs + ' -- re-choosing transport.');
+        lastFramesDecoded = null; rtcStallTicks = 0;
+        initVideo();
+        return;
+      }
+    }
+    // Claiming RTC with no peer connection at all is the state a torn-down
+    // session leaves behind; it can never recover on its own.
+    if (videoTransport === 'rtc' && !vidRtcPc) { initVideo(); return; }
     if (videoTransport === 'rtc' && vidRtcPc && vidRtcPc.getStats) {
       vidRtcPc.getStats(null).then(function (stats) {
-        var d = null, n = null;
+        var d = null, n = null, fd = null, rtt = null;
         stats.forEach(function (r) {
           if (r.type === 'inbound-rtp' && r.kind === 'video') {
             if (typeof r.jitterBufferDelay === 'number') d = r.jitterBufferDelay;
             if (typeof r.jitterBufferEmittedCount === 'number') n = r.jitterBufferEmittedCount;
+            if (typeof r.framesDecoded === 'number') fd = r.framesDecoded;
+          }
+          // The network leg. Half the round trip is the one-way estimate --
+          // the only part of the path between node and browser that either
+          // end can actually measure.
+          if (r.type === 'candidate-pair' && r.nominated &&
+              typeof r.currentRoundTripTime === 'number') {
+            rtt = r.currentRoundTripTime;
           }
         });
-        if (d !== null && n) { lagMs = (d / n) * 1000; lagKind = 'buffer'; }
-        else { lagMs = null; lagKind = ''; }
+        // THE WHOLE CHAIN, not the part the browser can see by itself.
+        //
+        // This reported jitter-buffer delay alone and called it the lag,
+        // which on this node understated it about threefold: measured in CV
+        // mode, the NODE holds each frame 140ms in its own frame stage
+        // while the browser's buffer was reporting 34-58ms. A readout that
+        // names the smallest term in a sum is worse than none, because it
+        // reads as good news.
+        //
+        // Three measured parts, each from whoever can actually see it:
+        //   pipeline  the node's own dwell time, served on /api/pipeline
+        //   network   half the ICE round trip
+        //   buffer    the receiver's jitter buffer
+        //
+        // Still not glass-to-glass -- sensor exposure, encode and the
+        // display's own pipeline are not in it and cannot be had from here.
+        // The title says so rather than letting the number imply otherwise.
+        lagParts = {
+          pipeline: (pipeline && typeof pipeline.pipeline_ms === 'number')
+                      ? pipeline.pipeline_ms : null,
+          network: (rtt !== null) ? (rtt * 1000) / 2 : null,
+          buffer: (d !== null && n) ? (d / n) * 1000 : null
+        };
+        var any = false, total = 0;
+        ['pipeline', 'network', 'buffer'].forEach(function (k) {
+          if (lagParts[k] !== null) { total += lagParts[k]; any = true; }
+        });
+        lagMs = any ? total : null;
+        lagKind = 'chain';
         paintLag();
-      }).catch(function () {});
+        noteRtcFrames(fd);
+        // Post the raw numbers back to the node. The whole reason freezing
+        // took three wrong diagnoses is that getStats lives here and
+        // nothing on the node could see it.
+        reportClientStat(stats);
+      }).catch(function () {
+        // getStats itself failing on a closed connection is a stall by any
+        // reasonable reading, and was previously swallowed in silence.
+        noteRtcFrames(null);
+      });
       return;
     }
     if (videoTransport === 'hls') {
       var drift = liveEdgeDrift();
       lagMs = (drift === null) ? null : drift * 1000;
-      lagKind = 'edge';
+      lagKind = 'edge'; lagParts = {};
     } else { lagMs = null; lagKind = ''; }
     paintLag();
   }
   function paintLag() {
     var el = document.getElementById('lagVal');
     if (!el) return;
-    if (lagMs === null) { el.textContent = ''; el.title = ''; return; }
-    el.textContent = (lagMs < 1000)
-      ? Math.round(lagMs) + 'ms'
-      : (lagMs / 1000).toFixed(1) + 's';
-    el.title = (lagKind === 'buffer')
-      ? 'Receiver jitter-buffer delay over WebRTC. Capture, encode and network time are not included -- this is the part that varies.'
-      : 'How far this player is sitting behind the live edge of the HLS window.';
+    // A STUCK PICTURE MUST NOT READ AS A HEALTHY ONE. While frames are not
+    // advancing, the jitter buffer goes on reporting its own small figure --
+    // it is describing a queue nothing is draining -- so the sum stayed in
+    // the tens of milliseconds under a frozen image. What is actually true
+    // then is how long the picture has been old, and it grows.
+    if (videoTransport === 'rtc' && rtcStallTicks > 0 && lastFrameAdvanceAt) {
+      lagMs = Date.now() - lastFrameAdvanceAt;
+      lagKind = 'stalled';
+    }
+    if (lagMs === null) { el.innerHTML = ''; el.title = ''; return; }
+    // Same shape as the FPS row above it: value, then the unit small and
+    // dimmed. They are read together, so they should look like one family.
+    var txt, unit;
+    if (lagMs < 1000) { txt = String(Math.round(lagMs)); unit = 'MS'; }
+    else { txt = (lagMs / 1000).toFixed(1); unit = 'S'; }
+    el.innerHTML = txt + '<span class="vunit">' + unit + '</span>';
+    if (lagKind === 'stalled') {
+      el.title = 'No new frames. This is how long the picture has been ' +
+                 'frozen, not a transport delay -- recovery is in progress.';
+      return;
+    }
+    if (lagKind === 'chain') {
+      function part(k, label) {
+        return lagParts[k] === null ? label + ' n/a'
+             : label + ' ' + Math.round(lagParts[k]) + 'ms';
+      }
+      el.title = 'Measured end to end: ' +
+        part('pipeline', 'node') + ' + ' + part('network', 'network') +
+        ' + ' + part('buffer', 'buffer') +
+        '. Not glass-to-glass: sensor exposure, encode and your display are not included.';
+    } else {
+      el.title = 'How far this player is sitting behind the live edge of the HLS window.';
+    }
   }
+  // Hand the node what only the browser can measure. Rate-limited, dropped
+  // on any error, and nothing here is required for the viewer to work.
+  var _statAt = 0;
+  function reportClientStat(stats) {
+    if (Date.now() - _statAt < 10000) return;
+    _statAt = Date.now();
+    var o = { transport: videoTransport, mode: feedMode, fps: null };
+    stats.forEach(function (r) {
+      if (r.type === 'inbound-rtp' && r.kind === 'video') {
+        ['framesDecoded','framesDropped','framesReceived','packetsReceived',
+         'packetsLost','nackCount','pliCount','freezeCount','jitter',
+         'totalFreezesDuration','framesPerSecond','keyFramesDecoded'
+        ].forEach(function (k) { if (r[k] !== undefined) o[k] = r[k]; });
+      }
+      if (r.type === 'candidate-pair' && r.nominated) {
+        if (r.currentRoundTripTime !== undefined) o.rtt = r.currentRoundTripTime;
+        if (r.availableIncomingBitrate !== undefined) o.inBitrate = r.availableIncomingBitrate;
+      }
+    });
+    try {
+      fetch('/api/clientstat', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(o) }).catch(function () {});
+    } catch (e) {}
+  }
+
   pollEvery(pollLag, 2000);
+
+  // ── THE ROOM'S OWN DELAY ───────────────────────────────────────────────
+  //
+  // Audio does not ride the picture's leg -- it has its own WHEP
+  // subscription and its own jitter buffer, so the video figure says
+  // nothing about it. Measured from whoever can see each part, exactly as
+  // the picture is.
+  //
+  // The node's video dwell time is deliberately NOT added here: that is the
+  // frame stage, and the room never goes through it. Sox to Opus to RTSP is
+  // a different path, and borrowing the video number would be inventing a
+  // term rather than measuring one.
+  var audioLagMs = null, audioLagKind = '', audioLagParts = {};
+  function pollAudioLag() {
+    var el = document.getElementById('audioLagVal');
+    if (!el) return;
+    // EVERY leg that rides the RTC subscription, not just Monitor. This
+    // covered audioMode 'play' alone, so Two-way -- the one mode where the
+    // delay actually matters, because somebody is having a conversation --
+    // showed an empty LAG row. Same mistake as the frame-dwell timer:
+    // written for the branch in front of me and not for the others.
+    var rtcAudioLeg = (audioMode === 'play' && listenTransport === 'rtc')
+                   || (audioMode === 'two-way' && typeof twoWayOn !== 'undefined' && twoWayOn);
+    if (rtcAudioLeg && twoWayRxPc && twoWayRxPc.getStats) {
+      twoWayRxPc.getStats(null).then(function (stats) {
+        var d = null, n = null, rtt = null;
+        stats.forEach(function (r) {
+          if (r.type === 'inbound-rtp' && r.kind === 'audio') {
+            if (typeof r.jitterBufferDelay === 'number') d = r.jitterBufferDelay;
+            if (typeof r.jitterBufferEmittedCount === 'number') n = r.jitterBufferEmittedCount;
+          }
+          if (r.type === 'candidate-pair' && r.nominated &&
+              typeof r.currentRoundTripTime === 'number') rtt = r.currentRoundTripTime;
+        });
+        audioLagParts = {
+          network: (rtt !== null) ? (rtt * 1000) / 2 : null,
+          buffer: (d !== null && n) ? (d / n) * 1000 : null
+        };
+        var any = false, total = 0;
+        ['network', 'buffer'].forEach(function (k) {
+          if (audioLagParts[k] !== null) { total += audioLagParts[k]; any = true; }
+        });
+        audioLagMs = any ? total : null;
+        audioLagKind = 'chain';
+        paintAudioLag();
+      }).catch(function () {});
+      return;
+    }
+    if (audioMode === 'play' && listenTransport === 'hls' && roomAudio) {
+      // Same question asked of the buffered leg: how far behind the live
+      // edge this element is sitting.
+      try {
+        var sk = roomAudio.seekable;
+        if (sk && sk.length && isFinite(roomAudio.currentTime)) {
+          audioLagMs = (sk.end(sk.length - 1) - roomAudio.currentTime) * 1000;
+          audioLagKind = 'edge'; audioLagParts = {};
+        } else { audioLagMs = null; }
+      } catch (e) { audioLagMs = null; }
+    } else { audioLagMs = null; audioLagKind = ''; audioLagParts = {}; }
+    paintAudioLag();
+  }
+  function paintAudioLag() {
+    var el = document.getElementById('audioLagVal');
+    if (!el) return;
+    if (audioLagMs === null) { el.innerHTML = ''; el.title = ''; return; }
+    var txt, unit;
+    if (audioLagMs < 1000) { txt = String(Math.round(audioLagMs)); unit = 'MS'; }
+    else { txt = (audioLagMs / 1000).toFixed(1); unit = 'S'; }
+    el.innerHTML = txt + '<span class="vunit">' + unit + '</span>';
+    if (audioLagKind === 'chain') {
+      function part(k, label) {
+        return audioLagParts[k] === null ? label + ' n/a'
+             : label + ' ' + Math.round(audioLagParts[k]) + 'ms';
+      }
+      el.title = 'The room, measured: ' + part('network', 'network') + ' + ' +
+        part('buffer', 'buffer') +
+        '. Capture and encode on the node are not included.';
+    } else {
+      el.title = 'How far the room is sitting behind the live edge of the HLS window.';
+    }
+  }
+  pollEvery(pollAudioLag, 2000);
 
   function paintLamps() {
     var live = (liveInd && liveInd.textContent === 'LIVE');
@@ -4048,10 +4334,22 @@
     // 'down' goes only on the leg currently being ATTEMPTED, because that is
     // the only one that has been measured and failed. Lighting the idle leg
     // red would report a fault in something nobody asked to run.
+    // RED MEANS FAILED, NOT BUSY.
+    //
+    // This painted the selected transport red the moment it was selected
+    // and not yet playing, so every ordinary connect showed a fault -- and
+    // it disagreed with the audio lamp three rows down, which already had
+    // the rule right: "not yet" must not look like "broken". Two lamps in
+    // one column obeying opposite rules means neither can be learned.
+    //
+    // `faulted` is the page's own word for an involuntary failure -- the
+    // player gave up -- and it is the only thing that earns the colour.
+    // Connecting is dark here; the LIVE pill says CONNECTING and the snow
+    // is over the picture, so the state is already on screen twice.
     var tx = (feedModeKnown && feedMode === 'hide') ? ''
            : live ? 'ok'
-           : (!feedModeKnown) ? ''
-           : (pipeline ? 'down' : '');
+           : faulted ? 'down'
+           : '';
     set('ledHlsV', videoTransport === 'hls' ? tx : '');
     set('ledRtcV', videoTransport === 'rtc' ? tx : '');
     // FALLBACK says WHY you are on HLS, which the HLS lamp alone cannot:
@@ -4617,6 +4915,10 @@
   function setVideoTransport(t) {
     if (videoTransport === t) return;
     videoTransport = t;
+    // The stall counter belongs to ONE subscription. Carrying it across a
+    // transport change would compare a fresh leg's frame count against a
+    // dead one's and declare a stall on the first poll.
+    lastFramesDecoded = null; rtcStallTicks = 0;
     paintLamps();
   }
 
@@ -4637,6 +4939,7 @@
     // reasoning as startRoomRx's own teardown.
     if (vidRtcRes) { fetch(vidRtcRes, { method: 'DELETE' }).catch(function () {}); vidRtcRes = null; }
     if (vidRtcPc) { try { vidRtcPc.close(); } catch (e) {} vidRtcPc = null; }
+    rtcSubscribedAt = 0; lastFramesDecoded = null; rtcStallTicks = 0;
     // AND release the element. srcObject OUTRANKS src: a media element that
     // still holds a MediaStream ignores any src assigned afterwards, so
     // leaving one behind makes the HLS fallback attach to an element that
@@ -4668,6 +4971,8 @@
     pc.addEventListener('track', function (ev) {
       if (pc !== vidRtcPc) return;              // a superseded attempt
       gotTrack = true;
+      rtcSubscribedAt = Date.now();
+      lastFramesDecoded = null; rtcStallTicks = 0;
       // Destroy the HLS player BEFORE touching the element. Two reasons:
       // hls.js is still attached over MSE and would go on fetching
       // segments for a picture nobody is watching, and load() on an
@@ -4709,6 +5014,33 @@
   // does; what changed is that it now chooses a transport first.
   function initVideo() {
     stopVideoRtc();
+    // HIDE ATTACHES NO PLAYER, AND MUST LEAVE NOTHING ON SCREEN.
+    //
+    // This had no hide branch at all, so it subscribed to RTC whatever the
+    // mode -- discarding the rule the feed-mode poll states in its own
+    // comment, that opening on a hidden feed must not attach a player.
+    //
+    // The consequence was not a wasted subscription, it was a privacy
+    // failure. Pressing Hide restarts the publisher, which kills the RTC
+    // track, and a dead track leaves the element showing its LAST DECODED
+    // FRAME forever. So Hide displayed the room -- a still of it, held --
+    // under a lit Hide key, which is the exact thing the control exists to
+    // prevent. A frozen frame is harmless on Show and is the whole failure
+    // on Hide.
+    //
+    // Torn down explicitly rather than trusting the black stream to arrive
+    // and paint over it: the picture must go when the key is pressed, not
+    // when the network gets round to it.
+    if (feedModeKnown && feedMode === 'hide') {
+      stopHls();
+      setVideoTransport('none');
+      try {
+        video.srcObject = null;
+        video.removeAttribute('src');
+        video.load();
+      } catch (e) {}
+      return;
+    }
     if (forceHls) {
       setVideoTransport('hls');
       initHLS(); seekToLiveEdgeSoon();
@@ -4716,6 +5048,15 @@
     }
     setStatus('CONNECTING');
     startVideoRtc().then(function (ok) {
+      // HIDE CAN ARRIVE WHILE THIS IS NEGOTIATING. The hide branch at the top
+      // of initVideo ran seconds ago; both outcomes below put the room on
+      // screen (one over RTC, one by starting HLS), so without re-reading the
+      // mode here, pressing Hide during a connect shows the room anyway.
+      if (feedModeKnown && feedMode === 'hide') {
+        stopVideoRtc(); stopHls(); setVideoTransport('none');
+        try { video.srcObject = null; video.removeAttribute('src'); video.load(); } catch (e) {}
+        return;
+      }
       if (ok) { setVideoTransport('rtc'); return; }
       // RTC did not deliver. Release whatever it reserved on the node before
       // asking HLS for the same picture -- otherwise a node that just failed
@@ -4754,12 +5095,21 @@
     if (!feedModeKnown || feedMode === 'hide') return;
     if (vidRtcPc) return;                       // an attempt is already live
     startVideoRtc().then(function (ok) {
-      if (ok) {
-        setVideoTransport('rtc');
-        console.info('viewer: RTC is answering again -- off the HLS fallback.');
-      } else {
+      // RE-CHECK, DO NOT TRUST THE CONDITIONS ABOVE. Several seconds pass
+      // inside that attempt, and the guards were evaluated BEFORE it. Hide
+      // arriving in that window is the case that matters: startVideoRtc
+      // attaches the stream from its own 'track' handler, so the room would
+      // be back on screen under Hide -- the same privacy failure initVideo
+      // was already fixed for, reached through a different door.
+      if (!ok || forceHls || !feedModeKnown || feedMode === 'hide') {
         stopVideoRtc();                         // leave HLS exactly as it was
+        if (feedMode === 'hide') {
+          try { video.srcObject = null; video.removeAttribute('src'); video.load(); } catch (e) {}
+        }
+        return;
       }
+      setVideoTransport('rtc');
+      console.info('viewer: RTC is answering again -- off the HLS fallback.');
     });
   }
   pollEvery(retryRtcFromFallback, RTC_RETRY_S * 1000);
@@ -5765,6 +6115,31 @@
     if (twoWayRxPc) { try { twoWayRxPc.close(); } catch (e) {} }
     twoWayRxPc = new RTCPeerConnection({ iceServers: [] });
     twoWayRxPc.addTransceiver('audio', { direction: 'recvonly' });
+    _rtcSubscribedAt = Date.now();   // the grace window runs from the LAST attempt
+    // THE LEG THAT ACTUALLY CARRIES THE ROOM WAS THE ONE LEG WITH NO
+    // connectionstatechange HANDLER -- talkPc has one, twoWayPc has one, the
+    // picture reads connectionState directly, and this one had nothing. A
+    // connection that dropped outright sat there until the 8s packet
+    // watchdog noticed, which is the slow path to a fact the browser already
+    // knew.
+    //
+    // 'failed' ONLY. 'disconnected' is routinely transient -- ICE says it on
+    // a wifi blip and recovers by itself seconds later, and acting on it is
+    // how you turn a blip into a teardown. 'closed' is never news: it is the
+    // state OUR OWN .close() produces, in stopRoomRx and on every
+    // resubscribe, so treating it as a failure would make each recovery
+    // trigger the next one.
+    (function (pc) {
+      pc.addEventListener('connectionstatechange', function () {
+        if (pc !== twoWayRxPc) return;            // a superseded attempt; not ours to judge
+        if (pc.connectionState !== 'failed') return;
+        if (_rtcRecovering) return;
+        var rtcListening = (twoWayOn && audioMode === 'two-way')
+                        || (audioMode === 'play' && listenTransport === 'rtc');
+        if (!rtcListening) return;
+        audioRtcRecover();
+      });
+    })(twoWayRxPc);
     twoWayRxPc.addEventListener('track', function (ev) {
       gotTrack = true;
       if (twoWayRx) { twoWayRx.srcObject = ev.streams[0]; twoWayRx.play().catch(function () {}); }
@@ -5836,12 +6211,17 @@
     if (forceHls) { startListenHls(); return; }
     setListenTransport('none');
     startRoomRx().then(function (ok) {
+      // Silence can arrive while this is subscribing -- up to four attempts
+      // at 2.5s live inside startRoomRx. Both outcomes below make the room
+      // audible, so the mode has to be re-read rather than assumed.
+      if (audioMode !== 'play') { stopRoomRx(); setListenTransport('none'); return; }
       if (ok) {
         // The room is on the RTC element; the HLS monitor must not also be
         // running or the same room arrives twice, seven seconds apart.
         try { roomAudio.pause(); } catch (e) {}
         setListenTransport('rtc');
         applyAudioSilence();
+        _rtcRecoveries = 0;   // a fresh listen is a fresh budget
         return;
       }
       stopRoomRx();
@@ -5865,6 +6245,9 @@
   }
 
   function stopRoomRx() {
+    // The watchdog's history belongs to the leg. Leaving it behind means the
+    // next leg is judged on the dead one's packet count.
+    _rtcSubscribedAt = 0; _rtcLastPackets = -1; _rtcLastChangeAt = 0;
     if (twoWayRxRes) { fetch(twoWayRxRes, { method: 'DELETE' }).catch(function () {}); twoWayRxRes = null; }
     if (twoWayRxPc) { try { twoWayRxPc.close(); } catch (e) {} twoWayRxPc = null; }
     if (twoWayRx) { try { twoWayRx.srcObject = null; } catch (e) {} }
@@ -5881,6 +6264,7 @@
       return;
     }
     if (twoWayBtn) twoWayBtn.disabled = true;
+    var gen = ++twoWayGen;      // see the generation token further down this chain
     roomAudio.pause();          // HLS monitor stands down; the room arrives on twoWayRx, low-latency
     setListenTransport('rtc');  // same leg Monitor uses now -- see startListen
     navigator.mediaDevices.getUserMedia({
@@ -5927,13 +6311,29 @@
       return fetch('/api/talk', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'two-way' });
     })
     .then(function (r) { if (!r.ok) return r.text().then(function (t) { throw new Error(t || ('api ' + r.status)); }); })
-    .then(function () { return startRoomRx(); })
-    .then(function () { twoWayOn = true; if (twoWayBtn) twoWayBtn.disabled = false; setHudError(''); paintAudioModes(); paintTransport(); paintMute(); })
-    .catch(function (e) { stopTwoWay(String(e && e.message || e)); });
+    // GENERATION TOKEN. Hanging up mid-negotiation ran stopTwoWay, which tore
+    // everything down -- and then this chain carried on to its end and set
+    // twoWayOn = true again, over a connection that no longer existed, after
+    // re-subscribing a room leg nobody had asked for. A cancelled call must
+    // stay cancelled, and a promise chain cannot know it was cancelled unless
+    // something tells it. stopTwoWay bumps the counter; a stale chain sees
+    // that its own generation is no longer current and stops where it is.
+    .then(function () { if (gen !== twoWayGen) throw new Error('cancelled'); return startRoomRx(); })
+    .then(function () {
+      if (gen !== twoWayGen) { stopRoomRx(); return; }
+      twoWayOn = true; if (twoWayBtn) twoWayBtn.disabled = false; setHudError(''); paintAudioModes(); paintTransport(); paintMute();
+    })
+    .catch(function (e) {
+      if (gen !== twoWayGen) return;   // already torn down by whoever cancelled us
+      stopTwoWay(String(e && e.message || e));
+    });
   }
 
+  var twoWayGen = 0;
   function stopTwoWay(err) {
     twoWayOn = false;
+    twoWayGen++;        // invalidates any negotiation still in flight
+
     fetch('/api/talk', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: 'false' }).catch(function () {});
     if (twoWayTalkRes) { fetch(twoWayTalkRes, { method: 'DELETE' }).catch(function () {}); twoWayTalkRes = null; }
     if (twoWayRxRes) { fetch(twoWayRxRes, { method: 'DELETE' }).catch(function () {}); twoWayRxRes = null; }
@@ -6169,6 +6569,13 @@
   var _monPausedSince = 0;
   function monitorLivenessTick(now) {
     if (!roomAudio || audioMode !== 'play') { _monLastTime = -1; _monPausedSince = 0; return; }
+    // LISTENING OVER RTC PAUSES roomAudio ON PURPOSE, and this watchdog
+    // reads a paused element in Monitor as a stall worth recovering from.
+    // It would have restarted the HLS leg underneath a working WebRTC one
+    // and played the room twice, seven seconds apart. The watchdog belongs
+    // to the HLS leg; when that leg is not the one carrying, there is
+    // nothing here for it to judge.
+    if (listenTransport !== 'hls') { _monLastTime = -1; _monPausedSince = 0; return; }
     if (roomAudio.paused) {
       if (!_monPausedSince) _monPausedSince = now;
       else if ((now - _monPausedSince) / 1000 > PAUSED_STUCK_GRACE_S) {
@@ -6186,10 +6593,105 @@
       recoverRoomAudio();
     }
   }
+  // COMING BACK FROM THE FALLBACK, for the room as well as the picture. Once
+  // the room fell back to HLS it stayed there for the rest of the session --
+  // the only way back was toggling the mode by hand, which nobody knows to
+  // do, so a momentary RTC failure cost seven seconds of latency permanently.
+  //
+  // Same shape and same restraint as the picture's retry: slow (a node that
+  // genuinely cannot do WebRTC must not be asked every few seconds forever),
+  // and it changes nothing unless media actually arrives.
+  var AUDIO_RTC_RETRY_S = 45;
+  function retryAudioRtcFromFallback() {
+    if (forceHls) return;                      // deliberate, not a fallback
+    if (audioMode !== 'play') return;          // nothing listening to upgrade
+    if (listenTransport !== 'hls') return;     // only when we fell back
+    if (twoWayRxPc) return;                    // an attempt is already live
+    startRoomRx().then(function (ok) {
+      // Re-check: the attempt takes seconds and the guards above ran before
+      // it. Somebody choosing Silence in that window must not find the room
+      // playing because an upgrade landed after they stopped listening.
+      if (!ok || forceHls || audioMode !== 'play') { stopRoomRx(); return; }
+      try { roomAudio.pause(); } catch (e) {}  // or the room arrives twice, 7s apart
+      setListenTransport('rtc');
+      applyAudioSilence();
+      _rtcRecoveries = 0;
+      console.info('viewer: room RTC is answering again -- off the HLS fallback.');
+    });
+  }
+  pollEvery(retryAudioRtcFromFallback, AUDIO_RTC_RETRY_S * 1000);
+
   var _rtcLastPackets = -1, _rtcLastChangeAt = 0, _rtcRecovering = false;
+  // THE PICTURE'S WATCHDOG EARNED THREE LESSONS THE HARD WAY AND THE ROOM'S
+  // HAD NONE OF THEM. Each of these is a defect this leg actually had.
+  //
+  // (a) A leg that has only just been subscribed has no packet history, and
+  //     judging it against an empty history is how a watchdog tears down the
+  //     very leg it is waiting for -- and then does it again, forever. On the
+  //     picture that showed up as a fresh WHEP session every 25-45s in
+  //     mediamtx's log. Nothing is judged until the leg has had time to speak.
+  var AUDIO_RTC_GRACE_MS = 6000;
+  var _rtcSubscribedAt = 0;
+  //
+  // (b) A resubscribe that keeps not working has to END somewhere. The
+  //     picture falls back to HLS; the room used to resubscribe RTC for the
+  //     rest of the session -- a loop with a green lamp on it. Two-way is
+  //     exempt on purpose: a conversation on a seven-second buffer is not a
+  //     conversation, so a call has nowhere else to go and keeps trying.
+  var AUDIO_RTC_MAX_RECOVERIES = 2;
+  var _rtcRecoveries = 0;
+  //
+  // (c) Recovery was gated by a flat 4s timeout while startRoomRx can spend
+  //     up to four attempts at 2.5s each. The gate opened mid-resubscribe,
+  //     the next tick saw the same stale packet count and called startRoomRx
+  //     AGAIN underneath the first one, and the two chains closed each
+  //     other's RTCPeerConnection and left orphaned sessions on the node.
+  //     The gate now holds until the resubscribe actually resolves.
+  function audioRtcRecover() {
+    var inCall = (twoWayOn && audioMode === 'two-way');
+    if (!inCall && _rtcRecoveries >= AUDIO_RTC_MAX_RECOVERIES) { audioRtcFallToHls(); return; }
+    _rtcRecoveries++;
+    _rtcRecovering = true;
+    _rtcLastPackets = -1; _rtcLastChangeAt = 0;
+    startRoomRx().then(function (ok) {
+      _rtcRecovering = false;
+      if (ok) { _rtcRecoveries = 0; return; }
+      // Same re-check. Up to four attempts at 2.5s pass in here, and falling
+      // back means STARTING HLS playback -- doing that for somebody who went
+      // to Silence meanwhile would start the room up under a stopped panel.
+      var still = (twoWayOn && audioMode === 'two-way') || audioMode === 'play';
+      if (!still) { stopRoomRx(); setListenTransport('none'); return; }
+      if (!inCall) audioRtcFallToHls();
+    }).catch(function () { _rtcRecovering = false; });
+  }
+
+  // Falling back is not failing: the room keeps arriving, on the slow leg,
+  // and FLLBCK says why. paintAudioModes lights it off listenTransport.
+  function audioRtcFallToHls() {
+    _rtcRecovering = false;
+    if (audioMode !== 'play') {   // nobody is listening; do not start a leg
+      _rtcLastPackets = -1; _rtcLastChangeAt = 0; _rtcSubscribedAt = 0;
+      stopRoomRx(); setListenTransport('none'); return;
+    }
+    _rtcLastPackets = -1; _rtcLastChangeAt = 0; _rtcSubscribedAt = 0;
+    stopRoomRx();
+    setListenTransport('none');
+    startListenHls();
+    console.info('viewer: room RTC did not deliver -- on the HLS fallback.');
+  }
+
   function rtcLivenessTick(now) {
-    if (!twoWayOn || audioMode !== 'two-way' || !twoWayRxPc) { _rtcLastPackets = -1; return; }
+    // Monitor and Two-way share one WHEP leg now, so this has to cover
+    // both. It used to watch only during a call, which left listening over
+    // RTC with no liveness check at all -- the same gap the picture had,
+    // and the same symptom: a dead leg goes silent with every lamp lit.
+    var rtcListening = (twoWayOn && audioMode === 'two-way')
+                    || (audioMode === 'play' && listenTransport === 'rtc');
+    if (!rtcListening || !twoWayRxPc) { _rtcLastPackets = -1; _rtcLastChangeAt = 0; return; }
     if (_rtcRecovering) return;
+    if (!_rtcSubscribedAt || now - _rtcSubscribedAt < AUDIO_RTC_GRACE_MS) {
+      _rtcLastPackets = -1; _rtcLastChangeAt = 0; return;   // (a): too early to judge
+    }
     twoWayRxPc.getStats(null).then(function (stats) {
       var packets = null;
       stats.forEach(function (r) {
@@ -6198,9 +6700,9 @@
       if (packets == null) return;   // stat not published yet -- nothing to judge
       if (packets !== _rtcLastPackets) { _rtcLastPackets = packets; _rtcLastChangeAt = now; return; }
       if (_rtcLastChangeAt && (now - _rtcLastChangeAt) / 1000 > STALL_GRACE_S) {
-        _rtcRecovering = true;
-        startRoomRx();   // tears down + resubscribes the WHEP leg (see its own docstring)
-        setTimeout(function () { _rtcRecovering = false; }, 4000);
+        _rtcLastChangeAt = now;   // the old line never refreshed this, so once one
+                                  // tick was past the threshold, EVERY tick was
+        audioRtcRecover();
       }
     }).catch(function () {});
   }
