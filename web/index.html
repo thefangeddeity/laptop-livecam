@@ -2140,7 +2140,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v1.8.2-24-gfaa8b65"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-25-g2c6041c"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3122,7 +3122,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-24-gfaa8b65';
+    var build = info.version || 'mac-v1.8.2-25-g2c6041c';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -4157,6 +4157,10 @@
         lagKind = 'chain';
         paintLag();
         noteRtcFrames(fd);
+        // Post the raw numbers back to the node. The whole reason freezing
+        // took three wrong diagnoses is that getStats lives here and
+        // nothing on the node could see it.
+        reportClientStat(stats);
       }).catch(function () {
         // getStats itself failing on a closed connection is a stall by any
         // reasonable reading, and was previously swallowed in silence.
@@ -4208,6 +4212,32 @@
       el.title = 'How far this player is sitting behind the live edge of the HLS window.';
     }
   }
+  // Every 10s while on RTC, and only then: enough to see a trend, few
+  // enough to be invisible.
+  var _statAt = 0;
+  function reportClientStat(stats) {
+    if (Date.now() - _statAt < 10000) return;
+    _statAt = Date.now();
+    var o = { transport: videoTransport, mode: feedMode, fps: null };
+    stats.forEach(function (r) {
+      if (r.type === 'inbound-rtp' && r.kind === 'video') {
+        ['framesDecoded','framesDropped','framesReceived','packetsReceived',
+         'packetsLost','nackCount','pliCount','freezeCount','jitter',
+         'totalFreezesDuration','framesPerSecond','keyFramesDecoded'
+        ].forEach(function (k) { if (r[k] !== undefined) o[k] = r[k]; });
+      }
+      if (r.type === 'candidate-pair' && r.nominated) {
+        if (r.currentRoundTripTime !== undefined) o.rtt = r.currentRoundTripTime;
+        if (r.availableIncomingBitrate !== undefined) o.inBitrate = r.availableIncomingBitrate;
+      }
+    });
+    try {
+      fetch('/api/clientstat', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(o) }).catch(function () {});
+    } catch (e) {}
+  }
+
   pollEvery(pollLag, 2000);
 
   // ── THE ROOM'S OWN DELAY ───────────────────────────────────────────────

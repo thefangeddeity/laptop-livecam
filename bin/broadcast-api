@@ -1180,6 +1180,46 @@ _cv_stop   = threading.Event()
 _cv_proc_instance = None
 
 
+def _drain_to_latest(src, n, first):
+    """Given one complete frame, discard any WHOLE frames already queued
+    behind it and return the newest.
+
+    THE BACKLOG IS THE LAG. This pump is not always faster than the camera
+    -- measured on ariana at 75-128ms a frame against a 66ms interval at
+    15fps, and 140ms in CV mode -- and a pipe does not drop what it cannot
+    deliver on time, it queues it. So every frame waited behind a backlog
+    that only ever grew, and the picture fell further behind reality by
+    about a frame a second: minutes stale after a few minutes of watching,
+    which looks exactly like freezing while the viewer still receives a
+    steady 15fps of old pictures.
+
+    A live camera has no use for a frame it is already late for. Keeping
+    the newest and throwing the rest away bounds the delay at one frame
+    instead of letting it grow without limit. Nothing downstream wants the
+    old ones either: the detector wants now, the recorder wants now, and
+    the viewer certainly does.
+
+    Non-blocking, so this never waits for a frame that has not arrived --
+    it only takes what is ALREADY sitting in the pipe.
+    """
+    latest = first
+    dropped = 0
+    try:
+        fd = src.fileno()
+    except Exception:
+        return latest, 0
+    while True:
+        r, _, _ = select.select([fd], [], [], 0)
+        if not r:
+            break
+        nxt = _read_exact(src, n)
+        if nxt is None:
+            break                      # EOF; the caller handles it next pass
+        latest = nxt
+        dropped += 1
+    return latest, dropped
+
+
 def _read_exact(src, n):
     """Read exactly n bytes, or return None at end of stream.
 
@@ -1320,6 +1360,14 @@ def _cv_pump(src, dst, proc, first_raw=None, rec=None):
             raw = _read_exact(src, nbytes)
             if raw is None:
                 break                  # A exited or was killed
+            # Catch up to the present before doing any work on it.
+            raw, _skipped = _drain_to_latest(src, nbytes, raw)
+            if _skipped:
+                _pump_skipped[0] += _skipped
+                if _pump_skipped[0] in (1, 100, 1000) or _pump_skipped[0] % 5000 == 0:
+                    print('broadcast-api: pump behind the camera, skipped '
+                          f'{_pump_skipped[0]} stale frame(s) to stay current',
+                          file=sys.stderr, flush=True)
         # BEFORE the branch below: _to_rec, the detector's observe() and the
         # published dst.write() are all derived from this one buffer, so one
         # call here is what makes the mask a property of the frame rather
@@ -3382,6 +3430,35 @@ def detect_always_post():
     return ('true' if _detect_always else 'false'), 200
 
 
+# ── CLIENT TELEMETRY ──────────────────────────────────────────────────────
+# A viewer's WebRTC stats, posted back so a fault can be diagnosed from the
+# node instead of guessed at from screenshots. getStats lives in the
+# browser and nothing here could see it, which is why three rounds of
+# hypotheses about freezing produced three wrong answers.
+#
+# Kept in memory only, last 40 samples, and never written to disk: it is a
+# debugging aid, not a record, and it carries nothing about the room.
+_client_stats = collections.deque(maxlen=40)
+
+
+@app.route('/api/clientstat', methods=['POST'])
+def clientstat_post():
+    try:
+        d = json.loads(request.get_data(as_text=True) or '{}')
+    except Exception:
+        abort(400)
+    if not isinstance(d, dict):
+        abort(400)
+    d['at'] = time.time()
+    _client_stats.append(d)
+    return '', 204
+
+
+@app.route('/api/clientstat', methods=['GET'])
+def clientstat_get():
+    return {'samples': list(_client_stats)}
+
+
 @app.route('/api/force-hls', methods=['GET'])
 def force_hls_get():
     return ('true' if _force_hls else 'false'), 200
@@ -3770,6 +3847,9 @@ _rec_proc = None          # the evidence recorder, when one is running
 # Deliberately not the gap between reads -- that is the frame interval, and
 # blocking for the next frame is waiting rather than latency.
 _pump_dwell = collections.deque(maxlen=120)
+# Stale frames thrown away to stay current. A rising count is not an error,
+# it is this node telling you it cannot render as fast as it captures.
+_pump_skipped = [0]
 
 
 def _pump_dwell_ms():
@@ -4212,6 +4292,7 @@ def pipeline():
         # The node's own contribution to the delay, so the viewer can report
         # a whole chain instead of the one term it can see by itself.
         'pipeline_ms': _pump_dwell_ms(),
+        'pump_skipped': _pump_skipped[0],
         'snapshot_at': _last_send_at(),
         'cv_capable':    _cap['state'],
         'cv_capability': _cap,

@@ -4157,6 +4157,10 @@
         lagKind = 'chain';
         paintLag();
         noteRtcFrames(fd);
+        // Post the raw numbers back to the node. The whole reason freezing
+        // took three wrong diagnoses is that getStats lives here and
+        // nothing on the node could see it.
+        reportClientStat(stats);
       }).catch(function () {
         // getStats itself failing on a closed connection is a stall by any
         // reasonable reading, and was previously swallowed in silence.
@@ -4208,6 +4212,32 @@
       el.title = 'How far this player is sitting behind the live edge of the HLS window.';
     }
   }
+  // Every 10s while on RTC, and only then: enough to see a trend, few
+  // enough to be invisible.
+  var _statAt = 0;
+  function reportClientStat(stats) {
+    if (Date.now() - _statAt < 10000) return;
+    _statAt = Date.now();
+    var o = { transport: videoTransport, mode: feedMode, fps: null };
+    stats.forEach(function (r) {
+      if (r.type === 'inbound-rtp' && r.kind === 'video') {
+        ['framesDecoded','framesDropped','framesReceived','packetsReceived',
+         'packetsLost','nackCount','pliCount','freezeCount','jitter',
+         'totalFreezesDuration','framesPerSecond','keyFramesDecoded'
+        ].forEach(function (k) { if (r[k] !== undefined) o[k] = r[k]; });
+      }
+      if (r.type === 'candidate-pair' && r.nominated) {
+        if (r.currentRoundTripTime !== undefined) o.rtt = r.currentRoundTripTime;
+        if (r.availableIncomingBitrate !== undefined) o.inBitrate = r.availableIncomingBitrate;
+      }
+    });
+    try {
+      fetch('/api/clientstat', { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(o) }).catch(function () {});
+    } catch (e) {}
+  }
+
   pollEvery(pollLag, 2000);
 
   // ── THE ROOM'S OWN DELAY ───────────────────────────────────────────────
