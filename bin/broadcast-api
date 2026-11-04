@@ -4380,6 +4380,11 @@ def pipeline():
         audio_rate = audio_ch = audio_kbps = None
 
     _cap = _cv_capability()
+    # ONE evaluation, not two. These were two separate calls and the gate
+    # is cached for 30s, so a request landing on the expiry could read
+    # `gated` from the old verdict and `reason` from a fresh one, and
+    # report a pair that was never true together.
+    _dgate = _detect_gate_allows()
     data = {
         # The switch itself, so the viewer can grey what it has made inert
         # and say why, rather than showing live controls over a pipeline
@@ -4405,8 +4410,8 @@ def pipeline():
         'pump_skipped': _pump_skipped[0],
         # A detector parked by the gate must SAY so. A control that silently
         # does nothing is the same failure as a lamp that cannot go out.
-        'detect_gated': (not _detect_gate_allows()[0]),
-        'detect_gate_reason': _detect_gate_allows()[1],
+        'detect_gated': (not _dgate[0]),
+        'detect_gate_reason': _dgate[1],
         'snapshot_at': _last_send_at(),
         'cv_capable':    _cap['state'],
         'cv_capability': _cap,

@@ -2140,7 +2140,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.0"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.2"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3137,7 +3137,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.0';
+    var build = info.version || 'mac-v7.1.2';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -6678,20 +6678,30 @@
   //     other's RTCPeerConnection and left orphaned sessions on the node.
   //     The gate now holds until the resubscribe actually resolves.
   function audioRtcRecover() {
-    var inCall = (twoWayOn && audioMode === 'two-way');
-    if (!inCall && _rtcRecoveries >= AUDIO_RTC_MAX_RECOVERIES) { audioRtcFallToHls(); return; }
     _rtcRecoveries++;
     _rtcRecovering = true;
     _rtcLastPackets = -1; _rtcLastChangeAt = 0;
     startRoomRx().then(function (ok) {
       _rtcRecovering = false;
-      if (ok) { _rtcRecoveries = 0; return; }
-      // Same re-check. Up to four attempts at 2.5s pass in here, and falling
-      // back means STARTING HLS playback -- doing that for somebody who went
-      // to Silence meanwhile would start the room up under a stopped panel.
-      var still = (twoWayOn && audioMode === 'two-way') || audioMode === 'play';
-      if (!still) { stopRoomRx(); setListenTransport('none'); return; }
-      if (!inCall) audioRtcFallToHls();
+      // RE-READ inCall. It used to be captured before the resubscribe, and
+      // the resubscribe takes up to four attempts at 2.5s -- long enough to
+      // answer a call in. A Two-way started in that window then hit the
+      // stale `false`, fell through to audioRtcFallToHls, and stopRoomRx
+      // closed the live call's inbound leg. That is the exact bug class this
+      // whole block was written to fix, reintroduced inside the fix.
+      var inCall = (twoWayOn && audioMode === 'two-way');
+      if (inCall) return;              // a call owns the leg now; leave it alone
+      if (audioMode !== 'play') {      // went to Silence meanwhile
+        stopRoomRx(); setListenTransport('none'); return;
+      }
+      if (ok) return;                  // leg is back; the tick clears the budget
+      // The BOUND, which used to be unreachable: the old code reset the
+      // counter to 0 on any successful resubscribe and fell back on the
+      // first failed one, so `>= MAX` was never once evaluated true and the
+      // comment promising "two stalls" described nothing. Now a failed
+      // recovery leaves us on RTC until the budget is actually spent, and
+      // only packets moving again clear it (see rtcLivenessTick).
+      if (_rtcRecoveries >= AUDIO_RTC_MAX_RECOVERIES) audioRtcFallToHls();
     }).catch(function () { _rtcRecovering = false; });
   }
 
@@ -6728,7 +6738,13 @@
         if (r.type === 'inbound-rtp' && r.kind === 'audio') packets = r.packetsReceived;
       });
       if (packets == null) return;   // stat not published yet -- nothing to judge
-      if (packets !== _rtcLastPackets) { _rtcLastPackets = packets; _rtcLastChangeAt = now; return; }
+      if (packets !== _rtcLastPackets) {
+        // Packets are moving, so whatever we spent getting here was worth
+        // it and the budget resets. This is the only honest place for it:
+        // a resubscribe RESOLVING only means the SDP exchange worked.
+        _rtcRecoveries = 0;
+        _rtcLastPackets = packets; _rtcLastChangeAt = now; return;
+      }
       if (_rtcLastChangeAt && (now - _rtcLastChangeAt) / 1000 > STALL_GRACE_S) {
         _rtcLastChangeAt = now;   // the old line never refreshed this, so once one
                                   // tick was past the threshold, EVERY tick was
@@ -6970,6 +6986,12 @@
     if (!eleList) return;
     var p = eleParts();
     eleList.hidden = false;
+    // The door closes behind you. eleShowSignIn reveals this row and
+    // eleShowUnavailable hides it, but the SIGNED-IN path did neither, so a
+    // successful join left the passphrase field sitting above the message
+    // box for the rest of the session -- asking again for something it had
+    // already been given.
+    if (p.signin) p.signin.hidden = true;
     if (p.send) p.send.hidden = false;
     if (p.invite) p.invite.hidden = false;
     if (p.actions) p.actions.hidden = false;
