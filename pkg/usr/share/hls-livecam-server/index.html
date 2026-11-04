@@ -2947,7 +2947,7 @@
             <button type="button" class="pbtn" style="flex:1 1 0; padding:4px 6px; font-size:10.5px;"
                     onclick="setAllNotches(false)" title="Turn off all notch filters">Turn off all</button>
           </div>
-          <!-- dev: "Add button to order all by frequency" -- restores the
+          <!-- requirement: "Add button to order all by frequency" -- restores the
                file's own stated convention ("Ordered by frequency") after
                additions, which always append to the end regardless of
                where they'd sort. -->
@@ -3426,7 +3426,7 @@
   }
   // The seeded notches' notes carry developer/provenance detail (measurement
   // numbers, "(seed: ariana)") that means nothing to someone just scanning the
-  // list -- dev: "user doesn't need to see all that extra info". Strip it for
+  // list -- requirement: "user doesn't need to see all that extra info". Strip it for
   // the visible label; the untouched original stays in the row's title
   // tooltip for whoever DOES want it.
   function _notchNoteLabel(note) {
@@ -3494,7 +3494,7 @@
       .then(function (data) { if (data) renderNotches(data); })
       .catch(function () {});
   }
-  // dev: "Add button to order all by frequency" -- own endpoint, not a
+  // requirement: "Add button to order all by frequency" -- own endpoint, not a
   // client-side sort, so the reordered list actually PERSISTS (a client-only
   // sort would just look right until the next reload).
   function sortNotches() {
@@ -3615,7 +3615,7 @@
   // is no timer to read, so nothing has to predict how long the switch takes.
   // Height derives from feedAR (the single feed-dimensions reference, see
   // its declaration above) instead of a hardcoded 126 that happened to
-  // agree with today's 16:9 camera -- dev: "no watchdog to tailor static
+  // agree with today's 16:9 camera -- requirement: "no watchdog to tailor static
   // ... to size of actual feed... one single 'feed dimensions' reference
   // that all these anchor to". Width stays a fixed pixel budget; recomputed
   // every draw (cheap -- the whole texture regenerates every frame anyway)

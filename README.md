@@ -3,7 +3,6 @@
 Turns an old laptop into a camera appliance: live video in a browser, room
 audio, cat/person detection, and Telegram alerts when something walks past.
 
-![camdash TUI monitor](screenshots/camstack.jpg)
 
 ## Install
 
