@@ -75,3 +75,11 @@ camdash-gui.app/
 models/
 CLAUDE.md
 GUI-ARCHITECTURE-*.md
+
+# Screenshots of the viewer show whatever the camera was pointing at, and the
+# HUD prints the node's tailnet address. Eleven were committed to this PUBLIC
+# repo: a bedroom with a child's toys, a person at a desk, the living space,
+# and 100.100.x.x in the HUD and the browser address bar. A UI crop with no
+# feed and no HUD is fine; add it with `git add -f` and look at it first.
+screenshots/
+!screenshots/*.md
