@@ -6,6 +6,18 @@ release tags on 2026-10-20, having been skipped as they shipped; the older
 
 ## 7.0.54
 
+- **The CV autothrottle never ran, and the capability gate was answering
+  from an exception.** `self._eco_hist` is appended to, measured and cleared
+  in five places and `__init__` never created it, so the first autothrottle
+  sample raised AttributeError every time on every node. It surfaced on
+  tanzania as `/api/pipeline` reporting `"reason": "probe failed:
+  'CVProcessor' object has no attribute '_eco_hist'"` -- the probe catches
+  and reports the reason as a string, which reads as a measurement rather
+  than a crash, so a broken gate looked like a considered answer. Shipped
+  broken in 7.0.53. The gate is what decides whether a node can afford CV at
+  all, and on tina it is the only thing standing between a 2011 i3 and a
+  render it cannot pay for.
+
 - **The pump catches up to the present instead of queueing the past.** The
   frame stage is not always faster than the camera, and a pipe does not drop
   what it cannot read in time, it QUEUES it. Measured on ariana at 75-128ms a

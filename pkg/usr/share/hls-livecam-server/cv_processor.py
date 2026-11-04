@@ -693,6 +693,18 @@ class CVProcessor:
         # which makes the feed more likely to look stale.
         self._detect_stop = threading.Event()
         self._eco = False
+        # NEVER INITIALISED. Five places below append to, measure and clear
+        # this deque, and __init__ did not create it -- so the very first
+        # autothrottle sample raised AttributeError, every time, on every
+        # node. It surfaced as the CV capability probe failing with
+        # "'CVProcessor' object has no attribute '_eco_hist'", which means
+        # the gate that decides whether this node can afford CV at all has
+        # been answering from an exception since 7.0.53, and the autothrottle
+        # it guards never ran once.
+        #
+        # Nothing errored visibly because the probe catches and reports the
+        # reason as a string, which read as a measurement rather than a crash.
+        self._eco_hist = deque(maxlen=45)       # ~3s at 15fps
         try:
             self._budget_ms = 1000.0 / max(1, int(denv.get('FRAMERATE', 15)))
         except Exception:
