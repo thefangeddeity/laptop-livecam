@@ -1787,9 +1787,18 @@ def _detect_tap_loop(det_holder):
 # while the FPS counter read a healthy 15: it counts frames presented, not
 # frames that are current.
 #
-# A live camera has no use for a frame it is already late for. Non-blocking,
-# so it never waits for a frame that has not arrived; a zero count means this
-# node keeps up, which is worth knowing too.
+# A live camera has no use for a frame it is already late for. A zero count
+# means this node keeps up, which is worth knowing too.
+#
+# NEARLY non-blocking, and the "nearly" is worth stating because the obvious
+# reading is wrong twice over: select() asks the KERNEL and cannot see this
+# reader's own buffer, so bytes already buffered in Python report as nothing
+# and the drain UNDER-drains; and a ready fd promises ONE byte while a sized
+# read wants a whole frame, so a select firing mid-frame does wait for the
+# rest, bounded by one frame interval. Both err toward keeping data rather
+# than dropping it, which is the right direction for this to be wrong in.
+# The guarantee that matters is unaffected: delay is bounded at a frame
+# instead of growing.
 _pump_skipped = [0]
 _pump_dwell      = collections.deque(maxlen=120)
 _pump_dwell_lock = threading.Lock()
@@ -2156,7 +2165,20 @@ def _writer_loop():
             # leg stays alive with nothing to read, which costs nothing --
             # and alert clips have nothing left to be cut for anyway, since
             # detection is parked (see _detect_always_on).
-            if not _low_power_on():
+            # And not while the capability gate has the detector parked.
+            # Clips are cut from these segments by cv_notify AT ALERT TIME,
+            # and alerts come from the detector -- so with the detector
+            # parked this x264 leg burns a core writing footage that nothing
+            # can ever cut. Measured on tanzania at 38.5% of one core.
+            #
+            # THE GATE ONLY, not the Detection switch. Somebody who turns
+            # Detection off has made a choice about alerts and may still want
+            # the footage kept; the gate is the node saying it cannot afford
+            # the detector at all, and in that state the recorder has no
+            # possible consumer. Narrow on purpose: this closes the waste the
+            # gate introduced without quietly redefining what the switch
+            # means.
+            if not _low_power_on() and _detect_gate_allows()[0]:
                 _to_rec(raw)
             _rec_prune()
 

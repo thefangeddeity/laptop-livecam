@@ -4,6 +4,26 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.1.6
+
+- **The evidence recorder no longer writes footage nothing can cut.** Clips
+  are cut from its segments by `cv_notify` at alert time, and alerts come
+  from the detector -- so on a node whose detector the capability gate has
+  parked, that x264 leg burned a core (measured on tanzania at 38.5% of one)
+  writing video with no possible consumer. The gate only, not the Detection
+  switch: somebody who turns Detection off has made a choice about alerts
+  and may still want footage kept, whereas the gate is the node saying it
+  cannot afford the detector at all. Narrow on purpose -- it closes the waste
+  the gate introduced without quietly redefining what the switch means.
+- **`_drain_to_latest` no longer claims to be non-blocking.** It is nearly
+  non-blocking, and the obvious reading was wrong twice: `select()` asks the
+  kernel and cannot see Python's own buffer, so the drain under-drains; and a
+  ready fd promises one byte while a sized read wants a whole frame, so a
+  select firing mid-frame waits for the rest. Both err toward keeping data,
+  and the guarantee that matters -- delay bounded at one frame -- is
+  unaffected. In a codebase where comments are load-bearing, one that is
+  wrong misleads the next reader.
+
 ## 7.1.5
 
 - **Leave mesh.** Signing in from the Messages card was one-way: the session
