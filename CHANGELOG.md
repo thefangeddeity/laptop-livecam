@@ -4,6 +4,38 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.53
+
+- **700ms of muxer delay removed from every RTSP publisher.** ffmpeg's
+  -muxdelay defaults to 0.7s on RTP/RTSP output and nothing here set it, so
+  every publisher held packets for most of a second before mediamtx saw
+  them. Invisible behind HLS's seven-second window; the floor under WebRTC
+  once that window was gone. It sat in front of the picture and the room
+  alike.
+- **The HLS fallback is recoverable.** It only ever ran on first load, a
+  mode change or Reload, so one transient RTC failure -- a node restart is
+  enough -- latched HLS in permanently and the viewer sat on the seven
+  second window until somebody reloaded the page. It now retries RTC every
+  45s while on the fallback, and a failed probe leaves the HLS picture
+  untouched.
+- **LAG**, measured, beside HOST/RES/FPS: the receiver's jitter-buffer
+  delay on RTC, distance from the live edge on HLS. Not one blended
+  number, and the RTC figure is explicitly not glass-to-glass.
+- **REC** means something now. It was in the markup and lit by nothing. It
+  reports the evidence recorder writing segments, or a picture having just
+  gone out -- the server marks when a still was actually SENT, so a request
+  dropped by a full queue or a cooldown lights nothing.
+- **FALLBACK**, bottom right of both readouts, lit only when HLS is
+  carrying because RTC did not deliver. Dark under Force HLS, which is a
+  choice and not a fallback.
+- **Naming in the gallery is a cluster of the names you already have**, and
+  pressing one files the picture and moves to the next. The preview closes
+  when the set is empty, not after every rename.
+- Three defects fixed in the transport switch itself: the hls.js player was
+  never destroyed when RTC took over, srcObject outranked src so the Force
+  HLS path attached to an element that would ignore it, and a stale HLS
+  retry could land on top of a working RTC stream.
+
 ## 7.0.52
 
 - **The picture and the room arrive over WebRTC now, with HLS as the
