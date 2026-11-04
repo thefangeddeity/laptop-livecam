@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+
+
 """Fleet-portable supervisor for the livecam stack.
 
 Owns exactly two children -- mediamtx and broadcast-api -- and reconciles them
@@ -18,6 +20,18 @@ streaming. That is the enabled flag's job, and the flag is a file, so it
 survives reboots and reinstalls identically on all three platforms regardless
 of how the supervisor itself got started.
 """
+
+# NO BYTECODE NEXT TO THE SOURCE. Python caches .pyc beside what it imports,
+# and when this runs from the installed .app that is inside Contents/, where
+# any added file breaks the bundle's code signature -- and TCC pins the
+# camera and microphone grants to the cdhash, so repairing the signature
+# silently drops the permissions. Set here rather than only in the launcher's
+# environment, because the supervisor, the LaunchAgents and anything a user
+# runs by hand do not all come through it: one of them wrote exactly one
+# stray .pyc and that was enough to invalidate the whole bundle.
+import sys
+sys.dont_write_bytecode = True
+
 import os
 import sys
 import time
