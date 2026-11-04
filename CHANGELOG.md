@@ -4,6 +4,35 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.1.3
+
+Baseline release. Four logic errors found by tracing the paths changed in
+7.1.0-7.1.2 as execution rather than reading them as text.
+
+- **The mesh sign-in row never went away.** `eleShowSignIn` revealed it and
+  `eleShowUnavailable` hid it; `eleRender`, the signed-in path, did neither.
+  A successful join left the passphrase field above the message box for the
+  rest of the session, asking again for what it had already been given.
+- **The audio recovery bound was unreachable.** `_rtcRecoveries` reset to 0
+  on any successful resubscribe and fell back on the first failed one, so
+  `>= AUDIO_RTC_MAX_RECOVERIES` was never evaluated true and the comment
+  promising "two stalls" described nothing. Only packets actually moving
+  clears the budget now, because a resubscribe resolving means the SDP
+  exchange worked and nothing more.
+- **A Two-way answered mid-recovery had its inbound leg cut.** `inCall` was
+  captured before a resubscribe that can take ten seconds, and the stale
+  value sent a live call down the teardown branch. This is the same
+  guard-checked-before-a-promise class the block was written to fix,
+  reintroduced inside the fix.
+- **The detection gate was evaluated twice per request**, against a
+  30-second cache, so a request landing on the expiry could report
+  `detect_gated` from the old verdict and `detect_gate_reason` from a fresh
+  one -- a pair that was never true together.
+
+Also carries the macOS fix from 7.1.2 (the app no longer breaks its own code
+signature by writing bytecode and state inside its own bundle), which has no
+counterpart here but keeps the fleet on one version number.
+
 ## 7.1.1
 
 - **Sign in to the mesh from the Messages card.** The card could already tell
