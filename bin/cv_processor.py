@@ -1114,6 +1114,10 @@ class CVProcessor:
             out, tracks = self._detect_and_hud(frame, out)
             t['detect'] = time.perf_counter() - t6
             t['total'] = time.perf_counter() - t0
+            # A rendered frame is a rendered frame. Leaving these two early
+            # returns out left the autothrottle blind in exactly the modes
+            # that add an extra render pass.
+            self._note_frame_cost(t['total'])
             return out, {
                 'motion': 0.0,
                 'sharpness': 0.0,
@@ -1141,6 +1145,10 @@ class CVProcessor:
             out, tracks = self._detect_and_hud(frame, out)
             t['detect'] = time.perf_counter() - t6
             t['total'] = time.perf_counter() - t0
+            # A rendered frame is a rendered frame. Leaving these two early
+            # returns out left the autothrottle blind in exactly the modes
+            # that add an extra render pass.
+            self._note_frame_cost(t['total'])
             return out, {
                 'motion': 0.0,
                 'sharpness': 0.0,

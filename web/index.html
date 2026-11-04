@@ -2140,7 +2140,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v1.8.2-22-gc163031"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-23-g6d5a659"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3122,7 +3122,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-22-gc163031';
+    var build = info.version || 'mac-v1.8.2-23-g6d5a659';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -4041,13 +4041,21 @@
   // actually produced, so it stops the moment media stops regardless of
   // what the connection state claims. Two consecutive polls with no new
   // frames (4s, against a 15fps stream) is not a hiccup.
-  var lastFramesDecoded = null, rtcStallTicks = 0;
+  var lastFramesDecoded = null, rtcStallTicks = 0, lastFrameAdvanceAt = 0;
   var RTC_STALL_TICKS = 2;
 
   function noteRtcFrames(n) {
-    if (typeof n !== 'number') return;
+    // A MISSING READING IS THE LOUDEST READING THERE IS.
+    //
+    // This used to bail here, so it only ever counted a stall when frames
+    // were flat but STILL BEING REPORTED. When the track actually dies --
+    // which is what a publisher restart does, and the case this exists for
+    // -- getStats stops returning an inbound-rtp video entry at all, n
+    // arrives as null, and the watchdog returned without counting a thing.
+    // It covered the mild failure and not the real one.
+    if (typeof n !== 'number') { n = -1; }
     if (lastFramesDecoded !== null && n === lastFramesDecoded) rtcStallTicks++;
-    else rtcStallTicks = 0;
+    else { rtcStallTicks = 0; lastFrameAdvanceAt = Date.now(); }
     lastFramesDecoded = n;
     if (rtcStallTicks < RTC_STALL_TICKS) return;
     rtcStallTicks = 0; lastFramesDecoded = null;
@@ -4066,6 +4074,21 @@
   function pollLag() {
     var el = document.getElementById('lagVal');
     if (!el) return;
+    // THE CONNECTION'S OWN VERDICT COMES FIRST. If ICE has given up there
+    // is nothing to wait four seconds for, and polling stats on a dead
+    // peer connection tells us less than the peer connection already has.
+    if (videoTransport === 'rtc' && vidRtcPc) {
+      var cs = vidRtcPc.connectionState || vidRtcPc.iceConnectionState;
+      if (cs === 'failed' || cs === 'closed' || cs === 'disconnected') {
+        console.info('viewer: RTC connection ' + cs + ' -- re-choosing transport.');
+        lastFramesDecoded = null; rtcStallTicks = 0;
+        initVideo();
+        return;
+      }
+    }
+    // Claiming RTC with no peer connection at all is the state a torn-down
+    // session leaves behind; it can never recover on its own.
+    if (videoTransport === 'rtc' && !vidRtcPc) { initVideo(); return; }
     if (videoTransport === 'rtc' && vidRtcPc && vidRtcPc.getStats) {
       vidRtcPc.getStats(null).then(function (stats) {
         var d = null, n = null, fd = null, rtt = null;
@@ -4114,7 +4137,11 @@
         lagKind = 'chain';
         paintLag();
         noteRtcFrames(fd);
-      }).catch(function () {});
+      }).catch(function () {
+        // getStats itself failing on a closed connection is a stall by any
+        // reasonable reading, and was previously swallowed in silence.
+        noteRtcFrames(null);
+      });
       return;
     }
     if (videoTransport === 'hls') {
@@ -4127,6 +4154,15 @@
   function paintLag() {
     var el = document.getElementById('lagVal');
     if (!el) return;
+    // A STUCK PICTURE MUST NOT READ AS A HEALTHY ONE. While frames are not
+    // advancing, the jitter buffer goes on reporting its own small figure --
+    // it is describing a queue nothing is draining -- so the sum stayed in
+    // the tens of milliseconds under a frozen image. What is actually true
+    // then is how long the picture has been old, and it grows.
+    if (videoTransport === 'rtc' && rtcStallTicks > 0 && lastFrameAdvanceAt) {
+      lagMs = Date.now() - lastFrameAdvanceAt;
+      lagKind = 'stalled';
+    }
     if (lagMs === null) { el.innerHTML = ''; el.title = ''; return; }
     // Same shape as the FPS row above it: value, then the unit small and
     // dimmed. They are read together, so they should look like one family.
@@ -4134,6 +4170,11 @@
     if (lagMs < 1000) { txt = String(Math.round(lagMs)); unit = 'MS'; }
     else { txt = (lagMs / 1000).toFixed(1); unit = 'S'; }
     el.innerHTML = txt + '<span class="vunit">' + unit + '</span>';
+    if (lagKind === 'stalled') {
+      el.title = 'No new frames. This is how long the picture has been ' +
+                 'frozen, not a transport delay -- recovery is in progress.';
+      return;
+    }
     if (lagKind === 'chain') {
       function part(k, label) {
         return lagParts[k] === null ? label + ' n/a'
@@ -4164,8 +4205,14 @@
   function pollAudioLag() {
     var el = document.getElementById('audioLagVal');
     if (!el) return;
-    if (audioMode === 'play' && listenTransport === 'rtc' &&
-        twoWayRxPc && twoWayRxPc.getStats) {
+    // EVERY leg that rides the RTC subscription, not just Monitor. This
+    // covered audioMode 'play' alone, so Two-way -- the one mode where the
+    // delay actually matters, because somebody is having a conversation --
+    // showed an empty LAG row. Same mistake as the frame-dwell timer:
+    // written for the branch in front of me and not for the others.
+    var rtcAudioLeg = (audioMode === 'play' && listenTransport === 'rtc')
+                   || (audioMode === 'two-way' && typeof twoWayOn !== 'undefined' && twoWayOn);
+    if (rtcAudioLeg && twoWayRxPc && twoWayRxPc.getStats) {
       twoWayRxPc.getStats(null).then(function (stats) {
         var d = null, n = null, rtt = null;
         stats.forEach(function (r) {
