@@ -2660,6 +2660,13 @@ def pipeline_get():
     denv = _read_device_env()
     a_on = _audio_conf(denv)[0]
 
+    # ONE evaluation, not two. These were two separate calls, and the
+    # gate is cached for 30s -- so a request landing on the expiry
+    # could read `gated` from the old verdict and `reason` from a
+    # fresh one, and report a state that was never true.
+    # _dgate, not _detect_gate: that name is the module-level cache this
+    # very function's callee reads, and binding it locally here shadows it.
+    _dgate = _detect_gate_allows()
     cap = _cv_capability()
     out = {
         'cv_capable':    cap['state'],
@@ -2673,8 +2680,8 @@ def pipeline_get():
         'pump_skipped':  _pump_skipped[0],
         # A detector parked by the gate must SAY so. A control that silently
         # does nothing is the same failure as a lamp that cannot go out.
-        'detect_gated':  (not _detect_gate_allows()[0]),
-        'detect_gate_reason': _detect_gate_allows()[1],
+        'detect_gated':  (not _dgate[0]),
+        'detect_gate_reason': _dgate[1],
         # Hidden is 'off', not 'down': the camera is deliberately not being
         # published. Calling that a fault would be as wrong as calling it ok.
         # Read the DEVICE, not the mode. The writer loop runs in every mode and
