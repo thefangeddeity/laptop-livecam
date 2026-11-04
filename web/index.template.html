@@ -2597,6 +2597,21 @@
                  enterkeyhint="send" title="Enter sends">
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
+        <!-- SIGNING IN HAPPENS HERE, not in another tab. The card used to
+             offer a link to /elem/, which means leaving the camera to type a
+             passphrase and coming back -- in the event this card exists for,
+             that is three decisions too many. The mesh already accepts a
+             passphrase over POST /v1/login and sets its own session cookie;
+             nothing needed inventing, only asking.
+             type=password so a passphrase said out loud is not also on
+             screen, and autocomplete=off because this is a shared house
+             machine rather than somebody's own browser. -->
+        <div class="ele-row" id="eleSignInRow" hidden>
+          <input class="ele-in" id="elePass" type="password" placeholder="mesh passphrase…"
+                 maxlength="200" autocomplete="off" aria-label="Mesh passphrase"
+                 enterkeyhint="go" title="Enter joins">
+          <button class="pbtn" id="eleJoinBtn" onclick="eleJoin()">Join</button>
+        </div>
         <div class="ele-err" id="eleErr" hidden></div>
         <div class="msg-actions two" id="eleActions" hidden>
           <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
@@ -6835,6 +6850,7 @@
     return { send: document.getElementById('eleSend'),
              actions: document.getElementById('eleActions'),
              invite: document.getElementById('eleInviteBtn'),
+             signin: document.getElementById('eleSignInRow'),
              me: document.getElementById('eleMe') };
   }
 
@@ -6878,6 +6894,7 @@
     }
     if (p.send) p.send.hidden = true;
     if (p.invite) p.invite.hidden = true;
+    if (p.signin) p.signin.hidden = true;   // nothing here to join
     if (p.actions) p.actions.hidden = false;
   }
 
@@ -6888,12 +6905,65 @@
     if (eleList) {
       eleList.hidden = false;
       eleList.innerHTML = '<span class="quiet">not signed in — ' +
+        'enter the mesh passphrase below, or ' +
         '<a href="/elem/" target="_blank" rel="noopener">open the mesh</a>' +
-        ' to join with the passphrase</span>';
+        '</span>';
     }
     if (p.send) p.send.hidden = true;
     if (p.invite) p.invite.hidden = true;
+    if (p.signin) p.signin.hidden = false;
     if (p.actions) p.actions.hidden = false;
+  }
+
+  // POST /v1/login takes {passphrase, invite} and sets an HttpOnly session
+  // cookie itself, so there is no token for this page to hold or leak --
+  // which is also why success here is simply "poll again" rather than any
+  // state kept on this side.
+  //
+  // A WRONG GUESS COSTS A SECOND, deliberately, inside the mesh. So the
+  // button has to say it is working, or the card looks frozen on the one
+  // input where people most expect an instant no.
+  function eleJoin() {
+    var box = document.getElementById('elePass');
+    var btn = document.getElementById('eleJoinBtn');
+    if (!box) return;
+    var pass = box.value;
+    if (!pass) { eleSay('enter the passphrase first'); return; }
+    if (btn) { btn.disabled = true; btn.textContent = 'joining…'; }
+    eleSay('');
+    fetch('/elem/v1/login', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      // Both fields, because the mesh's Login struct names both. Tested
+      // against tanzania: omitting `invite` is in fact accepted and still
+      // reaches the passphrase check, but that is serde defaulting rather
+      // than a promise the API makes, and the two are only the same until
+      // somebody changes the struct.
+      body: JSON.stringify({ passphrase: pass, invite: '' })
+    })
+    .then(function (r) {
+      return r.json().catch(function () { return {}; })
+              .then(function (j) { return { ok: r.ok, j: j }; });
+    })
+    .then(function (res) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Join'; }
+      if (!res.ok) {
+        // The mesh says WHY in its own words ("that isn't this mesh's
+        // passphrase"), which is better than anything invented here.
+        eleSay(res.j && res.j.error ? res.j.error : 'could not sign in');
+        box.select();
+        return;
+      }
+      box.value = '';          // never keep it; the cookie is the session
+      eleSay('');
+      eleAuthed = true;
+      eleGen++;                // retire the visitor's poll
+      elePoll(eleGen);
+    })
+    .catch(function () {
+      if (btn) { btn.disabled = false; btn.textContent = 'Join'; }
+      eleSay('could not reach the mesh');
+    });
   }
 
   function eleRender() {
@@ -7084,6 +7154,16 @@ function eleProbe() {
       if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
       e.preventDefault();
       eleSendMsg();
+    });
+  }
+  // Same for the passphrase: a field you must reach for the mouse to submit
+  // is a field people retype.
+  var elePassBox = document.getElementById('elePass');
+  if (elePassBox) {
+    elePassBox.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      eleJoin();
     });
   }
 
