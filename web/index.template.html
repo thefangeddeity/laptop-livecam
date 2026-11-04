@@ -2294,7 +2294,7 @@
                  same way and shown the same way. -->
             <div class="vrow"><span class="vlab">Lag</span><span class="vval"><span class="vghost">8.88s</span><span class="vlit" id="audioLagVal"></span></span></div>
             <div class="vind">
-              <i id="indStereo">STEREO</i><i id="indStop">STOP</i><i id="indMute">MUTE</i><i id="indTalk">TALK</i><i id="indFallbackA" class="vfb" title="The room is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FALLBACK</i>
+              <i id="indStereo">STEREO</i><i id="indStop">STOP</i><i id="indMute">MUTE</i><i id="indTalk">TALK</i><i id="indFallbackA" class="vfb" title="The room is on HLS because WebRTC did not deliver -- not because anyone chose it. Dark when RTC is carrying, and dark under Force HLS, which is a choice rather than a fallback.">FLLBCK</i>
             </div>
           </div>
           <div class="leds">
@@ -4042,10 +4042,27 @@
   // what the connection state claims. Two consecutive polls with no new
   // frames (4s, against a 15fps stream) is not a hiccup.
   var lastFramesDecoded = null, rtcStallTicks = 0, lastFrameAdvanceAt = 0;
+  // When the current subscription was established. A fresh peer connection
+  // publishes no inbound-rtp entry for a second or two, and "no reading
+  // yet" is NOT "a reading that has not moved" -- conflating the two is
+  // what turned this watchdog into a teardown loop: two polls inside that
+  // window both read the same sentinel, counted as a stall, tore the
+  // session down, and re-subscribed straight back into the window. The
+  // picture held its last frame for the whole ride.
+  var rtcSubscribedAt = 0;
+  var RTC_STALL_GRACE_MS = 6000;
   var RTC_STALL_TICKS = 2;
 
   function noteRtcFrames(n) {
-    // A MISSING READING IS THE LOUDEST READING THERE IS.
+    // Nothing is judged until the subscription has had time to publish a
+    // first reading. Without this the watchdog fires on its own startup.
+    if (!rtcSubscribedAt || Date.now() - rtcSubscribedAt < RTC_STALL_GRACE_MS) {
+      if (typeof n === 'number') { lastFramesDecoded = n; lastFrameAdvanceAt = Date.now(); }
+      rtcStallTicks = 0;
+      return;
+    }
+    // A MISSING READING IS THE LOUDEST READING THERE IS -- but only once
+    // there has been time for a reading to exist at all.
     //
     // This used to bail here, so it only ever counted a stall when frames
     // were flat but STILL BEING REPORTED. When the track actually dies --
@@ -4079,7 +4096,10 @@
     // peer connection tells us less than the peer connection already has.
     if (videoTransport === 'rtc' && vidRtcPc) {
       var cs = vidRtcPc.connectionState || vidRtcPc.iceConnectionState;
-      if (cs === 'failed' || cs === 'closed' || cs === 'disconnected') {
+      // 'disconnected' is TRANSIENT by specification -- ICE says so, and it
+      // recovers on its own constantly on a wifi link. Treating it as fatal
+      // was a second way into the same loop. Only a terminal state here.
+      if (cs === 'failed' || cs === 'closed') {
         console.info('viewer: RTC connection ' + cs + ' -- re-choosing transport.');
         lastFramesDecoded = null; rtcStallTicks = 0;
         initVideo();
@@ -4904,6 +4924,7 @@
     // reasoning as startRoomRx's own teardown.
     if (vidRtcRes) { fetch(vidRtcRes, { method: 'DELETE' }).catch(function () {}); vidRtcRes = null; }
     if (vidRtcPc) { try { vidRtcPc.close(); } catch (e) {} vidRtcPc = null; }
+    rtcSubscribedAt = 0; lastFramesDecoded = null; rtcStallTicks = 0;
     // AND release the element. srcObject OUTRANKS src: a media element that
     // still holds a MediaStream ignores any src assigned afterwards, so
     // leaving one behind makes the HLS fallback attach to an element that
@@ -4935,6 +4956,8 @@
     pc.addEventListener('track', function (ev) {
       if (pc !== vidRtcPc) return;              // a superseded attempt
       gotTrack = true;
+      rtcSubscribedAt = Date.now();
+      lastFramesDecoded = null; rtcStallTicks = 0;
       // Destroy the HLS player BEFORE touching the element. Two reasons:
       // hls.js is still attached over MSE and would go on fetching
       // segments for a picture nobody is watching, and load() on an
