@@ -22,20 +22,56 @@ from flask import Flask, request, abort, send_from_directory, Response, redirect
 BIN_DIR   = os.path.dirname(os.path.abspath(__file__))
 ROOT      = os.path.dirname(BIN_DIR)
 WEB_DIR   = os.path.join(ROOT, "web")
-STATE_DIR = os.path.join(ROOT, "state")
 CONFIG    = os.path.join(ROOT, "config.env")
+
+# MUTABLE STATE NEVER LIVES INSIDE THE INSTALLED APPLICATION, which
+# livecam_platform has said in its docstring all along and this file only
+# half-obeyed: the same _IN_BUNDLE reasoning was applied to LOG_DIR below and
+# never to STATE_DIR, so serve-map.json, camdash-feed.state and the whole rec/
+# tree were written into the .app.
+#
+# That is not merely untidy. A file added under Contents/ after signing breaks
+# the bundle's seal, so `codesign --verify` and `spctl --assess` both reject
+# the app from its FIRST RUN onwards -- and because TCC grants are pinned to a
+# cdhash, repairing the signature changes the identity and drops the camera
+# and microphone permissions with it. Observed on ariana 2026-11-04: an app
+# that had been running fine refused to come back after a reinstall, with
+# "camera leg produced no frame in time" and nothing else to go on.
+#
+# Writing evidence recordings into a read-only application directory would
+# also fail outright the moment the bundle really is read-only, which is the
+# normal case for anything installed from a DMG by somebody other than its
+# builder.
+_IN_BUNDLE = ".app/Contents/Resources/" in BIN_DIR
+_APP_SUPPORT = os.path.expanduser("~/Library/Application Support/HLS Livecam")
+STATE_DIR = os.path.join(_APP_SUPPORT, "state") if _IN_BUNDLE \
+    else os.path.join(ROOT, "state")
 os.makedirs(STATE_DIR, exist_ok=True)
+
+# One-time rescue of anything an older build left in the bundle. Copied, not
+# moved, and never over a file that already exists out here -- Application
+# Support is the authority and the bundle copy is the stray. Silent on
+# failure: a read-only bundle is the state we are trying to reach anyway.
+if _IN_BUNDLE:
+    _stray = os.path.join(ROOT, "state")
+    if os.path.isdir(_stray):
+        try:
+            import shutil as _sh
+            for _n in os.listdir(_stray):
+                _src, _dst = os.path.join(_stray, _n), os.path.join(STATE_DIR, _n)
+                if os.path.exists(_dst):
+                    continue
+                (_sh.copytree if os.path.isdir(_src) else _sh.copy2)(_src, _dst)
+        except Exception:
+            pass
 
 # Capture ffmpeg's stderr to a real file. It used to go to DEVNULL, which is
 # why a capture wedged inside avformat_open_input left no trace anywhere: the
 # process stayed alive, the pidfile stayed valid, and every viewer got a 404
 # off a stack that looked healthy (observed: 31 minutes, silently).
-# When installed, ROOT is inside the read-only .app bundle -- the state dir
-# humans actually read (and the one livecam writes broadcast-api.log and
-# mediamtx.log into) lives in Application Support. Follow it there.
-_IN_BUNDLE = ".app/Contents/Resources/" in BIN_DIR
-LOG_DIR = (os.path.expanduser("~/Library/Application Support/HLS Livecam/state/logs")
-           if _IN_BUNDLE else os.path.join(STATE_DIR, "logs"))
+# Logs live beside the rest of the state, which STATE_DIR now resolves for
+# both cases -- so this no longer needs its own copy of the bundle rule.
+LOG_DIR = os.path.join(STATE_DIR, "logs")
 FFMPEG_LOG     = os.path.join(LOG_DIR, "capture-ffmpeg.log")
 FFMPEG_LOG_MAX = 2 * 1024 * 1024
 try:

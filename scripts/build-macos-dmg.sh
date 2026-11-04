@@ -269,6 +269,22 @@ LOGS="$HOME/Library/Application Support/HLS Livecam/state/logs"
 export PATH="$ROOT/bin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
+# DO NOT WRITE BYTECODE. Python caches .pyc files next to the source it
+# imports, which here is inside Contents/Resources/app -- and a file added
+# under Contents/ after signing breaks the bundle's seal. The app therefore
+# invalidated its own signature on its first run, every run, so
+# `spctl --assess` reported it rejected and `codesign --verify` found "a
+# sealed resource is missing or invalid" on a bundle nobody had touched.
+#
+# The sting is in the repair: TCC pins camera and microphone grants to a
+# cdhash, so re-signing to fix the seal changes the app's identity and takes
+# the permissions with it. One reinstall then costs a silent camera, with
+# "camera leg produced no frame in time" as the only symptom.
+#
+# The cost of not caching is a few milliseconds of recompilation per import
+# on a process that runs for days.
+export PYTHONDONTWRITEBYTECODE=1
+
 mkdir -p "$LOGS"
 
 # First-run setup: permissions, Login Item, autologin, supervisor. Marker-
@@ -345,6 +361,13 @@ cp "$RES/BUILDINFO" "$RUNTIME/BUILDINFO"
 # invalidates the seal the moment it is written, and a broken seal means the
 # cdhash no longer matches -- which voids every TCC grant pinned to it. The
 # installer had exactly this bug: it ran its Python import test after signing.
+#
+# This covers BUILD time only. The other half -- the app regenerating
+# __pycache__ on every run of the installed bundle, which broke the seal again
+# within seconds of first launch and was never noticed because the app kept
+# working until something made it restart -- is handled by
+# PYTHONDONTWRITEBYTECODE in the launcher above. Both halves are needed:
+# purging here without that just means the bundle is clean until it is used.
 find "$RUNTIME" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 
 if [[ "$CODESIGN_IDENTITY" == "-" ]]; then
