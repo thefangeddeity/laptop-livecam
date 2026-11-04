@@ -287,12 +287,72 @@ def _write_detect_always(enabled):
 # the one direction nobody tests first.
 _detect_always = _read_detect_always()
 
+# THE CPU GATE WITHHELD THE COSMETIC HALF AND PERMITTED THE EXPENSIVE HALF.
+#
+# "CV" names two things here, and until now only one was ever gated:
+#   the CV RENDER     the enhancement pipeline in the frame stage -- cosmetic,
+#                     and what `cv_capable: unfit` has always withheld
+#   DETECTION         the detector tap running ONNX on its own thread, which
+#                     never consulted the capability gate at all.
+#
+# Found on the Linux branch first and measured on tina, an i3-2330M (2011, no
+# AVX2, so onnxruntime falls back to slow kernels): the five hottest threads
+# in that process were all detect threads -- 126k jiffies against the writer
+# loop's 6k, about 1.2 of four cores. The package sat at 85C, Tjmax for that
+# part, with thermald holding max_perf_pct at 90%. Gating detection dropped
+# the node from 136% to 22% CPU and released the clamp.
+#
+# ariana is a 2-core i5-6287U and renders CV at 62.7ms of a 66.7ms budget, so
+# it has less headroom than the core count suggests and the same gate earns
+# its keep here (requirement: "CPU gate should turn off CV and detection ...
+# precisely to go easy on old CPU").
+#
+# `unfit` only. `unknown` is NOT a verdict -- this gate's own history is that
+# an un-revisable `unfit` became a trap, and reading "not measured yet" as
+# "too slow" is that mistake wearing a different label.
+#
+# CV_DETECT_IGNORE_GATE=1 in the config is the route back, for a machine whose
+# owner wants alerts and accepts the cost.
+_detect_gate = {'at': 0.0, 'allow': True, 'why': ''}
+_detect_gate_lock = threading.Lock()
+
+
+def _detect_gate_allows():
+    """(allowed, why). Cached: the verdict is hardware, and the detector tap
+    asks on every iteration."""
+    now = time.time()
+    with _detect_gate_lock:
+        if now - _detect_gate['at'] < 30.0:
+            return _detect_gate['allow'], _detect_gate['why']
+    try:
+        cfg = _read_config()
+        if str(cfg.get('CV_DETECT_IGNORE_GATE', '')).strip().lower() \
+                in ('1', 'true', 'yes', 'on'):
+            allow, why = True, 'gate overridden by CV_DETECT_IGNORE_GATE'
+        else:
+            cap = _cv_capability()
+            if cap.get('state') == 'unfit':
+                allow = False
+                why = ('detection is off because this CPU cannot afford it: %s'
+                       % (cap.get('reason') or 'below the capability gate'))
+            else:
+                allow, why = True, ''
+    except Exception as exc:
+        # A gate that cannot decide must not silently stop the detector.
+        allow, why = True, 'gate probe failed (%s)' % type(exc).__name__
+    with _detect_gate_lock:
+        _detect_gate.update({'at': now, 'allow': allow, 'why': why})
+    return allow, why
+
+
 def _detect_always_on():
     # Low power wins, and deliberately does NOT rewrite the stored setting:
     # the panel keeps showing what Detection is set to, greys the row, and
     # switching Low power off restores it. A switch that silently edits
     # another switch leaves the two fighting over one file.
-    return _detect_always and not _low_power_on()
+    if not (_detect_always and not _low_power_on()):
+        return False
+    return _detect_gate_allows()[0]
 
 
 # -- LOW POWER -------------------------------------------------------------
@@ -4293,6 +4353,10 @@ def pipeline():
         # a whole chain instead of the one term it can see by itself.
         'pipeline_ms': _pump_dwell_ms(),
         'pump_skipped': _pump_skipped[0],
+        # A detector parked by the gate must SAY so. A control that silently
+        # does nothing is the same failure as a lamp that cannot go out.
+        'detect_gated': (not _detect_gate_allows()[0]),
+        'detect_gate_reason': _detect_gate_allows()[1],
         'snapshot_at': _last_send_at(),
         'cv_capable':    _cap['state'],
         'cv_capability': _cap,
