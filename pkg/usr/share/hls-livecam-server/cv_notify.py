@@ -88,6 +88,10 @@ def _multipart(fields, files):
     return b''.join(out), f'multipart/form-data; boundary={boundary}'
 
 
+# When a picture was last actually SENT. Read by broadcast-api for
+# /api/pipeline's snapshot_at; see Notifier._send.
+LAST_SEND_AT = 0.0
+
 class Notifier:
     """Queue-and-forget notifier keyed on track promotion.
 
@@ -360,6 +364,12 @@ class Notifier:
                 self._q.task_done()
 
     def _send(self, item):
+        # The REC lamp's snapshot half. Marked HERE rather than where a
+        # snapshot is requested, because a request dropped by a full queue
+        # or a cooldown never becomes a picture, and a lamp that lights for
+        # work that did not happen is decoration. Module-level so
+        # broadcast-api can read it without holding a notifier instance.
+        globals()['LAST_SEND_AT'] = time.time()
         # FIRST, and outside the try below: the gallery is independent of
         # whether this alert sends. A Telegram outage must not also stop the
         # record of what was seen.

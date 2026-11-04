@@ -935,6 +935,11 @@ def _start_roomaudio():
     duck = (_talk_two_way and
             str(denv.get('ECHO_DUCK', '0')).strip().lower() in ('1', 'on', 'true', 'yes'))
     room_out = ['-c:a', 'libopus', '-b:a', '64k', '-ar', '48000', '-ac', '1',
+                # LOW LATENCY. ffmpeg's -muxdelay defaults to 0.7s and applies to
+                # RTP/RTSP output, so this publisher was holding packets for most of a
+                # second before mediamtx saw them -- invisible behind HLS's own window,
+                # and the floor under WebRTC once that window was gone.
+                '-muxdelay', '0', '-muxpreload', '0',
                 '-application', 'voip', '-rtsp_transport', 'tcp', '-f', 'rtsp',
                 f'rtsp://127.0.0.1:8554/{ROOM_PATH}']
     if duck:
@@ -1246,6 +1251,11 @@ def _start_loopback_publisher(denv, mode='show'):
         '-profile:v', 'high', '-level', '4.0',
         '-b:v', '1500k', '-g', str(max(1, fr * gop_seconds)),
         *acodec, *maps,
+        # LOW LATENCY. ffmpeg's -muxdelay defaults to 0.7s and applies to
+        # RTP/RTSP output, so this publisher was holding packets for most of a
+        # second before mediamtx saw them -- invisible behind HLS's own window,
+        # and the floor under WebRTC once that window was gone.
+        '-muxdelay', '0', '-muxpreload', '0',
         '-rtsp_transport', 'tcp', '-f', 'rtsp', 'rtsp://127.0.0.1:8554/cam'
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=_pulse_env(denv))
 
@@ -1819,10 +1829,12 @@ def _writer_loop():
            stderr=open(os.path.join(_rec_root, "ffmpeg.log"), "ab",
                        buffering=0),
            bufsize=0)
+        globals()['_rec_proc'] = _rec
     except _RecorderDisabled:
         # Not a failure, and deliberately not reported as one: the operator
         # asked for this. Everything downstream already handles _rec = None.
         _rec = None
+        globals()['_rec_proc'] = None
     except Exception as _exc:
         print("broadcast-api: evidence recorder failed to start: %s" % _exc,
               file=sys.stderr, flush=True)
@@ -2112,6 +2124,10 @@ def _port_listening(port):
 # has to look different from failed, and both from off, or the lamps are
 # decoration. hls is deliberately absent: the viewer's own attempt to play
 # is better evidence than this server's opinion of its own endpoint.
+# The evidence recorder, published out of _writer_loop's local scope so
+# /api/pipeline can report whether it is writing. Declared before the
+# writer thread starts, so this never clobbers a live handle.
+_rec_proc = None
 _PIPELINE_CACHE = {'at': 0.0, 'val': None}
 
 def _alsa_card_present(dev):
@@ -2504,6 +2520,15 @@ def pipeline_get():
         _lp = _low_power_on()
         out['low_power'] = _lp
         out['force_hls'] = _force_hls_on()
+        # What the REC lamp reads: the evidence recorder writing segments,
+        # and a still or clip having just gone out. Both mean "this moment
+        # is being kept", which is what REC means on a camera.
+        out['recording'] = bool(_rec_proc is not None and _rec_proc.poll() is None)
+        try:
+            import cv_notify as _cvn
+            out['snapshot_at'] = float(getattr(_cvn, 'LAST_SEND_AT', 0.0) or 0.0)
+        except Exception:
+            out['snapshot_at'] = 0.0
         out['mode_effective'] = _effective_mode(_read_feed_mode())
         if _lp:
             out['cv'] = False
