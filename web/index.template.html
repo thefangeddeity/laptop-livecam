@@ -6258,6 +6258,13 @@
   var _monPausedSince = 0;
   function monitorLivenessTick(now) {
     if (!roomAudio || audioMode !== 'play') { _monLastTime = -1; _monPausedSince = 0; return; }
+    // LISTENING OVER RTC PAUSES roomAudio ON PURPOSE, and this watchdog
+    // reads a paused element in Monitor as a stall worth recovering from.
+    // It would have restarted the HLS leg underneath a working WebRTC one
+    // and played the room twice, seven seconds apart. The watchdog belongs
+    // to the HLS leg; when that leg is not the one carrying, there is
+    // nothing here for it to judge.
+    if (listenTransport !== 'hls') { _monLastTime = -1; _monPausedSince = 0; return; }
     if (roomAudio.paused) {
       if (!_monPausedSince) _monPausedSince = now;
       else if ((now - _monPausedSince) / 1000 > PAUSED_STUCK_GRACE_S) {
@@ -6277,7 +6284,13 @@
   }
   var _rtcLastPackets = -1, _rtcLastChangeAt = 0, _rtcRecovering = false;
   function rtcLivenessTick(now) {
-    if (!twoWayOn || audioMode !== 'two-way' || !twoWayRxPc) { _rtcLastPackets = -1; return; }
+    // Monitor and Two-way share one WHEP leg now, so this has to cover
+    // both. It used to watch only during a call, which left listening over
+    // RTC with no liveness check at all -- the same gap the picture had,
+    // and the same symptom: a dead leg goes silent with every lamp lit.
+    var rtcListening = (twoWayOn && audioMode === 'two-way')
+                    || (audioMode === 'play' && listenTransport === 'rtc');
+    if (!rtcListening || !twoWayRxPc) { _rtcLastPackets = -1; return; }
     if (_rtcRecovering) return;
     twoWayRxPc.getStats(null).then(function (stats) {
       var packets = null;
