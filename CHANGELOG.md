@@ -4,6 +4,16 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.1.0
+
+- **One version number across the fleet.** The two lineages had drifted into
+  separate counts -- macOS at 1.8.2 and Linux at 7.0.55 -- so "which version
+  is this node on" needed to know which node it was first. The viewer already
+  rendered one format (`<platform>-v<version>`); only the numbers disagreed.
+  They now share the package line, which is the one the deb, the Arch package
+  and the GitHub releases already carried. macOS jumps 1.8.2 -> 7.1.0, which
+  is a forward jump and so stays monotonic for anything comparing versions.
+
 ## 7.0.55
 
 - **The CPU gate now withholds detection as well as the CV render.** "CV"
