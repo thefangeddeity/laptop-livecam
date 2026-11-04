@@ -4,6 +4,21 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.1.4
+
+- **The region box no longer claims a watch the gate has parked.** The box is
+  an indicator that detection is on, and `detLive` asked only two questions --
+  the switch and Low power. The CPU gate added in 7.1.0 is a third way
+  detection can be off, and nothing in the viewer read it: `detect_gated`
+  appeared zero times. Measured on tina: `detect_always` stored `true`,
+  `detect_gated` `True`, so the panel showed Detection lit, the dependent
+  rows live and the region box drawn, all claiming a watch that was not
+  happening. The server half shipped in 7.1.0 and the viewer half did not.
+  The Detection button now greys and names the gate's own sentence,
+  gate-first -- the gate outranks Low power, so naming a switch somebody can
+  flip would send them to flip it for nothing -- and names
+  `CV_DETECT_IGNORE_GATE=1` as the override.
+
 ## 7.1.3
 
 Baseline release. Four logic errors found by tracing the paths changed in
