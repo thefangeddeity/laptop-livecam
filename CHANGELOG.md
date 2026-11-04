@@ -4,6 +4,21 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.1.1
+
+- **Sign in to the mesh from the Messages card.** The card could already tell
+  a visitor apart from a missing mesh, and then offered a link: open `/elem/`
+  in a new tab, type the passphrase there, come back. In the event this card
+  exists for, that is three decisions and a lost context between having
+  something to say and saying it. The mesh already took a passphrase over
+  `POST /v1/login` and set its own session cookie, so nothing needed
+  inventing -- only asking. The cookie is HttpOnly and the mesh sets it
+  itself, so the page holds no token; the passphrase is cleared on success
+  and never stored. A wrong guess costs a second inside the mesh,
+  deliberately, so the button says it is working, and the error shown is the
+  mesh's own sentence. The link to `/elem/` stays, because the full chat is
+  still the better place to read a long conversation.
+
 ## 7.1.0
 
 - **One version number across the fleet.** The two lineages had drifted into
