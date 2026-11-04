@@ -741,6 +741,13 @@ def _roomaudio_output(audio_map, audio_filter):
         # video-call stack (WebRTC's own default) ships with.
         '-packet_loss', '10', '-fec', '1',
         *filt,
+        # LOW LATENCY, and this is where RTC's delay was living.
+        # ffmpeg's -muxdelay defaults to 0.7s and applies to RTP/RTSP
+        # output, so every publisher here was holding packets for most
+        # of a second before mediamtx ever saw them. Invisible behind
+        # HLS's seven-second window; the floor under WebRTC once that
+        # window was gone. -muxpreload is the same delay at startup.
+        '-muxdelay', '0', '-muxpreload', '0',
         '-rtsp_transport', 'tcp', '-f', 'rtsp', ROOM_AUDIO_URL,
     ]
 
@@ -785,6 +792,13 @@ def _start_publisher():
         # and players targeting a short buffer ran dry between arrivals. Keep
         # this in step with mediamtx's hlsSegmentDuration.
         '-b:v', '1500k', '-g', str(max(1, int(fr * GOP_SECONDS))),
+        # LOW LATENCY, and this is where RTC's delay was living.
+        # ffmpeg's -muxdelay defaults to 0.7s and applies to RTP/RTSP
+        # output, so every publisher here was holding packets for most
+        # of a second before mediamtx ever saw them. Invisible behind
+        # HLS's seven-second window; the floor under WebRTC once that
+        # window was gone. -muxpreload is the same delay at startup.
+        '-muxdelay', '0', '-muxpreload', '0',
         '-rtsp_transport', 'tcp', '-f', 'rtsp', RTSP_URL
     ], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -1568,6 +1582,13 @@ def _start_cv_publisher(mode='cv'):
         '-b:v', '1500k', '-g', str(fr),
         *(['-an'] if low else ['-c:a', 'aac', '-b:a', '96k',
                                *audio_filter_args()]),
+        # LOW LATENCY, and this is where RTC's delay was living.
+        # ffmpeg's -muxdelay defaults to 0.7s and applies to RTP/RTSP
+        # output, so every publisher here was holding packets for most
+        # of a second before mediamtx ever saw them. Invisible behind
+        # HLS's seven-second window; the floor under WebRTC once that
+        # window was gone. -muxpreload is the same delay at startup.
+        '-muxdelay', '0', '-muxpreload', '0',
         '-rtsp_transport', 'tcp', '-f', 'rtsp', rtsp_url,
         # NO second output here: roomaudio is published by its own leg (the
         # SoX -> libopus publisher), and two publishers on one mediamtx path
@@ -1640,6 +1661,9 @@ def _start_cv_publisher(mode='cv'):
                                   daemon=True, name='cv-pump')
     _cv_thread.start()
 
+    # Tracked by name, not by position: low power drops the recorder, so
+    # _cv_procs[2] stopped meaning "the recorder" the day that landed.
+    globals()['_rec_proc'] = r
     _cv_procs[:] = [p for p in (a, b, r) if p is not None]
     print(f'broadcast-api: CV capture: camera={video_idx} -> CVProcessor -> '
           f'{rtsp_url} '
@@ -1655,6 +1679,7 @@ def _stop_cv_publisher():
         try: _kill_hard(pr)
         except Exception: pass
     _cv_procs[:] = []
+    globals()['_rec_proc'] = None
     # Drop the reference AND retire its detector thread. Dropping alone left
     # the daemon running on a stale frame, which is what made "detection off"
     # keep producing detections.
@@ -1799,6 +1824,20 @@ def _start_combined_av_publisher(mode='show'):
         # that cannot do WebRTC -- a fair trade for audio that is continuous
         # rather than 20% present.
         '-an',
+
+        # LOW LATENCY, and this is where RTC's delay was living.
+
+        # ffmpeg's -muxdelay defaults to 0.7s and applies to RTP/RTSP
+
+        # output, so every publisher here was holding packets for most
+
+        # of a second before mediamtx ever saw them. Invisible behind
+
+        # HLS's seven-second window; the floor under WebRTC once that
+
+        # window was gone. -muxpreload is the same delay at startup.
+
+        '-muxdelay', '0', '-muxpreload', '0',
 
         '-rtsp_transport', 'tcp',
         '-f', 'rtsp',
@@ -2269,6 +2308,13 @@ def _opus_encoder_cmd():
     return [FFMPEG, '-hide_banner', '-loglevel', 'warning', *_PCM_IN,
             '-c:a', 'libopus', '-b:a', '96k', '-application', 'audio',
             *_mic_denoise_filter(),
+            # LOW LATENCY, and this is where RTC's delay was living.
+            # ffmpeg's -muxdelay defaults to 0.7s and applies to RTP/RTSP
+            # output, so every publisher here was holding packets for most
+            # of a second before mediamtx ever saw them. Invisible behind
+            # HLS's seven-second window; the floor under WebRTC once that
+            # window was gone. -muxpreload is the same delay at startup.
+            '-muxdelay', '0', '-muxpreload', '0',
             '-rtsp_transport', 'tcp', '-f', 'rtsp', ROOM_AUDIO_URL]
 
 
@@ -2289,6 +2335,13 @@ def _aac_encoder_cmd():
     return [FFMPEG, '-hide_banner', '-loglevel', 'warning', *_PCM_IN,
             '-c:a', 'aac', '-b:a', '96k',
             *_mic_denoise_filter(),
+            # LOW LATENCY, and this is where RTC's delay was living.
+            # ffmpeg's -muxdelay defaults to 0.7s and applies to RTP/RTSP
+            # output, so every publisher here was holding packets for most
+            # of a second before mediamtx ever saw them. Invisible behind
+            # HLS's seven-second window; the floor under WebRTC once that
+            # window was gone. -muxpreload is the same delay at startup.
+            '-muxdelay', '0', '-muxpreload', '0',
             '-rtsp_transport', 'tcp', '-f', 'rtsp', ROOM_SOUND_URL]
 
 
@@ -3699,6 +3752,7 @@ _cv_cap_lock = threading.Lock()
 # worse than showing one that may be slow.
 _CV_OBS_MAX     = 240    # rolling window of per-frame render times (ms)
 _CV_OBS_MIN     = 90     # before this many, we have not seen enough to judge
+_rec_proc = None          # the evidence recorder, when one is running
 _cv_last_timings = {}     # newest per-stage breakdown from CVProcessor
 _cv_eco          = False  # the processor dropped its enhancement pipeline
 _cv_obs         = collections.deque(maxlen=_CV_OBS_MAX)
@@ -4127,6 +4181,12 @@ def pipeline():
         'cv_render_median_ms': (_cv_obs_median()[0] if eff_mode == 'cv' else None),
         'cv_budget_ms': round(_cv_budget_ms(), 1),
         'cv_eco': (_cv_eco if eff_mode == 'cv' else None),
+        # What the REC lamp reads. Two different facts under one word:
+        # the evidence recorder writing segments continuously, and a still
+        # or clip having just gone out. Both are "this moment is being
+        # kept", which is what REC has always meant on a camera.
+        'recording': bool(_rec_proc is not None and _rec_proc.poll() is None),
+        'snapshot_at': _last_send_at(),
         'cv_capable':    _cap['state'],
         'cv_capability': _cap,
         'mode':     mode_now,
@@ -4154,6 +4214,20 @@ def pipeline():
     _pipeline_cache['at']   = now
     _pipeline_cache['data'] = data
     return data
+
+
+def _last_send_at():
+    """Epoch seconds of the last picture the notifier actually sent, or 0.
+
+    Read off cv_notify's module global rather than a notifier instance,
+    because the instance belongs to whichever CVProcessor is current and
+    that is replaced on every reset.
+    """
+    try:
+        import cv_notify as _cvn
+        return float(getattr(_cvn, 'LAST_SEND_AT', 0.0) or 0.0)
+    except Exception:
+        return 0.0
 
 
 def _os_short():
