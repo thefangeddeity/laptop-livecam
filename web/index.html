@@ -2127,7 +2127,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v1.8.2-15-g92d63af"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-16-g7d38be3"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2165,8 +2165,8 @@
             <div class="led" id="ledCamera"><span class="bulb"></span><span class="n">Camera</span></div>
             <div class="led" id="ledMtxV"><span class="bulb"></span><span class="n">MediaMTX</span></div>
             <div class="led" id="ledRtspV"><span class="bulb"></span><span class="n">RTSP</span></div>
-            <div class="led" id="ledHlsV" title="The picture is arriving over buffered HLS -- the fallback, about seven seconds behind"><span class="bulb"></span><span class="n">HLS</span></div>
-            <div class="led" id="ledRtcV" title="The picture is arriving over WebRTC -- sub-second, no buffer window"><span class="bulb"></span><span class="n">RTC</span></div>
+            <div class="led" id="ledRtcV" title="Your link: the picture is arriving over WebRTC -- sub-second, no buffer window. Per-viewer, unlike the three lamps to the left."><span class="bulb"></span><span class="n">RTC</span></div>
+            <div class="led" id="ledHlsV" title="Your link: the picture is arriving over buffered HLS -- the fallback, about seven seconds behind. Per-viewer, unlike the three lamps to the left."><span class="bulb"></span><span class="n">HLS</span></div>
           </div>
         </div>
         <div class="pdiv"></div>
@@ -2278,8 +2278,8 @@
             <div class="led" id="ledMic"><span class="bulb"></span><span class="n">Mic</span></div>
             <div class="led" id="ledMtxA"><span class="bulb"></span><span class="n">MediaMTX</span></div>
             <div class="led" id="ledRtspA"><span class="bulb"></span><span class="n">RTSP</span></div>
-            <div class="led" id="ledHlsA" title="Listening over buffered HLS"><span class="bulb"></span><span class="n">HLS</span></div>
-            <div class="led" id="ledRtcA" title="Live WebRTC leg (Two-way)"><span class="bulb"></span><span class="n">RTC</span></div>
+            <div class="led" id="ledRtcA" title="Your link: hearing the room over WebRTC -- used by Listen and 2-Way alike. Per-viewer, unlike the three lamps to the left."><span class="bulb"></span><span class="n">RTC</span></div>
+            <div class="led" id="ledHlsA" title="Your link: hearing the room over buffered HLS -- the fallback. Per-viewer, unlike the three lamps to the left."><span class="bulb"></span><span class="n">HLS</span></div>
           </div>
         </div>
 
@@ -3094,7 +3094,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-15-g92d63af';
+    var build = info.version || 'mac-v1.8.2-16-g7d38be3';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
