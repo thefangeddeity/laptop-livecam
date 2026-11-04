@@ -624,13 +624,76 @@ def _write_detect_always(enabled):
 _detect_always = _read_detect_always()
 _detect_always_lock = threading.Lock()
 
+# THE CPU GATE WITHHELD THE COSMETIC HALF AND PERMITTED THE EXPENSIVE HALF.
+#
+# "CV" names two things here, and only one of them was ever gated:
+#   the CV RENDER     tone/CLAHE/edge/foveal in the writer loop -- cosmetic,
+#                     and what `cv_capable: unfit` has always withheld
+#   DETECTION         _detect_tap_loop running ONNX on its own thread. It
+#                     reads _cam_frame directly and never consulted `mode`
+#                     or the gate at all.
+#
+# Measured on tina 2026-11-04, an i3-2330M (Sandy Bridge, 2011, no AVX2, so
+# onnxruntime falls back to slow kernels): the five hottest threads in this
+# process were all detect threads, 126k jiffies against the writer loop's
+# 6k -- about 1.2 of four cores. The package sat at 85C, which is Tjmax for
+# that part, and thermald held max_perf_pct at 90%. The node marked `unfit`
+# was spending more CPU on inference than the render it was forbidden.
+#
+# So the gate now covers both, which is what a gate for old CPUs is for
+# (requirement: "CPU gate should turn off CV and detection ... precisely to
+# go easy on old CPU").
+#
+# `unfit` only. `unknown` is NOT a verdict -- the gate's own history is that
+# an un-revisable `unfit` became a trap, and treating "not measured yet" as
+# "too slow" would be the same mistake with a different label.
+#
+# CV_DETECT_IGNORE_GATE=1 in device.env is the route back, for a node whose
+# owner wants alerts and accepts the heat. Without one, a node that the gate
+# judges wrongly has no way to disagree.
+_detect_gate = {'at': 0.0, 'allow': True, 'why': ''}
+_detect_gate_lock = threading.Lock()
+
+def _detect_gate_allows():
+    """(allowed, why). Cached: the verdict is hardware, and this is called
+    on every tap iteration."""
+    now = time.time()
+    with _detect_gate_lock:
+        if now - _detect_gate['at'] < 30.0:
+            return _detect_gate['allow'], _detect_gate['why']
+    try:
+        denv = _read_device_env()
+        if str(denv.get('CV_DETECT_IGNORE_GATE', '')).strip().lower() \
+                in ('1', 'true', 'yes', 'on'):
+            allow, why = True, 'gate overridden by CV_DETECT_IGNORE_GATE'
+        else:
+            cap = _cv_capability()
+            if cap.get('state') == 'unfit':
+                allow = False
+                why = ('detection is off because this CPU cannot afford it: %s'
+                       % (cap.get('reason') or 'below the capability gate'))
+            else:
+                allow, why = True, ''
+    except Exception as exc:
+        # A gate that cannot decide must not silently stop the detector.
+        allow, why = True, 'gate probe failed (%s)' % type(exc).__name__
+    with _detect_gate_lock:
+        _detect_gate.update({'at': now, 'allow': allow, 'why': why})
+    return allow, why
+
+
 def _detect_always_on():
     with _detect_always_lock:
         # Low power wins and deliberately does NOT rewrite the stored
         # setting: the panel keeps showing what Detection is set to, greys
         # the row, and switching Low power off restores it. The detect tap
         # already sleeps when this is false, so one line stops the detector.
-        return _detect_always and not _low_power_on()
+        on = _detect_always and not _low_power_on()
+    if not on:
+        return False
+    # Outside the lock on purpose: _cv_capability takes locks of its own and
+    # nesting them is how a deadlock gets written.
+    return _detect_gate_allows()[0]
 
 
 # -- LOW POWER -------------------------------------------------------------
@@ -2608,6 +2671,10 @@ def pipeline_get():
         # current picture over a complete one.
         'pipeline_ms':   _pump_dwell_ms(),
         'pump_skipped':  _pump_skipped[0],
+        # A detector parked by the gate must SAY so. A control that silently
+        # does nothing is the same failure as a lamp that cannot go out.
+        'detect_gated':  (not _detect_gate_allows()[0]),
+        'detect_gate_reason': _detect_gate_allows()[1],
         # Hidden is 'off', not 'down': the camera is deliberately not being
         # published. Calling that a fault would be as wrong as calling it ok.
         # Read the DEVICE, not the mode. The writer loop runs in every mode and

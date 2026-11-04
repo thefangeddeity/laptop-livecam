@@ -4,6 +4,25 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.0.55
+
+- **The CPU gate now withholds detection as well as the CV render.** "CV"
+  names two things and only the cosmetic one was ever gated: the render, and
+  the ONNX detector, which reads the frame cache on its own thread and never
+  consulted  or . Measured on tina (i3-2330M, Sandy Bridge,
+  no AVX2): the five hottest threads in broadcast-api were all detect threads,
+  126k jiffies against the writer loop's 6k -- about 1.2 of four cores. The
+  package sat at 85C, Tjmax for that part, with thermald holding max_perf_pct
+  at 90%. The node marked  was spending more CPU on inference than on
+  the render it was forbidden.  only;  is not a verdict.
+   is the route back. Reported as  on
+  /api/pipeline, because a control that silently does nothing is the same
+  failure as a lamp that cannot go out.
+
+- **ffmpeg-cam's start-rate limit was never in force.** 
+  sat in , where systemd ignores it and says so on every start.
+  Moved to  in all three copies of the unit that this tree carries.
+
 ## 7.0.54
 
 - **The CV autothrottle never ran, and the capability gate was answering

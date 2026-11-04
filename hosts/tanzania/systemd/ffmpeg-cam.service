@@ -1,4 +1,8 @@
 [Unit]
+# systemd ignores this in [Service] and said so on every start
+# ("Unknown key 'StartLimitIntervalSec' in section [Service]"), so the
+# start-rate limit this file thought it had was never in force.
+StartLimitIntervalSec=300
 Description=FFmpeg Camera Capture (RTSP Producer)
 # After= provides boot ordering only — NOT failure coupling.
 # Do NOT add Requires=mediamtx.service. ffmpeg and mediamtx are peer
@@ -21,7 +25,6 @@ ExecStart=/usr/bin/ffmpeg -hide_banner -loglevel info -f v4l2 -input_format mjpe
 
 Restart=on-failure
 RestartSec=5
-StartLimitIntervalSec=300
 StartLimitBurst=10
 
 StandardOutput=journal
