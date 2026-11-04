@@ -4047,7 +4047,12 @@
     lastFramesDecoded = n;
     if (rtcStallTicks < RTC_STALL_TICKS) return;
     rtcStallTicks = 0; lastFramesDecoded = null;
-    if (feedMode === 'hide') return;        // nothing is meant to be moving
+    // NOT exempt in Hide. That exemption was this bug: "nothing is meant to
+    // be moving" is true of the STREAM and false of the element, which goes
+    // on displaying the last frame it decoded. Hide now tears the player
+    // down in initVideo, so there is no RTC session here to stall -- and if
+    // one somehow survives into Hide, recovering it is still right, because
+    // it ends with the picture gone rather than frozen.
     console.info('viewer: RTC delivered no frames for ' +
                  (RTC_STALL_TICKS * 2) + 's -- re-subscribing.');
     // Re-run the whole transport choice rather than just re-subscribing:
@@ -4798,6 +4803,33 @@
   // does; what changed is that it now chooses a transport first.
   function initVideo() {
     stopVideoRtc();
+    // HIDE ATTACHES NO PLAYER, AND MUST LEAVE NOTHING ON SCREEN.
+    //
+    // This had no hide branch at all, so it subscribed to RTC whatever the
+    // mode -- discarding the rule the feed-mode poll states in its own
+    // comment, that opening on a hidden feed must not attach a player.
+    //
+    // The consequence was not a wasted subscription, it was a privacy
+    // failure. Pressing Hide restarts the publisher, which kills the RTC
+    // track, and a dead track leaves the element showing its LAST DECODED
+    // FRAME forever. So Hide displayed the room -- a still of it, held --
+    // under a lit Hide key, which is the exact thing the control exists to
+    // prevent. A frozen frame is harmless on Show and is the whole failure
+    // on Hide.
+    //
+    // Torn down explicitly rather than trusting the black stream to arrive
+    // and paint over it: the picture must go when the key is pressed, not
+    // when the network gets round to it.
+    if (feedModeKnown && feedMode === 'hide') {
+      stopHls();
+      setVideoTransport('none');
+      try {
+        video.srcObject = null;
+        video.removeAttribute('src');
+        video.load();
+      } catch (e) {}
+      return;
+    }
     if (forceHls) {
       setVideoTransport('hls');
       initHLS(); seekToLiveEdgeSoon();
