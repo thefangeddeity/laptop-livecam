@@ -2140,7 +2140,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v1.8.2-18-g03a295f"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v1.8.2-19-g84c1512"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3118,7 +3118,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v1.8.2-18-g03a295f';
+    var build = info.version || 'mac-v1.8.2-19-g84c1512';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -3740,6 +3740,27 @@
   // Per-node, NOT a fleet constant: macOS switches in under 10 seconds and
   // must not clone this. See PENDING.md.
   var TRANSITION_MIN_MS = 16000;
+  // HOW LONG THE SNOW HOLDS DEPENDS ON WHAT IT IS COVERING.
+  //
+  // The sixteen seconds above were measured against HLS, where they are
+  // honest: the window has to fill and the player has to settle, and
+  // lifting the cover early shows a stalled picture. RTC has no window --
+  // it is playing within a second or two of the track arriving -- so the
+  // same hold is thirteen seconds of snow over a feed that is already
+  // live (requirement: shorter before RTC, full length on fallback or
+  // forced HLS).
+  //
+  // Resolved rather than guessed: the transport is not known when the
+  // cover starts, so this returns the LONG value until it is, and the hold
+  // re-evaluates as it goes (see finish). A cover that guessed short and
+  // then fell back to HLS would lift onto exactly the stalled picture the
+  // sixteen seconds exist to hide.
+  var TRANSITION_MIN_RTC_MS = 2500;
+  function transitionMinMs() {
+    if (forceHls) return TRANSITION_MIN_MS;          // deliberate HLS
+    if (videoTransport === 'rtc') return TRANSITION_MIN_RTC_MS;
+    return TRANSITION_MIN_MS;                        // HLS, or not yet known
+  }
 
   function fadeOut() {
     video.style.opacity = '0';
@@ -3769,11 +3790,15 @@
       // playing already. One pending timer only -- finish() is called from
       // both 'playing' and the fallback, and stacking timers would fire a
       // burst of them at the end.
-      var left = TRANSITION_MIN_MS - (Date.now() - startedAt);
+      var left = transitionMinMs() - (Date.now() - startedAt);
       if (left > 0) {
+        // Re-checked at least twice a second rather than slept through:
+        // the transport usually resolves AFTER the cover starts, and a
+        // single long timer booked against the HLS figure would hold the
+        // snow for sixteen seconds over a picture that went live in two.
         if (!holding) { holding = true; setTimeout(function () {
           holding = false; finish();
-        }, left); }
+        }, Math.min(left, 500)); }
         return;
       }
       done = true;
@@ -3995,21 +4020,57 @@
   // a single figure that silently changes meaning with the transport is the
   // kind of readout this panel keeps removing.
   var lagMs = null, lagKind = '';
+  // ── IS THE RTC PICTURE STILL MOVING? ───────────────────────────────────
+  //
+  // A WebRTC track that dies does not raise an error. It simply stops
+  // delivering, and the element goes on showing the last frame it got --
+  // with every lamp green and the pill reading LIVE, because nothing in the
+  // page was watching. That is the lamp-that-cannot-fail problem, and it is
+  // the one failure mode the HLS path had covered and this one did not:
+  // hls.js has error events and a stall watchdog, a MediaStream has
+  // neither.
+  //
+  // Any publisher restart kills the track -- which means every feed-mode
+  // change, every settings-triggered rebuild, and every `livecam restart`.
+  //
+  // framesDecoded is the honest measure: it counts frames the decoder
+  // actually produced, so it stops the moment media stops regardless of
+  // what the connection state claims. Two consecutive polls with no new
+  // frames (4s, against a 15fps stream) is not a hiccup.
+  var lastFramesDecoded = null, rtcStallTicks = 0;
+  var RTC_STALL_TICKS = 2;
+
+  function noteRtcFrames(n) {
+    if (typeof n !== 'number') return;
+    if (lastFramesDecoded !== null && n === lastFramesDecoded) rtcStallTicks++;
+    else rtcStallTicks = 0;
+    lastFramesDecoded = n;
+    if (rtcStallTicks < RTC_STALL_TICKS) return;
+    rtcStallTicks = 0; lastFramesDecoded = null;
+    if (feedMode === 'hide') return;        // nothing is meant to be moving
+    console.info('viewer: RTC delivered no frames for ' +
+                 (RTC_STALL_TICKS * 2) + 's -- re-subscribing.');
+    // Re-run the whole transport choice rather than just re-subscribing:
+    // if RTC is genuinely gone, this is also how we reach HLS.
+    initVideo();
+  }
   function pollLag() {
     var el = document.getElementById('lagVal');
     if (!el) return;
     if (videoTransport === 'rtc' && vidRtcPc && vidRtcPc.getStats) {
       vidRtcPc.getStats(null).then(function (stats) {
-        var d = null, n = null;
+        var d = null, n = null, fd = null;
         stats.forEach(function (r) {
           if (r.type === 'inbound-rtp' && r.kind === 'video') {
             if (typeof r.jitterBufferDelay === 'number') d = r.jitterBufferDelay;
             if (typeof r.jitterBufferEmittedCount === 'number') n = r.jitterBufferEmittedCount;
+            if (typeof r.framesDecoded === 'number') fd = r.framesDecoded;
           }
         });
         if (d !== null && n) { lagMs = (d / n) * 1000; lagKind = 'buffer'; }
         else { lagMs = null; lagKind = ''; }
         paintLag();
+        noteRtcFrames(fd);
       }).catch(function () {});
       return;
     }
@@ -4060,10 +4121,22 @@
     // 'down' goes only on the leg currently being ATTEMPTED, because that is
     // the only one that has been measured and failed. Lighting the idle leg
     // red would report a fault in something nobody asked to run.
+    // RED MEANS FAILED, NOT BUSY.
+    //
+    // This painted the selected transport red the moment it was selected
+    // and not yet playing, so every ordinary connect showed a fault -- and
+    // it disagreed with the audio lamp three rows down, which already had
+    // the rule right: "not yet" must not look like "broken". Two lamps in
+    // one column obeying opposite rules means neither can be learned.
+    //
+    // `faulted` is the page's own word for an involuntary failure -- the
+    // player gave up -- and it is the only thing that earns the colour.
+    // Connecting is dark here; the LIVE pill says CONNECTING and the snow
+    // is over the picture, so the state is already on screen twice.
     var tx = (feedModeKnown && feedMode === 'hide') ? ''
            : live ? 'ok'
-           : (!feedModeKnown) ? ''
-           : (pipeline ? 'down' : '');
+           : faulted ? 'down'
+           : '';
     set('ledHlsV', videoTransport === 'hls' ? tx : '');
     set('ledRtcV', videoTransport === 'rtc' ? tx : '');
     // FALLBACK says WHY you are on HLS, which the HLS lamp alone cannot:
@@ -4629,6 +4702,10 @@
   function setVideoTransport(t) {
     if (videoTransport === t) return;
     videoTransport = t;
+    // The stall counter belongs to ONE subscription. Carrying it across a
+    // transport change would compare a fresh leg's frame count against a
+    // dead one's and declare a stall on the first poll.
+    lastFramesDecoded = null; rtcStallTicks = 0;
     paintLamps();
   }
 
