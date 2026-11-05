@@ -7527,23 +7527,14 @@ function eleProbe() {
   }
 
   // Grow to fit, up to a ceiling. Reset to auto FIRST: scrollHeight only
-
   // reports the height the content needs when the box is not already taller
-
   // than it, so measuring without the reset leaves a shrinking message at
-
   // the height of the longest one ever typed.
-
   var ELE_MSG_MAX = 120;
-
   function eleGrow(el) {
-
     if (!el) return;
-
     el.style.height = 'auto';
-
     el.style.height = Math.min(el.scrollHeight, ELE_MSG_MAX) + 'px';
-
   }
 
 

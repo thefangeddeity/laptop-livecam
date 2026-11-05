@@ -2310,7 +2310,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.7-10-g40d18c1"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.7-11-g82293a5"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3386,7 +3386,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.7-10-g40d18c1';
+    var build = info.version || 'mac-v7.1.7-11-g82293a5';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -7527,23 +7527,14 @@ function eleProbe() {
   }
 
   // Grow to fit, up to a ceiling. Reset to auto FIRST: scrollHeight only
-
   // reports the height the content needs when the box is not already taller
-
   // than it, so measuring without the reset leaves a shrinking message at
-
   // the height of the longest one ever typed.
-
   var ELE_MSG_MAX = 120;
-
   function eleGrow(el) {
-
     if (!el) return;
-
     el.style.height = 'auto';
-
     el.style.height = Math.min(el.scrollHeight, ELE_MSG_MAX) + 'px';
-
   }
 
 
