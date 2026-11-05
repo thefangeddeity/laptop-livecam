@@ -508,13 +508,22 @@
      and the control that opens the panel below now sits at the end of the
      bar it opens -- the trigger and the thing it unrolls are adjacent
      instead of being in different columns. */
-  /* BUZZ takes the auto margin, so CALL and its keys stay left and the pair
-     BUZZ+Settings sits hard right. Settings goes LAST, to BUZZ's right.
-     .pbtn is flex:1 -- it is built to fill a column in the sidebar it came
-     from -- so it has to be told not to here, or it eats the whole bar and
-     shoves the modem keys to the far end, which is exactly what it did. */
-  .callctl-row #buzzBtn { margin-left: auto; }
-  .callctl-row #settingsBtn { flex: 0 0 auto; height: 36px; padding: 0 14px; }
+  /* SETTINGS TAKES THE AUTO MARGIN AND SITS ALONE AT THE RIGHT; BUZZ STAYS
+     WITH CALL. They are the same kind of act -- reach the room -- and
+     Settings is a different mode entirely, so grouping by function puts the
+     boundary between BUZZ and Settings rather than inside the call cluster.
+     It is also error prevention: BUZZ is loud, it lands in somebody else's
+     room, and it cannot be taken back, so it must not sit under the hand
+     that is reaching for the thing clicked most often. By Fitts the far
+     corner is the cheapest target on the bar, which is an argument for
+     giving it to Settings and against giving it to an alarm.
+     BUZZ was only ever on the right because it had the auto margin to
+     itself; Settings arriving turned that into a real adjacency.
+     .pbtn is flex:1 -- built to fill a column in the sidebar it came from --
+     so it has to be told not to here, or it eats the whole bar. The inline
+     style="flex:1 1 0" it also carried is gone; inline beats any selector,
+     which is why the rule below looked ignored. */
+  .callctl-row #settingsBtn { margin-left: auto; flex: 0 0 auto; height: 36px; padding: 0 14px; }
   .callctl { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
     cursor: pointer; flex: 0 0 auto; border: 1px solid #34343a;
     background: linear-gradient(180deg,#2c2c30,#232326);
@@ -1851,11 +1860,33 @@
        Cards, never CSS columns: column-count would break "All animate beings
        / People / Cats / Dogs" across a boundary and destroy the indentation
        that carries containment. A group has to stay whole. */
-    .setgrid { display: grid; gap: 12px; align-items: start;
-               grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    /* COLUMN FLOW, NOT GRID ROWS. A grid makes every row as tall as its
+       tallest card, so one tall card -- Audio filters, with eight notch
+       rows -- craters the row beside it and leaves a hole the width of the
+       stage. Column flow packs instead: cards fall into whichever column
+       has room, and a tall card simply ends up owning one. The notch list
+       getting a column to itself is a consequence of packing rather than a
+       case anyone has to hand-place.
+       This refines the earlier ruling here rather than contradicting it.
+       The objection to column-count was that it would split "All animate
+       beings / People / Cats / Dogs" across a boundary -- true of flowing
+       the CONTENT, not of flowing a container of atomic cards. break-inside
+       keeps every group whole, which was the actual requirement.
+       `columns: 260px` and no count: the browser fits what it can and
+       collapses to one column on a phone, with no breakpoints to maintain.
+       Reading order stays down-then-across, so Detection is still first and
+       top-left -- everything below it is inert without it. */
+    .setgrid { columns: 260px; column-gap: 12px; }
     .setcard { border: 1px solid var(--border); border-radius: 11px;
                padding: 10px 12px 12px; background: rgba(0,0,0,.12);
-               min-width: 0; }
+               min-width: 0;
+               /* Both properties: the unprefixed one is what current engines
+                  read, the prefixed one is still what older WebKit obeys,
+                  and this fleet has a Catalina node. */
+               break-inside: avoid; -webkit-column-break-inside: avoid;
+               /* A column item needs its own bottom gap; column-gap only
+                  spaces the columns, not the cards stacked inside one. */
+               margin: 0 0 12px; display: inline-block; width: 100%; }
     /* The card IS the grouping now, so the heading inside it loses the top
        margin it needed when headings were the only separation. */
     .setcard > .setgrp:first-child { margin-top: 0; }
@@ -2188,7 +2219,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.7-2-ge266ae6"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.7-3-gfc093aa"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3248,7 +3279,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.7-2-ge266ae6';
+    var build = info.version || 'mac-v7.1.7-3-gfc093aa';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
