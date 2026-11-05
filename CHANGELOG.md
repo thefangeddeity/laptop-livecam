@@ -4,6 +4,44 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.2.0
+
+The settings panel moves out of the sidebar and the Messages card takes the
+column it leaves. Ported from macos, where all of it was found by looking at
+the rendered page rather than at the source.
+
+- **Settings opens the call bar downward.** Its trigger sits in the call bar
+  with the other controls; the panel is a SIBLING of the A/V strip, not a
+  child, because `.avstrip` is `display:flex` -- a panel dropped in beside
+  `.callctl-row` renders as a narrow column to its right. Who's who comes
+  with it: `renderGallery()` writes into it and the row that empties the
+  gallery was already in Settings, so the two halves of one feature had ended
+  up in different columns.
+- **Six atomic cards in a column flow.** The groups and their headings already
+  existed; they only needed a box each. Cards, not CSS columns over the
+  *content* -- that would split "All animate beings / People / Cats / Dogs"
+  across a boundary and destroy the indentation that carries containment.
+- **The notch list leaves the flow.** Capping its height did not work: capped,
+  the card still grew and the columns still re-packed, so three unrelated
+  cards still moved when the switch was flipped. Out of flow nothing can
+  reflow, because no card's height changes at all.
+- **The Messages card fills its column.** `.main` is `flex:0 0 auto`, so its
+  height is auto -- and `.sidebar { height: 100% }` was a percentage against
+  an auto-height parent, which resolves to auto while still overriding
+  `align-items: stretch`. `align-self: stretch` instead. The message list also
+  needed `max-height: none`: flex-grow cannot grow a box past its own ceiling.
+- **BUZZ rejoins the call cluster**, with Settings alone at the right. BUZZ is
+  loud and cannot be taken back, so it should not sit under the hand reaching
+  for the control clicked most often.
+- **The mesh badge reads the mesh**, not the browser: `/v1/status` lists live
+  links with real transports, where the old readout came from
+  `location.hostname`. `ble` prints as BitChat.
+- **Copy invite is inset** rather than flat. Flat with no border read as
+  disabled; recessed, it is unmistakably a button sitting below the plane the
+  other two stand on.
+- The region box takes the housing radius, and the link reads "open ELEM web
+  client".
+
 ## 7.1.6
 
 - **The evidence recorder no longer writes footage nothing can cut.** Clips

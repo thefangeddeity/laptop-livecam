@@ -496,7 +496,22 @@
      usable card and there is no gap left to mean anything. */
   .callctl-row { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 10px 2px 2px; }
   .callctl-row .modem { min-width: 46px; }
-  .callctl-row #buzzBtn { margin-left: auto; }
+  /* SETTINGS TAKES THE AUTO MARGIN AND SITS ALONE AT THE RIGHT; BUZZ STAYS
+     WITH CALL. They are the same kind of act -- reach the room -- and
+     Settings is a different mode entirely, so grouping by function puts the
+     boundary between BUZZ and Settings rather than inside the call cluster.
+     It is also error prevention: BUZZ is loud, it lands in somebody else's
+     room, and it cannot be taken back, so it must not sit under the hand
+     that is reaching for the thing clicked most often. By Fitts the far
+     corner is the cheapest target on the bar, which is an argument for
+     giving it to Settings and against giving it to an alarm.
+     BUZZ was only ever on the right because it had the auto margin to
+     itself; Settings arriving turned that into a real adjacency.
+     .pbtn is flex:1 -- built to fill a column in the sidebar it came from --
+     so it has to be told not to here, or it eats the whole bar. The inline
+     style="flex:1 1 0" it also carried is gone; inline beats any selector,
+     which is why the rule below looked ignored. */
+  .callctl-row #settingsBtn { margin-left: auto; flex: 0 0 auto; height: 36px; padding: 0 14px; }
   .callctl { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
     cursor: pointer; flex: 0 0 auto; border: 1px solid #34343a;
     background: linear-gradient(180deg,#2c2c30,#232326);
@@ -1093,7 +1108,12 @@
     scrollbar-width: thin;
     scrollbar-color: #2e2e33 transparent;
     flex-shrink: 0;
-    height: 100%;
+    /* NOT height:100%. .main is flex:0 0 auto so its height is AUTO, and a
+         percentage against an auto-height parent resolves to auto while still
+         overriding the align-items:stretch that would have done the job. The
+         column sized to its content, so there was no slack for the Messages
+         card to claim and flex-grow on it did nothing. */
+      align-self: stretch;
   }
   .sidebar::-webkit-scrollbar { width: 6px; }
   .sidebar::-webkit-scrollbar-track { background: transparent; }
@@ -1242,6 +1262,26 @@
      that sets display on something script hides needs the same guard. */
   .pbtn[hidden], .modem[hidden] { display: none; }
   .msg-actions .pbtn { padding: 6px 4px; font-size: 11px; }
+  /* NOT A PEER. Open chat and Leave mesh are things you do with this mesh;
+     Copy invite is an occasional errand on behalf of somebody else, and
+     three identical buttons said all three were the same weight. It keeps
+     its column -- the grid is what keeps the row even -- and loses the
+     housing: no raised face, no border, dimmer label. It reads as available
+     rather than offered, which is what a side action should look like.
+     Still a button, still the same hit area: this is a change of rank, not
+     of reach. */
+  /* INSET, not flat. Flat with no border read as disabled rather than
+     secondary -- the eye takes "no housing at all" for "not available".
+     Recessing it keeps it unmistakably a button, with a face you could press,
+     while sitting BELOW the plane the other two stand on. Same hit area;
+     lower rank, not lower reach. */
+  .msg-actions .pbtn.aside {
+    background: linear-gradient(180deg,#191a1c,#212124);
+    border-color: #2a2a30;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.55), inset 0 -1px 0 rgba(255,255,255,.03);
+    color: var(--text-dim); font-weight: 400; }
+  .msg-actions .pbtn.aside:hover {
+    color: #d6d6da; border-color: #34343a; }
 
   .msg-hint {
     font-size: 11px; color: var(--text-muted);
@@ -1652,6 +1692,25 @@
        #10201c / #1d3730 / #9fb4ad and therefore never changed: in light mode
        a black-green box sat directly under a parchment one, in the same rail,
        doing the same job. Same scanline, same gradient, same phosphor. */
+    /* MATCH THE LEFT STACK. The sidebar is as tall as the tallest column,
+       so this card can fill the rest of it -- and a card that stops short in
+       a full-height column reads as unfinished rather than finished early.
+       flex-grow alone was not enough and that is the part that was missing:
+       growing the CARD does nothing unless the card also knows how to
+       distribute the height it was given, so it is a flex column itself and
+       the list below takes the slack. As a rule rather than an inline style,
+       because inline beat a stylesheet rule elsewhere in this very file and
+       cost an hour. */
+    #elePanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    /* The card grows now (see #elePanel flex:1), so the LIST is what takes
+       up the slack and therefore what has to scroll. */
+    /* max-height:none is the whole fix. .ele-list is capped at 16em so the
+       card stays modest in a column it shares -- but this card now OWNS its
+       column, and flex-grow cannot grow a box past its own ceiling. The glass
+       stopped at 16em, the input and the buttons sat under it, and the slack
+       piled up below them as dead card. The list takes the slack now, which
+       puts the controls on the floor of the card where they belong. */
+    #elePanel .ele-list { flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
     .ele-list { max-height: 16em; overflow-y: auto;
                 font: 11px/1.45 var(--mono); letter-spacing: .04em;
                 color: var(--phos); border-radius: 6px; padding: 6px 8px;
@@ -1798,7 +1857,163 @@
                  position: absolute; inset: 0; z-index: 24; cursor: cell;
                  background: rgba(0,0,0,.35); }
     .roi-layer[hidden] { display: none; }
-    .roi-box { position: absolute; border: 1px solid var(--roi-line);
+    /* THE SAME RADIUS AS THE HOUSING. .video-wrap is rounded and clips with
+       overflow:hidden, and .roi-layer sits inset:0 inside it, so a box drawn
+       to the frame edge had its corners shaved by the parent's arc and read
+       as a rendering fault. It matters more than it sounds: the DEFAULT
+       region is the full frame, so the clipped state was what everyone saw
+       the first time they switched the detector on, not something you had to
+       drag to. Matching the radius makes the full-frame box coincide with
+       the housing exactly, which is the case that has to look right.
+       WHAT THIS DOES NOT FIX: overflow:hidden on a rounded parent also hides
+       picture the DETECTOR STILL WATCHES -- those corners are outside the
+       visible frame but inside the region the detector acts on, so the
+       display and the detector disagree about where the frame ends.
+       Rounding the box makes the drawing self-consistent; it does not close
+       that gap. */
+    /* THE SETTINGS GRID. auto-fit with a 260px floor: three cards across
+       under a wide stage, two at tablet, one on a phone -- no breakpoints to
+       keep in step and no JS. align-items:start so a short card does not
+       stretch to match a tall neighbour.
+       Cards, never CSS columns: column-count would break "All animate beings
+       / People / Cats / Dogs" across a boundary and destroy the indentation
+       that carries containment. A group has to stay whole. */
+    /* COLUMN FLOW, NOT GRID ROWS. A grid makes every row as tall as its
+       tallest card, so one tall card -- Audio filters, with eight notch
+       rows -- craters the row beside it and leaves a hole the width of the
+       stage. Column flow packs instead: cards fall into whichever column
+       has room, and a tall card simply ends up owning one. The notch list
+       getting a column to itself is a consequence of packing rather than a
+       case anyone has to hand-place.
+       This refines the earlier ruling here rather than contradicting it.
+       The objection to column-count was that it would split "All animate
+       beings / People / Cats / Dogs" across a boundary -- true of flowing
+       the CONTENT, not of flowing a container of atomic cards. break-inside
+       keeps every group whole, which was the actual requirement.
+       `columns: 260px` and no count: the browser fits what it can and
+       collapses to one column on a phone, with no breakpoints to maintain.
+       Reading order stays down-then-across, so Detection is still first and
+       top-left -- everything below it is inert without it. */
+    .setgrid { columns: 260px; column-gap: 12px; }
+    /* NOTHING MAY MOVE BUT THE THING YOU TOGGLED.
+       Column flow is a GLOBAL packing pass: any card changing height re-runs
+       it for all six. Opening the notch list -- the only control here that
+       triples its card -- threw "What the camera sees", "What alerts carry"
+       and "This device" into different columns. You flip a switch to reveal a
+       list and three unrelated panels relocate, which is the interface moving
+       without being asked to, and it destroys the spatial memory of where a
+       setting lives.
+       So the two regions that grow at RUNTIME are capped and scroll inside
+       themselves: the notch list, and Who's who, which grows a row per face
+       the gallery learns. Capped, the card's height is near enough constant
+       and the packing never re-runs.
+       ONLY WHERE THERE ARE COLUMNS. On a phone this is a single column, where
+       growth simply pushes down -- correct and expected -- and a list that
+       scrolls inside a page that also scrolls is a nested-scroll trap under a
+       thumb. 721px is the same boundary the rest of the sheet uses.
+       This treats the cause, not the structure. If a THIRD card ever becomes
+       height-variable, capping stops being enough and the packing has to give
+       way to explicit placement. */
+    /* THE NOTCH LIST LEAVES THE FLOW. Capping its height was the wrong fix
+       and it did not work: capped at 340px the card still grew from about 90,
+       so the columns still re-packed and three unrelated cards still moved.
+       Norman argued this at the time -- capping treats the symptom -- and he
+       was right.
+       Out of flow, nothing can reflow, because no card's height changes at
+       all. It drops below its own card like the menu it is, over whatever is
+       beneath, and it can be as long as it likes.
+       Only where there are columns. On a phone this is one column and in-flow
+       growth simply pushes down, which is correct and expected. */
+    @media (min-width: 721px) {
+      .setcard { position: relative; }
+      #combMenu {
+        position: absolute; z-index: 40;
+        top: calc(100% - 10px); left: 10px; right: 10px;
+        max-height: 52vh; overflow-y: auto;
+        /* Opaque and lifted: it is floating over other cards now, so it needs
+           a surface of its own rather than the translucent inset it had while
+           it was part of one. */
+        background: var(--housing);
+        box-shadow: 0 10px 28px rgba(0,0,0,.55), var(--led-well);
+      }
+      #rosterPanel { max-height: 300px; overflow-y: auto; }
+    }
+    .setcard { border: 1px solid var(--border); border-radius: 11px;
+               padding: 10px 12px 12px; background: rgba(0,0,0,.12);
+               min-width: 0;
+               /* Both properties: the unprefixed one is what current engines
+                  read, the prefixed one is still what older WebKit obeys,
+                  and this fleet has a Catalina node. */
+               break-inside: avoid; -webkit-column-break-inside: avoid;
+               /* A column item needs its own bottom gap; column-gap only
+                  spaces the columns, not the cards stacked inside one. */
+               margin: 0 0 12px; display: inline-block; width: 100%; }
+    /* The card IS the grouping now, so the heading inside it loses the top
+       margin it needed when headings were the only separation. */
+    .setcard > .setgrp:first-child { margin-top: 0; }
+    /* Who's who arrives as a .panel; inside the grid it is already in a box,
+       so it must not draw a second one. */
+    .setcard > .panel { border: 0; padding: 0; margin: 0; background: none; }
+
+    /* COLUMN FLOW, NOT GRID ROWS. A grid makes every row as tall as its
+       tallest card, so one tall card -- Audio filters, with eight notch
+       rows -- craters the row beside it and leaves a hole the width of the
+       stage. Column flow packs instead: cards fall into whichever column
+       has room, and a tall card simply ends up owning one. The notch list
+       getting a column to itself is a consequence of packing rather than a
+       case anyone has to hand-place.
+       This refines the earlier ruling here rather than contradicting it.
+       The objection to column-count was that it would split "All animate
+       beings / People / Cats / Dogs" across a boundary -- true of flowing
+       the CONTENT, not of flowing a container of atomic cards. break-inside
+       keeps every group whole, which was the actual requirement.
+       `columns: 260px` and no count: the browser fits what it can and
+       collapses to one column on a phone, with no breakpoints to maintain.
+       Reading order stays down-then-across, so Detection is still first and
+       top-left -- everything below it is inert without it. */
+    .setgrid { columns: 260px; column-gap: 12px; }
+    /* NOTHING MAY MOVE BUT THE THING YOU TOGGLED.
+       Column flow is a GLOBAL packing pass: any card changing height re-runs
+       it for all six. Opening the notch list -- the only control here that
+       triples its card -- threw "What the camera sees", "What alerts carry"
+       and "This device" into different columns. You flip a switch to reveal a
+       list and three unrelated panels relocate, which is the interface moving
+       without being asked to, and it destroys the spatial memory of where a
+       setting lives.
+       So the two regions that grow at RUNTIME are capped and scroll inside
+       themselves: the notch list, and Who's who, which grows a row per face
+       the gallery learns. Capped, the card's height is near enough constant
+       and the packing never re-runs.
+       ONLY WHERE THERE ARE COLUMNS. On a phone this is a single column, where
+       growth simply pushes down -- correct and expected -- and a list that
+       scrolls inside a page that also scrolls is a nested-scroll trap under a
+       thumb. 721px is the same boundary the rest of the sheet uses.
+       This treats the cause, not the structure. If a THIRD card ever becomes
+       height-variable, capping stops being enough and the packing has to give
+       way to explicit placement. */
+    @media (min-width: 721px) {
+      #combMenu { max-height: 340px; overflow-y: auto; }
+      #rosterPanel { max-height: 300px; overflow-y: auto; }
+    }
+    .setcard { border: 1px solid var(--border); border-radius: 11px;
+               padding: 10px 12px 12px; background: rgba(0,0,0,.12);
+               min-width: 0;
+               /* Both properties: the unprefixed one is what current engines
+                  read, the prefixed one is still what older WebKit obeys,
+                  and this fleet has a Catalina node. */
+               break-inside: avoid; -webkit-column-break-inside: avoid;
+               /* A column item needs its own bottom gap; column-gap only
+                  spaces the columns, not the cards stacked inside one. */
+               margin: 0 0 12px; display: inline-block; width: 100%; }
+    /* The card IS the grouping now, so the heading inside it loses the top
+       margin it needed when headings were the only separation. */
+    .setcard > .setgrp:first-child { margin-top: 0; }
+    /* Who's who arrives as a .panel; inside the grid it is already in a box,
+       so it must not draw a second one. */
+    .setcard > .panel { border: 0; padding: 0; margin: 0; background: none; }
+
+    .roi-box { position: absolute; border-radius: var(--radius);
+               border: 1px solid var(--roi-line);
                box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
                background: transparent; pointer-events: none; }
     .roi-box[hidden] { display: none; }
@@ -2489,8 +2704,413 @@
                   title="Shake and sound every viewer's screen">
             <span class="cap2">BUZZ</span>
           </button>
+          <button type="button" class="pbtn" id="settingsBtn" onclick="toggleSettings()" aria-expanded="false"
+          aria-controls="settingsPanel" title="Theme, buzz and audio settings">Settings</button>
         </div>
     </div>
+      <!-- Settings opens the call bar DOWNWARD. A SIBLING of the A/V strip,
+           not a child: .avstrip is display:flex, a row, so a panel dropped in
+           beside .callctl-row renders as a narrow column to its right.
+           Who's who comes with it -- renderGallery() writes into it, and the
+           row that empties the gallery is already in Settings. -->
+      <div class="panel" id="settingsPanel" hidden style="margin-top:6px;">
+        <div class="panel-title eng">Settings</div>
+        <!-- Grouped, not alphabetized. Alphabetical order was asked for when
+             this was a short flat list; at seventeen controls it put "Detection
+             area" between "Dogs" and "Include photos" and the panel stopped
+             being readable. The groups below are the questions a person
+             actually arrives with: what triggers an alert, where to watch,
+             what the alert carries, and this device's own preferences. The
+             three in "This device" -- buzz, theme, RTC speaker mute -- are the
+             ones that change nothing about what is recorded. -->
+        <div class="pdiv"></div>
+        <!-- Structure, not a flat list: "All animate beings" is a SUPERSET of
+             the four indented under it, while "All movements" is a different
+             mechanism entirely (no model, so it sees what the detector has no
+             word for and will call a curtain a visitor). A rule separates the
+             orthogonal one; indentation carries the containment.
+
+             Plants sits with the model classes because that is what it IS:
+             COCO 58, a label the detector really returns. It had been
+             rendered beside "All movements" -- the one mechanism it has
+             nothing in common with, since that one runs with no model at all.
+
+             It is still deliberately absent from _LIVING_CLASSES, so the
+             superset can neither switch it on nor off: _expand_classes only
+             ever appends, and plant is not in the list it appends. The guard
+             is in the data, not in this layout.
+
+             And the superset is ANIMATE, not living, because a plant is a
+             living being -- excluding it from a set by that name was a
+             contradiction printed on the panel. The stored value is still
+             'living', so no existing selection is disturbed. -->
+        <!-- The master sits with the choices it governs, not in the Video
+             panel: everything below is inert without it. The Video panel
+             carries a DET readout instead, because whether the camera is
+             being watched belongs on the status strip with MOG2 and FOV. -->
+      <!-- Atomic cards in a column flow. The groups and their headings
+           already existed; they only needed a box each. Cards, not CSS
+           columns over the CONTENT: column-count would split "All animate
+           beings / People / Cats / Dogs" across a boundary and destroy the
+           indentation that carries containment. break-inside keeps a group
+           whole. The pdiv separators are gone -- cards separate themselves. -->
+      <div class="setgrid">
+        <div class="setcard">
+          <div class="pinrow">
+            <button class="pinled" id="detectBtn" onclick="toggleDetect()"
+                    aria-pressed="false" aria-label="Detection"
+                    title="Watch for people and pets, whatever the feed is showing -- off stops detection and alerts entirely">
+              <span class="bulb" id="detectBtnLamp"></span>
+            </button>
+            <span class="eng rstlab">Detection</span>
+          </div>
+          <div class="alertgrp" id="alertGroup">
+            <div class="sub-title">Alert me about</div>
+            <div class="pinrow">
+              <button class="pinled" id="clsLivingBtn" onclick="toggleLiving()"
+                      aria-pressed="false" aria-label="Alert on all animate beings"
+                      title="Every animate class at once -- stays correct if a species is added later">
+                <span class="bulb" id="clsLivingLamp"></span>
+              </button>
+              <span class="eng rstlab">All animate beings</span>
+            </div>
+            <div class="pinrow sub">
+              <button class="pinled" id="clsHumanBtn" onclick="toggleCls('human')"
+                      aria-pressed="false" aria-label="Alert on people">
+                <span class="bulb" id="clsHumanLamp"></span>
+              </button>
+              <span class="eng rstlab">People</span>
+            </div>
+            <div class="pinrow sub">
+              <button class="pinled" id="clsCatBtn" onclick="toggleCls('cat')"
+                      aria-pressed="false" aria-label="Alert on cats">
+                <span class="bulb" id="clsCatLamp"></span>
+              </button>
+              <span class="eng rstlab">Cats</span>
+            </div>
+            <div class="pinrow sub">
+              <button class="pinled" id="clsDogBtn" onclick="toggleCls('dog')"
+                      aria-pressed="false" aria-label="Alert on dogs">
+                <span class="bulb" id="clsDogLamp"></span>
+              </button>
+              <span class="eng rstlab">Dogs</span>
+            </div>
+            <div class="pinrow sub">
+              <button class="pinled" id="clsBirdBtn" onclick="toggleCls('bird')"
+                      aria-pressed="false" aria-label="Alert on birds">
+                <span class="bulb" id="clsBirdLamp"></span>
+              </button>
+              <span class="eng rstlab">Birds</span>
+            </div>
+            <div class="pinrow sub">
+              <button class="pinled" id="clsOtherBtn" onclick="toggleCls('other')"
+                      aria-pressed="false" aria-label="Alert on other living things"
+                      title="Every animate class the model knows that is not a person, cat, dog or bird -- horse, sheep, cow, elephant, bear, zebra, giraffe. Indoors these are near-certainly misclassifications, which is the point: something alive that is not one of yours.">
+                <span class="bulb" id="clsOtherLamp"></span>
+              </button>
+              <span class="eng rstlab">Other</span>
+            </div>
+              <div class="pinrow">
+                <button class="pinled" id="clsPlantBtn" onclick="toggleCls('plant')"
+                        aria-pressed="false" aria-label="Alert on plants"
+                        title="A houseplant moving in a draught was being reported as a cat, because the model had no 'plant' label available and returned the nearest class it was allowed to name. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings, so that option cannot switch it back on.">
+                  <span class="bulb" id="clsPlantLamp"></span>
+                </button>
+                <span class="eng rstlab">Plants</span>
+              </div>
+            <div class="pdiv"></div>
+            <div class="pinrow">
+              <button class="pinled" id="clsMotionBtn" onclick="toggleCls('motion')"
+                      aria-pressed="false" aria-label="Alert on all movements"
+                      title="Anything that moves, with no model -- catches what the detector has no word for, and will call a curtain a visitor">
+                <span class="bulb" id="clsMotionLamp"></span>
+              </button>
+              <span class="eng rstlab">All movements</span>
+            </div>
+            <!-- Content of an alert, not a trigger for one -- hence its own
+                 rule rather than another row in the list above. -->
+            <div class="pdiv"></div>
+          </div>
+          <!-- Was "Where to watch", which described one of the three controls
+               under it. The rectangle is shared; what differs is the question
+               asked of it: the detector's scope, what viewers and recordings
+               may see, and how the rest is hidden. The last two work with
+               Detection switched off entirely, so this heading is no longer
+               .detdep -- only the detector's own row is. -->
+        </div>
+        <div class="setcard">
+          <div class="setgrp eng">What the camera sees</div>
+            <!-- Two controls, because they answer different questions. The
+                 lamp is WHETHER the region applies; the button is WHAT it is.
+                 One control doing both means switching the region off throws
+                 away the box, and the next "on" costs you a drag -- nobody
+                 toggles something that expensive. -->
+            <div class="pinrow detdep">
+              <button class="pinled" id="roiBtn" onclick="toggleRoi()"
+                      aria-pressed="false" aria-label="Also limit detection to the visible area"
+                      title="The area below is what the camera shows. This also confines the DETECTOR to it -- off keeps watching the whole picture, and the area is remembered either way.">
+                <span class="bulb" id="roiLamp"></span>
+              </button>
+              <span class="eng rstlab" id="roiLabel">Detect only here</span>
+            </div>
+            <!-- EDIT and SET are exclusive: exactly one is live at a time, so
+                 the pair itself says which mode you are in. A single button
+                 that changes its own label makes you read it to find out. -->
+            <!-- The caption belongs to the BUTTONS, which is what it describes.
+                 It had been the lamp's label, where it read as an imperative on
+                 a switch -- and the switch does something else entirely: it
+                 confines the detector. One label, two controls, neither
+                 described. -->
+            <div class="sub-title roi-cap">Edit visible area</div>
+            <div class="pinrow detdep roi-actions">
+              <button class="pbtn" id="roiEditBtn" onclick="armRoi()"
+                      title="Drag a box on the picture to choose the area">Edit</button>
+              <button class="pbtn" id="roiSetBtn" onclick="commitRoi()"
+                      title="Keep the area you drew and stop editing">Set</button>
+              <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
+                      title="Forget the area and watch the whole picture">Reset</button>
+            </div>
+            <!-- Same rectangle as the detection region, with a different
+                 question asked of it: that one is where the detector LOOKS,
+                 this is what anybody may SEE. One region with a mode, not two
+                 rectangles to keep in step.
+
+                 Not .detdep: this does not depend on Detection. Blacking the
+                 room out is meaningful with detection switched off entirely --
+                 arguably that is exactly when you want it. -->
+            <div class="pinrow">
+              <button class="pinled" id="privacyMaskBtn" onclick="togglePrivacyMask()"
+                      aria-pressed="false" aria-label="Hide everything outside the area"
+                      title="ON by default once an area is set. Everything outside it is blacked out at the camera, before anything is encoded -- the stream, clips, snapshots and the detector all inherit it. Switch off to show the whole room.">
+                <span class="bulb" id="privacyMaskLamp"></span>
+              </button>
+              <span class="eng rstlab">Hide the rest</span>
+            </div>
+            <!-- Indented under the mask because it only modifies it: this is
+                 HOW the outside is hidden, not WHETHER. Pixelation is the
+                 weaker of the two and the title says so -- the cloak keeps
+                 coarse structure (how many people, where, when they move),
+                 and the block size is a judgement about how much of that is
+                 acceptable rather than a guarantee. -->
+            <div class="pinrow sub">
+              <button class="pinled" id="maskPixelBtn" onclick="toggleMaskStyle()"
+                      aria-pressed="false" aria-label="Pixelate instead of blacking out"
+                      data-note="how, not whether"
+                      title="Pixelate the outside instead of blacking it. Weaker: the cloak still shows how many people are there and when they move. Black hides everything.">
+                <span class="bulb" id="maskPixelLamp"></span>
+              </button>
+              <span class="eng rstlab">Pixelate instead</span>
+            </div>
+            <!-- A DISPLAY choice, not a capture one: this scales the picture in
+                 the browser so the kept area fills the player instead of
+                 sitting in a field of black. Nothing about what is captured,
+                 published or recorded changes, so it is per-viewer
+                 (localStorage) rather than node state -- two people watching
+                 the same camera can disagree, which they cannot about the mask
+                 itself. -->
+            <!-- NOT .sub: indenting this under "Hide the rest" put a personal
+                 display preference at the same depth as a privacy control, and
+                 the layout then asserts they are the same kind of thing. This
+                 one changes nobody's view but your own. -->
+            <div class="pinrow">
+              <button class="pinled" id="fitRoiBtn" onclick="toggleFitRoi()"
+                      aria-pressed="false" aria-label="Stretch the visible area to fill the display"
+                      title="Scale the kept area up to fill the player, instead of showing it small inside the hidden rest. Changes only your view -- not the stream, the recording, or what anyone else sees.">
+                <span class="bulb" id="fitRoiLamp"></span>
+              </button>
+              <span class="eng rstlab">Stretch to fill <span class="cap2">(your view)</span></span>
+            </div>
+        </div>
+        <div class="setcard">
+          <div class="setgrp eng detdep">What alerts carry</div>
+            <div class="pinrow detdep">
+              <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
+                      aria-pressed="false" aria-label="Include photos in alerts"
+                      title="Attach stills. Off with video off, the alert is text only">
+                <span class="bulb" id="alertShotsLamp"></span>
+              </button>
+              <span class="eng rstlab">Include photos</span>
+            </div>
+            <div class="pinrow detdep">
+              <button class="pinled" id="alertVideoBtn" onclick="toggleAlertVideo()"
+                      aria-pressed="false" aria-label="Include video in alerts"
+                      title="Attach a short clip as well as the still">
+                <span class="bulb" id="alertVideoLamp"></span>
+              </button>
+              <span class="eng rstlab">Include video</span>
+            </div>
+            <!-- Was "Not while someone's home", which assumed the someone
+                 was a RESIDENT. A thief is also a person, and the mechanism
+                 cannot tell them apart -- so the old name promised a safety
+                 this has never had. The honest name says what you are choosing:
+                 this camera watches animals and does not film people, whoever
+                 they turn out to be.
+
+                 Reads presence from the detector regardless of whether People
+                 is ticked above, because not wanting to be ALERTED about
+                 yourself is a different question from not wanting to be
+                 RECORDED. Text alerts still go -- they leak nothing, and a
+                 silent camera is indistinguishable from a broken one. -->
+            <div class="pinrow detdep">
+              <button class="pinled" id="presencePauseBtn" onclick="togglePresencePause()"
+                      aria-pressed="false" aria-label="Never film people"
+                      title="While a person is in view, alerts arrive without photo or clip -- including an intruder. The camera is for the animals; it will not film people. A manual snapshot still works.">
+                <span class="bulb" id="presencePauseLamp"></span>
+              </button>
+              <span class="eng rstlab">Never film people</span>
+            </div>
+        </div>
+        <div class="setcard">
+          <div class="setgrp eng">This device</div>
+          <!-- The single Settings row the gallery earns. A named set of
+               household faces is the most sensitive thing this node keeps, and
+               it lands on the same disk as six hours of rolling recording, so
+               destroying it must be possible from here rather than from a
+               shell. Styled as the destructive control it is, and confirmed,
+               because there is no undo. -->
+          <div class="pinrow" id="forgetAllRow" hidden>
+            <button type="button" class="pbtn guarded" id="forgetAllBtn"
+                    onclick="forgetEveryone()"
+                    title="Delete every picture the gallery holds, named and unnamed. There is no undo.">Forget everyone</button>
+          </div>
+          <div class="pinrow">
+            <button class="pinled" id="muteBuzzBtn" onclick="toggleMute()"
+                    aria-pressed="false" aria-label="Disable buzz"
+                    title="Opt out of buzz entirely -- neither sent nor received">
+              <span class="bulb" id="muteBuzzLamp"></span>
+            </button>
+            <span class="eng rstlab">Disable buzz</span>
+          </div>
+        
+          <!-- NOT a fallback switch. The fallback is automatic and needs no
+               setting: RTC carries the picture, HLS catches it, and the two
+               lamps on the Video panel say which is doing it.
+               This is the other direction -- skip RTC entirely. WebRTC is one
+               PeerConnection per viewer, held open for as long as they watch,
+               and the node pays for every one; HLS is a directory of segments
+               any number of people can pull without the node knowing they are
+               there. Sub-second is the better trade for a household and the
+               wrong one for an audience, so the choice can be made before the
+               viewers arrive rather than discovered afterwards. -->
+          <div class="pinrow">
+            <button type="button" class="pinled" id="forceHlsBtn" onclick="toggleForceHls()"
+                    aria-pressed="false" aria-label="Force HLS"
+                    title="Serve every viewer over HLS and never negotiate WebRTC. For a large audience: WebRTC costs this node one connection per viewer, HLS costs it nothing per viewer. The picture runs about seven seconds behind.">
+              <span class="bulb" id="forceHlsLamp"></span>
+            </button>
+            <span class="eng rstlab">Force HLS <span class="cap2">(for an audience)</span></span>
+          </div>
+
+          <!-- One switch for a node that cannot keep up. Measured on ariana
+               (2-core i5-6287U, 15fps): the CV render alone took 62.7ms of the
+               66.7ms frame budget -- 94% -- with broadcast-api at ~80% of a
+               core and five ffmpeg children beside it.
+
+               Deliberately NOT a picture-quality control: resolution,
+               framerate and bitrate are untouched, because the measurement
+               says they are not what is saturating the node -- the two
+               libx264 encodes cost 14% and 9% of a core while the Python CV
+               stage cost most of one.
+
+               It also does not touch the privacy mask (see "Hide the rest").
+               A background switch that quietly undoes a privacy control is a
+               bug with a nice name; the mask keeps its frame stage, and the
+               only thing low power changes about it is forcing the style to
+               black -- cheaper AND stronger than the cloak. -->
+          <div class="pinrow">
+            <button type="button" class="pinled" id="lowPowerBtn" onclick="toggleLowPower()"
+                    aria-pressed="false" aria-label="Low power"
+                    title="For a node that cannot keep up: stops the CV render, detection and its alerts, the evidence recording and room audio, and serves the plain camera only. The picture keeps its resolution and framerate. Detection and the privacy mask are remembered, not rewritten -- switching this off puts them back.">
+              <span class="bulb" id="lowPowerLamp"></span>
+            </button>
+            <span class="eng rstlab">Low power</span>
+          </div>
+
+          <!-- TEST-ONLY: mute the server's physical speaker/headset while a
+               call is live, without touching anything else in the pipeline
+               (mic capture, roomaudio, RTC signaling all keep running) -- lets
+               an operator verify RTC end-to-end without the room hearing it.
+               Grouped with the other simple toggles (Disable buzz), not inside
+               the Audio filters block below -- that block is one exclusive
+               unit of numeric filter controls, this is a plain on/off pilot. -->
+          <div class="pinrow">
+            <button type="button" class="pinled" id="muteSpeakerBtn" onclick="toggleTalkMuteSpeaker()"
+                    aria-pressed="false" aria-label="Mute server speaker/headset in RTC"
+                    title="Mute the server's physical speaker/headset during RTC -- testing only, mic/roomaudio/signaling stay live">
+              <span class="bulb" id="muteSpeakerLamp"></span>
+            </button>
+            <span class="eng rstlab">Server speaker</span>
+          </div>
+          <!-- USER-SAFE audio tunables (server-side, one home per key in
+               audio.json; see /api/audio-settings). Risky knobs (talk gain,
+               notches, echo) stay admin-only in device.env. Everything from
+               here to the notch-filter submenu below is ONE exclusive block --
+               don't interleave unrelated toggles into it. -->
+        </div>
+        <div class="setcard">
+          <div class="setgrp eng">Audio filters</div>
+          <label class="setrow"><span class="setlab eng">High-pass</span><input type="number" id="setHighpass" class="setnum" min="0" max="1000" step="10" inputmode="numeric"><span class="setunit eng">Hz</span></label>
+          <label class="setrow"><span class="setlab eng">Low-pass</span><input type="number" id="setLowpass" class="setnum" min="1000" max="24000" step="500" inputmode="numeric"><span class="setunit eng">Hz</span></label>
+          <label class="setrow" title="Room -> viewer (HLS + RTC listen)"><span class="setlab eng">Inbound gain</span><input type="number" id="setGainIn" class="setnum" min="-20" max="30" step="1" inputmode="numeric"><span class="setunit eng">dB</span></label>
+          <label class="setrow" title="Viewer -> room speaker (RTC talk)"><span class="setlab eng">Outbound gain</span><input type="number" id="setGainOut" class="setnum" min="-20" max="12" step="1" inputmode="numeric"><span class="setunit eng">dB</span></label>
+          <!-- Notch filters submenu: the curated notch database (see notches.json /
+               /api/notches), collapsed by default -- this is a deeper tool than
+               the filters above, for the specific whine/resonance case. Labelled
+               "Notch filters", not "comb filter" -- a comb filter is a different,
+               periodic-interference effect (flanger/phaser territory); this is a
+               bank of individually-placed notch (bandreject) filters, each one a
+               specific tone somebody heard. A/K/A "comb" only in the loose sense
+               that a chart of narrow gaps looks comb-shaped. The toggle itself is
+               a plain, unmodified .reset (see its CSS comment for why). -->
+          <div class="modemrow" style="padding-bottom: 8px;">
+            <button type="button" class="reset" id="combToggle" onclick="toggleCombMenu()"
+                    aria-expanded="false" aria-controls="combMenu" aria-label="Notch filters"><span class="pin"></span></button>
+            <span class="eng rstlab">Notch filters (<span id="combCount">0</span>)</span>
+          </div>
+          <div id="combMenu" hidden>
+            <!-- Bulk actions, not a sticky master switch (requirement: "Logic of 'All
+                 notch filters' toggle is wrong... you should still be able to
+                 hand-select which ones you want" -- the old master silenced
+                 every notch AND blocked editing individual ones while off,
+                 via #combList.bypassed-all's pointer-events:none). One-shot:
+                 click sets every entry's flag once, then individual toggles
+                 below are always live, no state to fight. -->
+            <div class="setrow" style="gap:6px; margin:2px 0 6px;">
+              <button type="button" class="pbtn" style="flex:1 1 0; padding:4px 6px; font-size:10.5px;"
+                      onclick="setAllNotches(true)" title="Turn on all notch filters">Turn on all</button>
+              <button type="button" class="pbtn" style="flex:1 1 0; padding:4px 6px; font-size:10.5px;"
+                      onclick="setAllNotches(false)" title="Turn off all notch filters">Turn off all</button>
+            </div>
+            <!-- requirement: "Add button to order all by frequency" -- restores the
+                 file's own stated convention ("Ordered by frequency") after
+                 additions, which always append to the end regardless of
+                 where they'd sort. -->
+            <div class="setrow" style="gap:6px; margin:0 0 6px;">
+              <button type="button" class="pbtn" style="flex:1 1 0; padding:4px 6px; font-size:10.5px;"
+                      onclick="sortNotches()" title="Reorder the list by centre frequency, low to high">Sort by frequency</button>
+            </div>
+            <div id="combList"></div>
+            <div class="setrow" style="gap:4px;">
+              <input type="number" id="combFreq" class="setnum" placeholder="Hz" style="width:56px;" inputmode="numeric">
+              <input type="number" id="combWidth" class="setnum" placeholder="&plusmn;Hz" style="width:48px;" value="10" min="1" title="How far the tone roams either side of the centre frequency (matches the seeded entries' own +/-10 Hz convention)" inputmode="numeric">
+              <input type="text" id="combNote" placeholder="why (e.g. speaker whine)" style="flex:1 1 auto; min-width:0; font-size:10.5px; background:rgba(0,0,0,.18); color:var(--text-dim); border:1px solid var(--border-strong); border-radius:5px; padding:3px 6px;">
+              <button type="button" class="pbtn" style="flex:0 0 auto; padding:4px 8px; font-size:10.5px;" onclick="addNotch()">Add</button>
+            </div>
+          </div>
+        </div>
+        <div class="setcard">
+          <div class="panel" id="rosterPanel" hidden style="margin-top:6px;">
+          <div class="panel-title eng">Who's who</div>
+          <div id="rosterList"></div>
+          <div class="setgrp eng" id="rosterUnlabelledHead" hidden>Not yet named</div>
+          <div id="rosterUnlabelled" class="roster-strip"></div>
+          <div class="pinrow" id="rosterEmpty">
+          <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
+          </div>
+          </div>
+        </div>
+      </div>
+      </div>
   </div>
 
   <aside class="sidebar side-right" id="sidebar">
@@ -2571,40 +3191,26 @@
                  maxlength="200" autocomplete="off" aria-label="Mesh passphrase"
                  enterkeyhint="go" title="Enter joins">
           <button class="pbtn" id="eleJoinBtn" onclick="eleJoin()">Join</button>
-        </div>
-        <!-- THE WAY OUT, in the slot the passphrase field occupies when you
-             are not signed in. The card then has one shape in both states and
-             the control costs no new height. Only ever one of the two rows is
-             visible, which is also what makes the pair readable: this row
-             being here IS the statement that you are signed in.
-             Two-step rather than a dialog: a misclick on a screen in the hall
-             should not drop the household's messaging, and this card has no
-             room for a modal. -->
-        <div class="ele-row" id="eleLeaveRow" hidden>
-          <span class="quiet" id="eleLeaveNote">signed in to this mesh</span>
-          <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()"
-                  title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
-        </div>
-        <div class="ele-err" id="eleErr" hidden></div>
+        </div>        <div class="ele-err" id="eleErr" hidden></div>
+        <!-- Three across, which this grid has always been sized for. Leave
+        mesh is peer to the other two -- same class of action, same
+        weight -- and it needs no label beside it: the row only appears
+        when you are signed in, so its presence already says so. The
+        bespoke row it replaces put body-sized text in a card where
+        .quiet is only styled inside .ele-list, so the label rendered
+        at full size and dominated the card. -->
         <div class="msg-actions two" id="eleActions" hidden>
-          <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
-                  title="Open the full chat in its own window">Open chat</button>
+        <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
+        title="Open the full chat in its own window">Open chat</button>
+        <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()" hidden
+        title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
           <!-- Hidden until signed in: a visitor cannot mint invites, and a
                button that always 401s is worse than no button. -->
-          <button class="pbtn" id="eleInviteBtn" onclick="eleInvite()" hidden
+          <button class="pbtn aside" id="eleInviteBtn" onclick="eleInvite()" hidden
                   title="Copy a link that lets one device join, once, within a day">Copy invite</button>
         </div>
       </div>
 
-      <div class="panel" id="rosterPanel" hidden style="margin-top:6px;">
-        <div class="panel-title eng">Who's who</div>
-        <div id="rosterList"></div>
-        <div class="setgrp eng" id="rosterUnlabelledHead" hidden>Not yet named</div>
-        <div id="rosterUnlabelled" class="roster-strip"></div>
-        <div class="pinrow" id="rosterEmpty">
-          <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
-        </div>
-      </div>
       <!-- Settings alone, full width. Reset used to share this row, and it
            became redundant the moment Repair feed was escalated to call
            /api/reset: Repair now does cv-reset AND reset, so it was a strict
@@ -2618,379 +3224,6 @@
            that tells you the feed has stopped.
            One restart control, and it lives where the symptom appears. -->
       <div class="modemrow" style="padding:0 2px; display:flex;">
-        <button type="button" class="pbtn" id="settingsBtn" onclick="toggleSettings()"
-                style="flex:1 1 0; padding:6px 10px;" aria-expanded="false"
-                aria-controls="settingsPanel" title="Theme, buzz and audio settings">Settings</button>
-      </div>
-      <div class="panel" id="settingsPanel" hidden style="margin-top:6px;">
-        <div class="panel-title eng">Settings</div>
-        <!-- Grouped, not alphabetized. Alphabetical order was asked for when
-             this was a short flat list; at seventeen controls it put "Detection
-             area" between "Dogs" and "Include photos" and the panel stopped
-             being readable. The groups below are the questions a person
-             actually arrives with: what triggers an alert, where to watch,
-             what the alert carries, and this device's own preferences. The
-             three in "This device" -- buzz, theme, RTC speaker mute -- are the
-             ones that change nothing about what is recorded. -->
-        <div class="pdiv"></div>
-        <!-- Structure, not a flat list: "All animate beings" is a SUPERSET of
-             the four indented under it, while "All movements" is a different
-             mechanism entirely (no model, so it sees what the detector has no
-             word for and will call a curtain a visitor). A rule separates the
-             orthogonal one; indentation carries the containment.
-
-             Plants sits with the model classes because that is what it IS:
-             COCO 58, a label the detector really returns. It had been
-             rendered beside "All movements" -- the one mechanism it has
-             nothing in common with, since that one runs with no model at all.
-
-             It is still deliberately absent from _LIVING_CLASSES, so the
-             superset can neither switch it on nor off: _expand_classes only
-             ever appends, and plant is not in the list it appends. The guard
-             is in the data, not in this layout.
-
-             And the superset is ANIMATE, not living, because a plant is a
-             living being -- excluding it from a set by that name was a
-             contradiction printed on the panel. The stored value is still
-             'living', so no existing selection is disturbed. -->
-        <!-- The master sits with the choices it governs, not in the Video
-             panel: everything below is inert without it. The Video panel
-             carries a DET readout instead, because whether the camera is
-             being watched belongs on the status strip with MOG2 and FOV. -->
-        <div class="pinrow">
-          <button class="pinled" id="detectBtn" onclick="toggleDetect()"
-                  aria-pressed="false" aria-label="Detection"
-                  title="Watch for people and pets, whatever the feed is showing -- off stops detection and alerts entirely">
-            <span class="bulb" id="detectBtnLamp"></span>
-          </button>
-          <span class="eng rstlab">Detection</span>
-        </div>
-        <div class="alertgrp" id="alertGroup">
-          <div class="sub-title">Alert me about</div>
-          <div class="pinrow">
-            <button class="pinled" id="clsLivingBtn" onclick="toggleLiving()"
-                    aria-pressed="false" aria-label="Alert on all animate beings"
-                    title="Every animate class at once -- stays correct if a species is added later">
-              <span class="bulb" id="clsLivingLamp"></span>
-            </button>
-            <span class="eng rstlab">All animate beings</span>
-          </div>
-          <div class="pinrow sub">
-            <button class="pinled" id="clsHumanBtn" onclick="toggleCls('human')"
-                    aria-pressed="false" aria-label="Alert on people">
-              <span class="bulb" id="clsHumanLamp"></span>
-            </button>
-            <span class="eng rstlab">People</span>
-          </div>
-          <div class="pinrow sub">
-            <button class="pinled" id="clsCatBtn" onclick="toggleCls('cat')"
-                    aria-pressed="false" aria-label="Alert on cats">
-              <span class="bulb" id="clsCatLamp"></span>
-            </button>
-            <span class="eng rstlab">Cats</span>
-          </div>
-          <div class="pinrow sub">
-            <button class="pinled" id="clsDogBtn" onclick="toggleCls('dog')"
-                    aria-pressed="false" aria-label="Alert on dogs">
-              <span class="bulb" id="clsDogLamp"></span>
-            </button>
-            <span class="eng rstlab">Dogs</span>
-          </div>
-          <div class="pinrow sub">
-            <button class="pinled" id="clsBirdBtn" onclick="toggleCls('bird')"
-                    aria-pressed="false" aria-label="Alert on birds">
-              <span class="bulb" id="clsBirdLamp"></span>
-            </button>
-            <span class="eng rstlab">Birds</span>
-          </div>
-          <div class="pinrow sub">
-            <button class="pinled" id="clsOtherBtn" onclick="toggleCls('other')"
-                    aria-pressed="false" aria-label="Alert on other living things"
-                    title="Every animate class the model knows that is not a person, cat, dog or bird -- horse, sheep, cow, elephant, bear, zebra, giraffe. Indoors these are near-certainly misclassifications, which is the point: something alive that is not one of yours.">
-              <span class="bulb" id="clsOtherLamp"></span>
-            </button>
-            <span class="eng rstlab">Other</span>
-          </div>
-            <div class="pinrow">
-              <button class="pinled" id="clsPlantBtn" onclick="toggleCls('plant')"
-                      aria-pressed="false" aria-label="Alert on plants"
-                      title="A houseplant moving in a draught was being reported as a cat, because the model had no 'plant' label available and returned the nearest class it was allowed to name. Naming it correctly is the fix; leave this OFF to silence it. Not part of All living beings, so that option cannot switch it back on.">
-                <span class="bulb" id="clsPlantLamp"></span>
-              </button>
-              <span class="eng rstlab">Plants</span>
-            </div>
-          <div class="pdiv"></div>
-          <div class="pinrow">
-            <button class="pinled" id="clsMotionBtn" onclick="toggleCls('motion')"
-                    aria-pressed="false" aria-label="Alert on all movements"
-                    title="Anything that moves, with no model -- catches what the detector has no word for, and will call a curtain a visitor">
-              <span class="bulb" id="clsMotionLamp"></span>
-            </button>
-            <span class="eng rstlab">All movements</span>
-          </div>
-          <!-- Content of an alert, not a trigger for one -- hence its own
-               rule rather than another row in the list above. -->
-          <div class="pdiv"></div>
-        </div>
-        <!-- Was "Where to watch", which described one of the three controls
-             under it. The rectangle is shared; what differs is the question
-             asked of it: the detector's scope, what viewers and recordings
-             may see, and how the rest is hidden. The last two work with
-             Detection switched off entirely, so this heading is no longer
-             .detdep -- only the detector's own row is. -->
-        <div class="setgrp eng">What the camera sees</div>
-          <!-- Two controls, because they answer different questions. The
-               lamp is WHETHER the region applies; the button is WHAT it is.
-               One control doing both means switching the region off throws
-               away the box, and the next "on" costs you a drag -- nobody
-               toggles something that expensive. -->
-          <div class="pinrow detdep">
-            <button class="pinled" id="roiBtn" onclick="toggleRoi()"
-                    aria-pressed="false" aria-label="Also limit detection to the visible area"
-                    title="The area below is what the camera shows. This also confines the DETECTOR to it -- off keeps watching the whole picture, and the area is remembered either way.">
-              <span class="bulb" id="roiLamp"></span>
-            </button>
-            <span class="eng rstlab" id="roiLabel">Detect only here</span>
-          </div>
-          <!-- EDIT and SET are exclusive: exactly one is live at a time, so
-               the pair itself says which mode you are in. A single button
-               that changes its own label makes you read it to find out. -->
-          <!-- The caption belongs to the BUTTONS, which is what it describes.
-               It had been the lamp's label, where it read as an imperative on
-               a switch -- and the switch does something else entirely: it
-               confines the detector. One label, two controls, neither
-               described. -->
-          <div class="sub-title roi-cap">Edit visible area</div>
-          <div class="pinrow detdep roi-actions">
-            <button class="pbtn" id="roiEditBtn" onclick="armRoi()"
-                    title="Drag a box on the picture to choose the area">Edit</button>
-            <button class="pbtn" id="roiSetBtn" onclick="commitRoi()"
-                    title="Keep the area you drew and stop editing">Set</button>
-            <button class="pbtn" id="roiResetBtn" onclick="resetRoi()"
-                    title="Forget the area and watch the whole picture">Reset</button>
-          </div>
-          <!-- Same rectangle as the detection region, with a different
-               question asked of it: that one is where the detector LOOKS,
-               this is what anybody may SEE. One region with a mode, not two
-               rectangles to keep in step.
-
-               Not .detdep: this does not depend on Detection. Blacking the
-               room out is meaningful with detection switched off entirely --
-               arguably that is exactly when you want it. -->
-          <div class="pinrow">
-            <button class="pinled" id="privacyMaskBtn" onclick="togglePrivacyMask()"
-                    aria-pressed="false" aria-label="Hide everything outside the area"
-                    title="ON by default once an area is set. Everything outside it is blacked out at the camera, before anything is encoded -- the stream, clips, snapshots and the detector all inherit it. Switch off to show the whole room.">
-              <span class="bulb" id="privacyMaskLamp"></span>
-            </button>
-            <span class="eng rstlab">Hide the rest</span>
-          </div>
-          <!-- Indented under the mask because it only modifies it: this is
-               HOW the outside is hidden, not WHETHER. Pixelation is the
-               weaker of the two and the title says so -- the cloak keeps
-               coarse structure (how many people, where, when they move),
-               and the block size is a judgement about how much of that is
-               acceptable rather than a guarantee. -->
-          <div class="pinrow sub">
-            <button class="pinled" id="maskPixelBtn" onclick="toggleMaskStyle()"
-                    aria-pressed="false" aria-label="Pixelate instead of blacking out"
-                    data-note="how, not whether"
-                    title="Pixelate the outside instead of blacking it. Weaker: the cloak still shows how many people are there and when they move. Black hides everything.">
-              <span class="bulb" id="maskPixelLamp"></span>
-            </button>
-            <span class="eng rstlab">Pixelate instead</span>
-          </div>
-          <!-- A DISPLAY choice, not a capture one: this scales the picture in
-               the browser so the kept area fills the player instead of
-               sitting in a field of black. Nothing about what is captured,
-               published or recorded changes, so it is per-viewer
-               (localStorage) rather than node state -- two people watching
-               the same camera can disagree, which they cannot about the mask
-               itself. -->
-          <!-- NOT .sub: indenting this under "Hide the rest" put a personal
-               display preference at the same depth as a privacy control, and
-               the layout then asserts they are the same kind of thing. This
-               one changes nobody's view but your own. -->
-          <div class="pinrow">
-            <button class="pinled" id="fitRoiBtn" onclick="toggleFitRoi()"
-                    aria-pressed="false" aria-label="Stretch the visible area to fill the display"
-                    title="Scale the kept area up to fill the player, instead of showing it small inside the hidden rest. Changes only your view -- not the stream, the recording, or what anyone else sees.">
-              <span class="bulb" id="fitRoiLamp"></span>
-            </button>
-            <span class="eng rstlab">Stretch to fill <span class="cap2">(your view)</span></span>
-          </div>
-        <div class="setgrp eng detdep">What alerts carry</div>
-          <div class="pinrow detdep">
-            <button class="pinled" id="alertShotsBtn" onclick="toggleAlertShots()"
-                    aria-pressed="false" aria-label="Include photos in alerts"
-                    title="Attach stills. Off with video off, the alert is text only">
-              <span class="bulb" id="alertShotsLamp"></span>
-            </button>
-            <span class="eng rstlab">Include photos</span>
-          </div>
-          <div class="pinrow detdep">
-            <button class="pinled" id="alertVideoBtn" onclick="toggleAlertVideo()"
-                    aria-pressed="false" aria-label="Include video in alerts"
-                    title="Attach a short clip as well as the still">
-              <span class="bulb" id="alertVideoLamp"></span>
-            </button>
-            <span class="eng rstlab">Include video</span>
-          </div>
-          <!-- Was "Not while someone's home", which assumed the someone
-               was a RESIDENT. A thief is also a person, and the mechanism
-               cannot tell them apart -- so the old name promised a safety
-               this has never had. The honest name says what you are choosing:
-               this camera watches animals and does not film people, whoever
-               they turn out to be.
-
-               Reads presence from the detector regardless of whether People
-               is ticked above, because not wanting to be ALERTED about
-               yourself is a different question from not wanting to be
-               RECORDED. Text alerts still go -- they leak nothing, and a
-               silent camera is indistinguishable from a broken one. -->
-          <div class="pinrow detdep">
-            <button class="pinled" id="presencePauseBtn" onclick="togglePresencePause()"
-                    aria-pressed="false" aria-label="Never film people"
-                    title="While a person is in view, alerts arrive without photo or clip -- including an intruder. The camera is for the animals; it will not film people. A manual snapshot still works.">
-              <span class="bulb" id="presencePauseLamp"></span>
-            </button>
-            <span class="eng rstlab">Never film people</span>
-          </div>
-        <div class="setgrp eng">This device</div>
-        <!-- The single Settings row the gallery earns. A named set of
-             household faces is the most sensitive thing this node keeps, and
-             it lands on the same disk as six hours of rolling recording, so
-             destroying it must be possible from here rather than from a
-             shell. Styled as the destructive control it is, and confirmed,
-             because there is no undo. -->
-        <div class="pinrow" id="forgetAllRow" hidden>
-          <button type="button" class="pbtn guarded" id="forgetAllBtn"
-                  onclick="forgetEveryone()"
-                  title="Delete every picture the gallery holds, named and unnamed. There is no undo.">Forget everyone</button>
-        </div>
-        <div class="pinrow">
-          <button class="pinled" id="muteBuzzBtn" onclick="toggleMute()"
-                  aria-pressed="false" aria-label="Disable buzz"
-                  title="Opt out of buzz entirely -- neither sent nor received">
-            <span class="bulb" id="muteBuzzLamp"></span>
-          </button>
-          <span class="eng rstlab">Disable buzz</span>
-        </div>
-        
-        <!-- NOT a fallback switch. The fallback is automatic and needs no
-             setting: RTC carries the picture, HLS catches it, and the two
-             lamps on the Video panel say which is doing it.
-             This is the other direction -- skip RTC entirely. WebRTC is one
-             PeerConnection per viewer, held open for as long as they watch,
-             and the node pays for every one; HLS is a directory of segments
-             any number of people can pull without the node knowing they are
-             there. Sub-second is the better trade for a household and the
-             wrong one for an audience, so the choice can be made before the
-             viewers arrive rather than discovered afterwards. -->
-        <div class="pinrow">
-          <button type="button" class="pinled" id="forceHlsBtn" onclick="toggleForceHls()"
-                  aria-pressed="false" aria-label="Force HLS"
-                  title="Serve every viewer over HLS and never negotiate WebRTC. For a large audience: WebRTC costs this node one connection per viewer, HLS costs it nothing per viewer. The picture runs about seven seconds behind.">
-            <span class="bulb" id="forceHlsLamp"></span>
-          </button>
-          <span class="eng rstlab">Force HLS <span class="cap2">(for an audience)</span></span>
-        </div>
-
-        <!-- One switch for a node that cannot keep up. Measured on ariana
-             (2-core i5-6287U, 15fps): the CV render alone took 62.7ms of the
-             66.7ms frame budget -- 94% -- with broadcast-api at ~80% of a
-             core and five ffmpeg children beside it.
-
-             Deliberately NOT a picture-quality control: resolution,
-             framerate and bitrate are untouched, because the measurement
-             says they are not what is saturating the node -- the two
-             libx264 encodes cost 14% and 9% of a core while the Python CV
-             stage cost most of one.
-
-             It also does not touch the privacy mask (see "Hide the rest").
-             A background switch that quietly undoes a privacy control is a
-             bug with a nice name; the mask keeps its frame stage, and the
-             only thing low power changes about it is forcing the style to
-             black -- cheaper AND stronger than the cloak. -->
-        <div class="pinrow">
-          <button type="button" class="pinled" id="lowPowerBtn" onclick="toggleLowPower()"
-                  aria-pressed="false" aria-label="Low power"
-                  title="For a node that cannot keep up: stops the CV render, detection and its alerts, the evidence recording and room audio, and serves the plain camera only. The picture keeps its resolution and framerate. Detection and the privacy mask are remembered, not rewritten -- switching this off puts them back.">
-            <span class="bulb" id="lowPowerLamp"></span>
-          </button>
-          <span class="eng rstlab">Low power</span>
-        </div>
-
-        <!-- TEST-ONLY: mute the server's physical speaker/headset while a
-             call is live, without touching anything else in the pipeline
-             (mic capture, roomaudio, RTC signaling all keep running) -- lets
-             an operator verify RTC end-to-end without the room hearing it.
-             Grouped with the other simple toggles (Disable buzz), not inside
-             the Audio filters block below -- that block is one exclusive
-             unit of numeric filter controls, this is a plain on/off pilot. -->
-        <div class="pinrow">
-          <button type="button" class="pinled" id="muteSpeakerBtn" onclick="toggleTalkMuteSpeaker()"
-                  aria-pressed="false" aria-label="Mute server speaker/headset in RTC"
-                  title="Mute the server's physical speaker/headset during RTC -- testing only, mic/roomaudio/signaling stay live">
-            <span class="bulb" id="muteSpeakerLamp"></span>
-          </button>
-          <span class="eng rstlab">Server speaker</span>
-        </div>
-        <div class="pdiv"></div>
-        <!-- USER-SAFE audio tunables (server-side, one home per key in
-             audio.json; see /api/audio-settings). Risky knobs (talk gain,
-             notches, echo) stay admin-only in device.env. Everything from
-             here to the notch-filter submenu below is ONE exclusive block --
-             don't interleave unrelated toggles into it. -->
-        <div class="setgrp eng">Audio filters</div>
-        <label class="setrow"><span class="setlab eng">High-pass</span><input type="number" id="setHighpass" class="setnum" min="0" max="1000" step="10" inputmode="numeric"><span class="setunit eng">Hz</span></label>
-        <label class="setrow"><span class="setlab eng">Low-pass</span><input type="number" id="setLowpass" class="setnum" min="1000" max="24000" step="500" inputmode="numeric"><span class="setunit eng">Hz</span></label>
-        <label class="setrow" title="Room -> viewer (HLS + RTC listen)"><span class="setlab eng">Inbound gain</span><input type="number" id="setGainIn" class="setnum" min="-20" max="30" step="1" inputmode="numeric"><span class="setunit eng">dB</span></label>
-        <label class="setrow" title="Viewer -> room speaker (RTC talk)"><span class="setlab eng">Outbound gain</span><input type="number" id="setGainOut" class="setnum" min="-20" max="12" step="1" inputmode="numeric"><span class="setunit eng">dB</span></label>
-        <!-- Notch filters submenu: the curated notch database (see notches.json /
-             /api/notches), collapsed by default -- this is a deeper tool than
-             the filters above, for the specific whine/resonance case. Labelled
-             "Notch filters", not "comb filter" -- a comb filter is a different,
-             periodic-interference effect (flanger/phaser territory); this is a
-             bank of individually-placed notch (bandreject) filters, each one a
-             specific tone somebody heard. A/K/A "comb" only in the loose sense
-             that a chart of narrow gaps looks comb-shaped. The toggle itself is
-             a plain, unmodified .reset (see its CSS comment for why). -->
-        <div class="modemrow" style="padding-bottom: 8px;">
-          <button type="button" class="reset" id="combToggle" onclick="toggleCombMenu()"
-                  aria-expanded="false" aria-controls="combMenu" aria-label="Notch filters"><span class="pin"></span></button>
-          <span class="eng rstlab">Notch filters (<span id="combCount">0</span>)</span>
-        </div>
-        <div id="combMenu" hidden>
-          <!-- Bulk actions, not a sticky master switch (requirement: "Logic of 'All
-               notch filters' toggle is wrong... you should still be able to
-               hand-select which ones you want" -- the old master silenced
-               every notch AND blocked editing individual ones while off,
-               via #combList.bypassed-all's pointer-events:none). One-shot:
-               click sets every entry's flag once, then individual toggles
-               below are always live, no state to fight. -->
-          <div class="setrow" style="gap:6px; margin:2px 0 6px;">
-            <button type="button" class="pbtn" style="flex:1 1 0; padding:4px 6px; font-size:10.5px;"
-                    onclick="setAllNotches(true)" title="Turn on all notch filters">Turn on all</button>
-            <button type="button" class="pbtn" style="flex:1 1 0; padding:4px 6px; font-size:10.5px;"
-                    onclick="setAllNotches(false)" title="Turn off all notch filters">Turn off all</button>
-          </div>
-          <!-- requirement: "Add button to order all by frequency" -- restores the
-               file's own stated convention ("Ordered by frequency") after
-               additions, which always append to the end regardless of
-               where they'd sort. -->
-          <div class="setrow" style="gap:6px; margin:0 0 6px;">
-            <button type="button" class="pbtn" style="flex:1 1 0; padding:4px 6px; font-size:10.5px;"
-                    onclick="sortNotches()" title="Reorder the list by centre frequency, low to high">Sort by frequency</button>
-          </div>
-          <div id="combList"></div>
-          <div class="setrow" style="gap:4px;">
-            <input type="number" id="combFreq" class="setnum" placeholder="Hz" style="width:56px;" inputmode="numeric">
-            <input type="number" id="combWidth" class="setnum" placeholder="&plusmn;Hz" style="width:48px;" value="10" min="1" title="How far the tone roams either side of the centre frequency (matches the seeded entries' own +/-10 Hz convention)" inputmode="numeric">
-            <input type="text" id="combNote" placeholder="why (e.g. speaker whine)" style="flex:1 1 auto; min-width:0; font-size:10.5px; background:rgba(0,0,0,.18); color:var(--text-dim); border:1px solid var(--border-strong); border-radius:5px; padding:3px 6px;">
-            <button type="button" class="pbtn" style="flex:0 0 auto; padding:4px 8px; font-size:10.5px;" onclick="addNotch()">Add</button>
-          </div>
-        </div>
       </div>
       <!-- WHO'S WHO: the gallery. A roster is a COLLECTION, not a setting --
            it grows, each entry has its own state, and it needs add, rename
@@ -6849,7 +7082,7 @@
              actions: document.getElementById('eleActions'),
              invite: document.getElementById('eleInviteBtn'),
              signin: document.getElementById('eleSignInRow'),
-             leave: document.getElementById('eleLeaveRow'),
+             leave: document.getElementById('eleLeaveBtn'),
              me: document.getElementById('eleMe') };
   }
 
@@ -6895,6 +7128,7 @@
     if (p.invite) p.invite.hidden = true;
     if (p.signin) p.signin.hidden = true;   // nothing here to join
     if (p.leave) p.leave.hidden = true;     // nor to leave
+    if (p.actions) p.actions.className = 'msg-actions one';
     if (p.actions) p.actions.hidden = false;
   }
 
@@ -6913,6 +7147,9 @@
     if (p.invite) p.invite.hidden = true;
     if (p.signin) p.signin.hidden = false;
     if (p.leave) p.leave.hidden = true;
+    // One visible button, so one track -- a hidden grid child still leaves
+    // its column behind, which is what .one and .two are for.
+    if (p.actions) p.actions.className = 'msg-actions one';
     if (p.actions) p.actions.hidden = false;
   }
 
@@ -7014,6 +7251,35 @@
     });
   }
 
+// Distinct transports currently carrying a link, read from the mesh.
+  //
+  // An em dash until it answers, which is NOT the same as "no transports":
+  // /v1/status is gated, so a signed-out viewer genuinely cannot know, and
+  // saying so beats inventing a reassuring blank.
+  var _eleTxAt = 0;
+  function eleTransports() {
+  var el = document.getElementById('eleTransport');
+  if (!el) return;
+  if (Date.now() - _eleTxAt < 15000) return;   // it changes slowly; do not poll it hard
+  _eleTxAt = Date.now();
+  fetch('/elem/v1/status', { cache: 'no-store' })
+  .then(function (r) { return r.ok ? r.json() : null; })
+  .catch(function () { return null; })
+  .then(function (j) {
+  if (!j || !j.links || !j.links.length) { el.textContent = '\u2014'; return; }
+  var seen = {}, out = [];
+  j.links.forEach(function (l) {
+  var t = String(l.transport || '').toLowerCase();
+  if (!t || seen[t]) return;
+  seen[t] = 1;
+  // 'ble' is what the mesh calls the radio; BitChat is what it is to
+  // somebody reading a card in a corridor.
+  out.push(t === 'ble' ? 'BitChat' : t.toUpperCase());
+  });
+  el.textContent = out.length ? out.join(' + ') : '\u2014';
+  });
+  }
+
   function eleRender() {
     if (!eleList) return;
     var p = eleParts();
@@ -7025,15 +7291,29 @@
     // already been given.
     if (p.signin) p.signin.hidden = true;
     if (p.leave) p.leave.hidden = false;
+    if (p.actions) p.actions.className = 'msg-actions';   // all three
     if (p.send) p.send.hidden = false;
     if (p.invite) p.invite.hidden = false;
     if (p.actions) p.actions.hidden = false;
-    var netEl = document.getElementById('eleTransport');
-    if (netEl) netEl.textContent = eleNetwork();
-    if (p.me) {
-      p.me.textContent = eleHost || '';
-      p.me.className = 'me node';
-    }
+    // THE NETWORK, NOT THE MACHINE -- and only the part of it that changes.
+    //
+    // This column used to print the node's name over eleNetwork(). Both are
+    // gone. The name is already in the header chip, and it is THIS node, the
+    // one you are looking at: the card was naming itself when the question
+    // worth answering is who ELSE is reachable. (The original note here said
+    // the machine name leads because "which machine is still talking" is the
+    // fact that changes -- right reasoning, wrong subject.)
+    //
+    // eleNetwork() read location.hostname, so it described how THIS BROWSER
+    // reached the page and never said anything about the mesh. /v1/status
+    // lists live links, each with a transport, so the readout is now measured
+    // rather than inferred.
+    //
+    // No constant label either: the left column already says ELE MESH and the
+    // header says it again. A constant does not earn a line on a card this
+    // narrow -- the card's own rule, written three inches up.
+    if (p.me) { p.me.textContent = ''; p.me.className = 'me'; }
+    eleTransports();
     var msgs = eleMsgs.slice(-12);
     if (!msgs.length) {
       eleList.innerHTML = '<span class="quiet">nothing said yet</span>';
