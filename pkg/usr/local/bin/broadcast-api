@@ -2417,6 +2417,33 @@ def _cpu_brand():
     return ''
 
 
+def _intel_pre_skylake(model):
+    """True ONLY for an Intel Core model number that is unambiguously pre-6th-gen.
+
+    The generation lives in the model number, but not always legibly, so this
+    answers only where it is certain and the caller keeps the CV key in every
+    other case -- the same asymmetry `unknown` already encodes:
+
+      3 digits              1st gen        i5-750       -> True
+      4 digits, first 2-5   2nd-5th gen    i5-3210M     -> True   (amira)
+      4 digits, first 6-9   6th-9th gen    i5-6287U     -> False  (ariana)
+      4 digits, first 1     10th gen G     i5-1035G1    -> False
+      5+ digits             10th gen on    i5-10210U    -> False  (tanzania)
+
+    The floor is 6th gen because ariana is the measurement that sets it: a
+    2-core i5-6287U renders CV at 62.7ms against a 66.7ms budget, so 6th gen
+    fits with 6% to spare and anything older does not. A pre-Skylake quad
+    i7 is the case this will call wrong; CV_DETECT_IGNORE_GATE=1 is its
+    route back, same as for any other machine whose owner accepts the cost.
+    """
+    d = re.sub(r'\D', '', model or '')
+    if len(d) == 3:
+        return True
+    if len(d) == 4:
+        return d[0] in '2345'
+    return False
+
+
 def _cpu_tier(brand):
     """'ok' | 'unfit' | 'unknown' from a CPU brand string.
 
@@ -2444,9 +2471,17 @@ def _cpu_tier(brand):
             or re.search(_tm + r'\s*(duo|solo)\b', b)
             or re.search(r'\b(celeron|pentium|atom|sempron|turion)\b', b)):
         return 'unfit'
-    m = re.search(_tm + r'[\s._-]*i([3579])\b', b) or re.search(r'\bi([3579])-\d', b)
+    m = (re.search(_tm + r'[\s._-]*i([3579])[\s._-]*(\d{3,5}[a-z]*)?', b)
+         or re.search(r'\bi([3579])-(\d{3,5}[a-z]*)?', b))
     if m:
-        return 'ok' if int(m.group(1)) >= 5 else 'unfit'
+        if int(m.group(1)) < 5:
+            return 'unfit'
+        # An i5 is a CLASS, not a DATE, and the class test was reading only
+        # the digit after the i. amira is an i5-3210M -- Ivy Bridge, 2012,
+        # two physical cores -- and scored the same 'ok' as tanzania's
+        # i5-10210U while measuring 193% CPU and a load average of 4.84 on a
+        # 4-thread machine. The gate was installed and decided nothing.
+        return 'unfit' if _intel_pre_skylake(m.group(2)) else 'ok'
     m = re.search(r'\bryzen\s+(\d)\b', b)     # Ryzen 3 sits with i3
     if m:
         return 'ok' if int(m.group(1)) >= 5 else 'unfit'
