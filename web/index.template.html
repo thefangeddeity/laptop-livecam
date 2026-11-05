@@ -1271,6 +1271,19 @@
      that sets display on something script hides needs the same guard. */
   .pbtn[hidden], .modem[hidden] { display: none; }
   .msg-actions .pbtn { padding: 6px 4px; font-size: 11px; }
+  /* NOT A PEER. Open chat and Leave mesh are things you do with this mesh;
+     Copy invite is an occasional errand on behalf of somebody else, and
+     three identical buttons said all three were the same weight. It keeps
+     its column -- the grid is what keeps the row even -- and loses the
+     housing: no raised face, no border, dimmer label. It reads as available
+     rather than offered, which is what a side action should look like.
+     Still a button, still the same hit area: this is a change of rank, not
+     of reach. */
+  .msg-actions .pbtn.aside {
+    background: none; border-color: transparent; box-shadow: none;
+    color: var(--text-muted); font-weight: 400; }
+  .msg-actions .pbtn.aside:hover {
+    color: var(--text-dim); border-color: var(--border); }
 
   .msg-hint {
     font-size: 11px; color: var(--text-muted);
@@ -1684,6 +1697,16 @@
        #10201c / #1d3730 / #9fb4ad and therefore never changed: in light mode
        a black-green box sat directly under a parchment one, in the same rail,
        doing the same job. Same scanline, same gradient, same phosphor. */
+    /* MATCH THE LEFT STACK. The sidebar is as tall as the tallest column,
+       so this card can fill the rest of it -- and a card that stops short in
+       a full-height column reads as unfinished rather than finished early.
+       flex-grow alone was not enough and that is the part that was missing:
+       growing the CARD does nothing unless the card also knows how to
+       distribute the height it was given, so it is a flex column itself and
+       the list below takes the slack. As a rule rather than an inline style,
+       because inline beat a stylesheet rule elsewhere in this very file and
+       cost an hour. */
+    #elePanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     /* The card grows now (see #elePanel flex:1), so the LIST is what takes
        up the slack and therefore what has to scroll. */
     #elePanel .ele-list { flex: 1; min-height: 0; overflow-y: auto; }
@@ -3098,7 +3121,7 @@
            finished early. flex:1 lets the message list use the height the
            sidebar already had; min-height:0 is what makes the list inside
            it scroll rather than push the card past the fold. -->
-      <div class="panel" id="elePanel" hidden style="flex:1; min-height:0;">
+      <div class="panel" id="elePanel" hidden>
         <!-- Two COLUMNS and a rule, not two rows. Each side is a thing and
              its qualifier, stacked: what this card is, and who you are
              speaking as. Read down rather than across.
@@ -3163,7 +3186,7 @@
                   title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
           <!-- Hidden until signed in: a visitor cannot mint invites, and a
                button that always 401s is worse than no button. -->
-          <button class="pbtn" id="eleInviteBtn" onclick="eleInvite()" hidden
+          <button class="pbtn aside" id="eleInviteBtn" onclick="eleInvite()" hidden
                   title="Copy a link that lets one device join, once, within a day">Copy invite</button>
         </div>
       </div>
