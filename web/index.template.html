@@ -1877,6 +1877,29 @@
        Reading order stays down-then-across, so Detection is still first and
        top-left -- everything below it is inert without it. */
     .setgrid { columns: 260px; column-gap: 12px; }
+    /* NOTHING MAY MOVE BUT THE THING YOU TOGGLED.
+       Column flow is a GLOBAL packing pass: any card changing height re-runs
+       it for all six. Opening the notch list -- the only control here that
+       triples its card -- threw "What the camera sees", "What alerts carry"
+       and "This device" into different columns. You flip a switch to reveal a
+       list and three unrelated panels relocate, which is the interface moving
+       without being asked to, and it destroys the spatial memory of where a
+       setting lives.
+       So the two regions that grow at RUNTIME are capped and scroll inside
+       themselves: the notch list, and Who's who, which grows a row per face
+       the gallery learns. Capped, the card's height is near enough constant
+       and the packing never re-runs.
+       ONLY WHERE THERE ARE COLUMNS. On a phone this is a single column, where
+       growth simply pushes down -- correct and expected -- and a list that
+       scrolls inside a page that also scrolls is a nested-scroll trap under a
+       thumb. 721px is the same boundary the rest of the sheet uses.
+       This treats the cause, not the structure. If a THIRD card ever becomes
+       height-variable, capping stops being enough and the packing has to give
+       way to explicit placement. */
+    @media (min-width: 721px) {
+      #combMenu { max-height: 340px; overflow-y: auto; }
+      #rosterPanel { max-height: 300px; overflow-y: auto; }
+    }
     .setcard { border: 1px solid var(--border); border-radius: 11px;
                padding: 10px 12px 12px; background: rgba(0,0,0,.12);
                min-width: 0;
