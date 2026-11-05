@@ -2166,7 +2166,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.6-1-g87c2226"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.6-2-g9fa5422"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3038,23 +3038,19 @@
                  enterkeyhint="go" title="Enter joins">
           <button class="pbtn" id="eleJoinBtn" onclick="eleJoin()">Join</button>
         </div>
-        <!-- THE WAY OUT, in the slot the passphrase field occupies when you
-             are not signed in. The card then has one shape in both states and
-             the control costs no new height. Only ever one of the two rows is
-             visible, which is also what makes the pair readable: this row
-             being here IS the statement that you are signed in.
-             Two-step rather than a dialog: a misclick on a screen in the hall
-             should not drop the household's messaging, and this card has no
-             room for a modal. -->
-        <div class="ele-row" id="eleLeaveRow" hidden>
-          <span class="quiet" id="eleLeaveNote">signed in to this mesh</span>
-          <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()"
-                  title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
-        </div>
         <div class="ele-err" id="eleErr" hidden></div>
+        <!-- Three across, which this grid has always been sized for. Leave
+             mesh is peer to the other two -- same class of action, same
+             weight -- and it needs no label beside it: the row only appears
+             when you are signed in, so its presence already says so. The
+             bespoke row it replaces put body-sized text in a card where
+             .quiet is only styled inside .ele-list, so the label rendered
+             at full size and dominated the card. -->
         <div class="msg-actions two" id="eleActions" hidden>
           <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
                   title="Open the full chat in its own window">Open chat</button>
+          <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()" hidden
+                  title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
           <!-- Hidden until signed in: a visitor cannot mint invites, and a
                button that always 401s is worse than no button. -->
           <button class="pbtn" id="eleInviteBtn" onclick="eleInvite()" hidden
@@ -3196,7 +3192,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.6-1-g87c2226';
+    var build = info.version || 'mac-v7.1.6-2-g9fa5422';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -6930,7 +6926,7 @@
              actions: document.getElementById('eleActions'),
              invite: document.getElementById('eleInviteBtn'),
              signin: document.getElementById('eleSignInRow'),
-             leave: document.getElementById('eleLeaveRow'),
+             leave: document.getElementById('eleLeaveBtn'),
              me: document.getElementById('eleMe') };
   }
 
@@ -6976,6 +6972,7 @@
     if (p.invite) p.invite.hidden = true;
     if (p.signin) p.signin.hidden = true;   // nothing here to join
     if (p.leave) p.leave.hidden = true;     // nor to leave
+    if (p.actions) p.actions.className = 'msg-actions one';
     if (p.actions) p.actions.hidden = false;
   }
 
@@ -6994,6 +6991,9 @@
     if (p.invite) p.invite.hidden = true;
     if (p.signin) p.signin.hidden = false;
     if (p.leave) p.leave.hidden = true;
+    // One visible button, so one track -- a hidden grid child still leaves
+    // its column behind, which is what .one and .two are for.
+    if (p.actions) p.actions.className = 'msg-actions one';
     if (p.actions) p.actions.hidden = false;
   }
 
@@ -7135,6 +7135,7 @@
     // already been given.
     if (p.signin) p.signin.hidden = true;
     if (p.leave) p.leave.hidden = false;
+    if (p.actions) p.actions.className = 'msg-actions';   // all three
     if (p.send) p.send.hidden = false;
     if (p.invite) p.invite.hidden = false;
     if (p.actions) p.actions.hidden = false;
