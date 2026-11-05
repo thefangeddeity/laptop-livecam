@@ -1816,7 +1816,22 @@
                  position: absolute; inset: 0; z-index: 24; cursor: cell;
                  background: rgba(0,0,0,.35); }
     .roi-layer[hidden] { display: none; }
-    .roi-box { position: absolute; border: 1px solid var(--roi-line);
+    /* THE SAME RADIUS AS THE HOUSING. .video-wrap is rounded and clips with
+       overflow:hidden, and .roi-layer sits inset:0 inside it, so a box drawn
+       to the frame edge had its corners shaved by the parent's arc and read
+       as a rendering fault. It matters more than it sounds: the DEFAULT
+       region is the full frame, so the clipped state was what everyone saw
+       the first time they switched the detector on, not something you had to
+       drag to. Matching the radius makes the full-frame box coincide with
+       the housing exactly, which is the case that has to look right.
+       WHAT THIS DOES NOT FIX: overflow:hidden on a rounded parent also hides
+       picture the DETECTOR STILL WATCHES -- those corners are outside the
+       visible frame but inside the region the detector acts on, so the
+       display and the detector disagree about where the frame ends.
+       Rounding the box makes the drawing self-consistent; it does not close
+       that gap. */
+    .roi-box { position: absolute; border-radius: var(--radius);
+               border: 1px solid var(--roi-line);
                box-shadow: 0 0 0 9999px rgba(0,0,0,.45), 0 0 12px rgba(0,0,0,.6);
                background: transparent; pointer-events: none; }
     .roi-box[hidden] { display: none; }
@@ -6941,7 +6956,7 @@
       eleList.hidden = false;
       eleList.innerHTML = '<span class="quiet">not signed in — ' +
         'enter the mesh passphrase below, or ' +
-        '<a href="/elem/" target="_blank" rel="noopener">open the mesh</a>' +
+        '<a href="/elem/" target="_blank" rel="noopener">open ELEM web client</a>' +
         '</span>';
     }
     if (p.send) p.send.hidden = true;
@@ -7049,6 +7064,35 @@
     });
   }
 
+  // Distinct transports currently carrying a link, read from the mesh.
+  //
+  // An em dash until it answers, which is NOT the same as "no transports":
+  // /v1/status is gated, so a signed-out viewer genuinely cannot know, and
+  // saying so beats inventing a reassuring blank.
+  var _eleTxAt = 0;
+  function eleTransports() {
+    var el = document.getElementById('eleTransport');
+    if (!el) return;
+    if (Date.now() - _eleTxAt < 15000) return;   // it changes slowly; do not poll it hard
+    _eleTxAt = Date.now();
+    fetch('/elem/v1/status', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (!j || !j.links || !j.links.length) { el.textContent = '\u2014'; return; }
+        var seen = {}, out = [];
+        j.links.forEach(function (l) {
+          var t = String(l.transport || '').toLowerCase();
+          if (!t || seen[t]) return;
+          seen[t] = 1;
+          // 'ble' is what the mesh calls the radio; BitChat is what it is to
+          // somebody reading a card in a corridor.
+          out.push(t === 'ble' ? 'BitChat' : t.toUpperCase());
+        });
+        el.textContent = out.length ? out.join(' + ') : '\u2014';
+      });
+  }
+
   function eleRender() {
     if (!eleList) return;
     var p = eleParts();
@@ -7063,12 +7107,25 @@
     if (p.send) p.send.hidden = false;
     if (p.invite) p.invite.hidden = false;
     if (p.actions) p.actions.hidden = false;
-    var netEl = document.getElementById('eleTransport');
-    if (netEl) netEl.textContent = eleNetwork();
-    if (p.me) {
-      p.me.textContent = eleHost || '';
-      p.me.className = 'me node';
-    }
+    // THE NETWORK, NOT THE MACHINE -- and only the part of it that changes.
+    //
+    // This column used to print the node's name over eleNetwork(). Both are
+    // gone. The name is already in the header chip, and it is THIS node, the
+    // one you are looking at: the card was naming itself when the question
+    // worth answering is who ELSE is reachable. (The original note here said
+    // the machine name leads because "which machine is still talking" is the
+    // fact that changes -- right reasoning, wrong subject.)
+    //
+    // eleNetwork() read location.hostname, so it described how THIS BROWSER
+    // reached the page and never said anything about the mesh. /v1/status
+    // lists live links, each with a transport, so the readout is now measured
+    // rather than inferred.
+    //
+    // No constant label either: the left column already says ELE MESH and the
+    // header says it again. A constant does not earn a line on a card this
+    // narrow -- the card's own rule, written three inches up.
+    if (p.me) { p.me.textContent = ''; p.me.className = 'me'; }
+    eleTransports();
     var msgs = eleMsgs.slice(-12);
     if (!msgs.length) {
       eleList.innerHTML = '<span class="quiet">nothing said yet</span>';
