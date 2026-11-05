@@ -503,7 +503,15 @@
      usable card and there is no gap left to mean anything. */
   .callctl-row { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 10px 2px 2px; }
   .callctl-row .modem { min-width: 46px; }
-  .callctl-row #buzzBtn { margin-left: auto; }
+  /* SETTINGS takes the far-right slot; BUZZ moves in beside CALL. The row
+     reads left to right as "act on the call, then shout, then configure",
+     and the control that opens the panel below now sits at the end of the
+     bar it opens -- the trigger and the thing it unrolls are adjacent
+     instead of being in different columns. */
+  .callctl-row #settingsBtn { margin-left: auto; }
+  /* It is a flat page button in a row of round modem keys; give it the row's
+     height so the baseline does not jog. */
+  .callctl-row #settingsBtn { height: 36px; padding: 0 14px; }
   .callctl { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
     cursor: pointer; flex: 0 0 auto; border: 1px solid #34343a;
     background: linear-gradient(180deg,#2c2c30,#232326);
@@ -1664,6 +1672,9 @@
        #10201c / #1d3730 / #9fb4ad and therefore never changed: in light mode
        a black-green box sat directly under a parchment one, in the same rail,
        doing the same job. Same scanline, same gradient, same phosphor. */
+    /* The card grows now (see #elePanel flex:1), so the LIST is what takes
+       up the slack and therefore what has to scroll. */
+    #elePanel .ele-list { flex: 1; min-height: 0; overflow-y: auto; }
     .ele-list { max-height: 16em; overflow-y: auto;
                 font: 11px/1.45 var(--mono); letter-spacing: .04em;
                 color: var(--phos); border-radius: 6px; padding: 6px 8px;
@@ -2155,7 +2166,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.6"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.6-1-g87c2226"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2516,6 +2527,9 @@
         <span class="avs-lamp" id="ledRtcAv" title="Video-call WebRTC leg (wired with CALL)"><i class="bulb"></i>RTC</span>
       </div>
 <div class="callctl-row">
+          <button type="button" class="pbtn" id="settingsBtn" onclick="toggleSettings()"
+          style="flex:1 1 0; padding:6px 10px;" aria-expanded="false"
+          aria-controls="settingsPanel" title="Theme, buzz and audio settings">Settings</button>
           <button class="modem calling" id="callBtn" disabled
                   title="Call the server -- not wired yet">
             <span class="cap2">CALL</span>
@@ -2539,144 +2553,13 @@
             <span class="cap2">BUZZ</span>
           </button>
         </div>
-    </div>
-  </div>
-
-  <aside class="sidebar side-right" id="sidebar">
-    <div class="sidebar-scroll">
-
-      <!-- ══ NODE NOTE ══
-           One note that lives ON this node: anyone looking at this camera
-           sees it, it survives with the node, and it needs no second party.
-           Renamed from "Message" so the word is free for ELE Messenger,
-           which is person-to-person and a different thing entirely. Same
-           /broadcast.txt behind it; only the label changed. -->
-      <div class="panel">
-        <div class="panel-title eng">Node Note <span id="msgHint" class="msg-hint"></span></div>
-        <textarea class="msg2 empty" id="msgBox" readonly>(no message)</textarea>
-        <div class="char-count" id="charCount" style="display:none">0/120</div>
-        <div class="msg-actions" id="msgActions" hidden>
-          <button class="pbtn" id="saveBtn" onclick="sendMessage()">Save</button>
-          <button class="pbtn" id="clearBtn" onclick="clearMessage()">Clear</button>
-          <button class="pbtn" id="cancelBtn" onclick="cancelEdit()">Cancel</button>
-        </div>
-        <div class="pinrow">
-          <button class="pinled" id="lockMsgBtn" onclick="toggleLock()"
-                  title="Prevent Save / Clear / Cancel from being used" aria-label="Lock note">
-            <span class="bulb" id="lockMsgLamp"></span>
-          </button>
-          <span class="eng rstlab">Lock note</span>
-        </div>
-      </div>
-
-      <!-- ══ ELE MESSENGER ══
-           Hidden unless the messenger is actually installed on this node.
-           No build flag and no server change decides that: the viewer asks
-           /elem/v1/ping, which answers 200 when the mesh is present
-           and 404 when it is not, because the nginx include that routes
-           /ele* is a wildcard that matches nothing on a node without it.
-           A node with no messenger therefore shows Node Note and nothing
-           else, which is the intended degradation rather than an error. -->
-      <div class="panel" id="elePanel" hidden>
-        <!-- Two COLUMNS and a rule, not two rows. Each side is a thing and
-             its qualifier, stacked: what this card is, and who you are
-             speaking as. Read down rather than across.
-
-             The machine name leads its column because in the event this is
-             for, WHICH MACHINE IS STILL TALKING is the fact on the card that
-             changes. "Messages" and "ELEM" never change; the network it is
-             reaching over might; the name is the one that matters at a
-             glance, so it gets the size and the only tint in the header. -->
-        <div class="ele-top ele-sub">
-          <span class="ele-col">
-            <span class="ele-what eng">Messages</span>
-            <!-- No icon: /ele/icons was the removed server's path and 404s
-                 now. A broken image in the header reads as a broken card. -->
-            <span class="ele-brand">ELE Mesh</span>
-          </span>
-          <span class="ele-col right">
-            <span class="me" id="eleMe"></span>
-            <span class="ele-transport" id="eleTransport">—</span>
-          </span>
-        </div>
-        <div class="ele-list" id="eleList">checking…</div>
-        <!-- And replying happens here. A card you can only read from is a
-             link wearing a panel. -->
-        <!-- One field. There is a single rolling channel, so there is no
-             recipient to choose, and who you are comes from the session --
-             this machine, or you if you logged in. Nobody should be picking
-             from a dropdown to say the stairs are blocked. -->
-        <div class="ele-row" id="eleSend" hidden>
-          <input class="ele-in" id="eleMsg" type="text" placeholder="message…"
-                 maxlength="500" autocomplete="off" aria-label="Message"
-                 enterkeyhint="send" title="Enter sends">
-          <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
-        </div>
-        <!-- SIGNING IN HAPPENS HERE, not in another tab. The card used to
-             offer a link to /elem/, which means leaving the camera to type a
-             passphrase and coming back -- in the event this card exists for,
-             that is three decisions too many. The mesh already accepts a
-             passphrase over POST /v1/login and sets its own session cookie;
-             nothing needed inventing, only asking.
-             type=password so a passphrase said out loud is not also on
-             screen, and autocomplete=off because this is a shared house
-             machine rather than somebody's own browser. -->
-        <div class="ele-row" id="eleSignInRow" hidden>
-          <input class="ele-in" id="elePass" type="password" placeholder="mesh passphrase…"
-                 maxlength="200" autocomplete="off" aria-label="Mesh passphrase"
-                 enterkeyhint="go" title="Enter joins">
-          <button class="pbtn" id="eleJoinBtn" onclick="eleJoin()">Join</button>
-        </div>
-        <!-- THE WAY OUT, in the slot the passphrase field occupies when you
-             are not signed in. The card then has one shape in both states and
-             the control costs no new height. Only ever one of the two rows is
-             visible, which is also what makes the pair readable: this row
-             being here IS the statement that you are signed in.
-             Two-step rather than a dialog: a misclick on a screen in the hall
-             should not drop the household's messaging, and this card has no
-             room for a modal. -->
-        <div class="ele-row" id="eleLeaveRow" hidden>
-          <span class="quiet" id="eleLeaveNote">signed in to this mesh</span>
-          <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()"
-                  title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
-        </div>
-        <div class="ele-err" id="eleErr" hidden></div>
-        <div class="msg-actions two" id="eleActions" hidden>
-          <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
-                  title="Open the full chat in its own window">Open chat</button>
-          <!-- Hidden until signed in: a visitor cannot mint invites, and a
-               button that always 401s is worse than no button. -->
-          <button class="pbtn" id="eleInviteBtn" onclick="eleInvite()" hidden
-                  title="Copy a link that lets one device join, once, within a day">Copy invite</button>
-        </div>
-      </div>
-
-      <div class="panel" id="rosterPanel" hidden style="margin-top:6px;">
-        <div class="panel-title eng">Who's who</div>
-        <div id="rosterList"></div>
-        <div class="setgrp eng" id="rosterUnlabelledHead" hidden>Not yet named</div>
-        <div id="rosterUnlabelled" class="roster-strip"></div>
-        <div class="pinrow" id="rosterEmpty">
-          <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
-        </div>
-      </div>
-      <!-- Settings alone, full width. Reset used to share this row, and it
-           became redundant the moment Repair feed was escalated to call
-           /api/reset: Repair now does cv-reset AND reset, so it was a strict
-           superset of this button minus a page reload.
-           Measured on tanzania before removing it, because "restarts the
-           server" deserved checking: Reset restarted broadcast-api
-           (1119124 -> 1311941) and left mediamtx (2346) and nginx (2348)
-           untouched, with feed mode and mask style preserved. So it was never
-           a full-stack reset either -- it restarted the one service Repair
-           feed already restarts, from a card two panels away from the trace
-           that tells you the feed has stopped.
-           One restart control, and it lives where the symptom appears. -->
-      <div class="modemrow" style="padding:0 2px; display:flex;">
-        <button type="button" class="pbtn" id="settingsBtn" onclick="toggleSettings()"
-                style="flex:1 1 0; padding:6px 10px;" aria-expanded="false"
-                aria-controls="settingsPanel" title="Theme, buzz and audio settings">Settings</button>
-      </div>
+      <!-- SETTINGS OPENS THE CALL BAR DOWNWARD, rather than unrolling 360
+           lines inside a 300px column that then scrolls past the bottom of
+           the picture. Its trigger sits in the call bar with the other
+           controls, so the thing that opens and the thing that opens are
+           adjacent -- and the sidebar is left to the Messages card, which
+           can now use the full height instead of being shoved up by a
+           panel that dwarfed it. -->
       <div class="panel" id="settingsPanel" hidden style="margin-top:6px;">
         <div class="panel-title eng">Settings</div>
         <!-- Alphabetized (requirement: "alphabetize these settings") -- Disable
@@ -3044,6 +2927,154 @@
             <button type="button" class="pbtn" style="flex:0 0 auto; padding:4px 8px; font-size:10.5px;" onclick="addNotch()">Add</button>
           </div>
         </div>
+        <!-- WHO'S WHO LIVES HERE NOW. It is the gallery's own panel --
+             renderGallery() writes into it -- and the row that empties the
+             gallery was already in Settings three sections up, so the two
+             halves of one feature had ended up in different columns.
+             Keeping it in the sidebar after Settings moved left would also
+             have left that column with one card that stretches and one that
+             appears and disappears underneath it. -->
+        <div class="panel" id="rosterPanel" hidden style="margin-top:6px;">
+        <div class="panel-title eng">Who's who</div>
+        <div id="rosterList"></div>
+        <div class="setgrp eng" id="rosterUnlabelledHead" hidden>Not yet named</div>
+        <div id="rosterUnlabelled" class="roster-strip"></div>
+        <div class="pinrow" id="rosterEmpty">
+        <span class="eng rstlab" style="color: var(--text-muted)">Nothing seen yet.</span>
+        </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="sidebar side-right" id="sidebar">
+    <div class="sidebar-scroll">
+
+      <!-- ══ NODE NOTE ══
+           One note that lives ON this node: anyone looking at this camera
+           sees it, it survives with the node, and it needs no second party.
+           Renamed from "Message" so the word is free for ELE Messenger,
+           which is person-to-person and a different thing entirely. Same
+           /broadcast.txt behind it; only the label changed. -->
+      <div class="panel">
+        <div class="panel-title eng">Node Note <span id="msgHint" class="msg-hint"></span></div>
+        <textarea class="msg2 empty" id="msgBox" readonly>(no message)</textarea>
+        <div class="char-count" id="charCount" style="display:none">0/120</div>
+        <div class="msg-actions" id="msgActions" hidden>
+          <button class="pbtn" id="saveBtn" onclick="sendMessage()">Save</button>
+          <button class="pbtn" id="clearBtn" onclick="clearMessage()">Clear</button>
+          <button class="pbtn" id="cancelBtn" onclick="cancelEdit()">Cancel</button>
+        </div>
+        <div class="pinrow">
+          <button class="pinled" id="lockMsgBtn" onclick="toggleLock()"
+                  title="Prevent Save / Clear / Cancel from being used" aria-label="Lock note">
+            <span class="bulb" id="lockMsgLamp"></span>
+          </button>
+          <span class="eng rstlab">Lock note</span>
+        </div>
+      </div>
+
+      <!-- ══ ELE MESSENGER ══
+           Hidden unless the messenger is actually installed on this node.
+           No build flag and no server change decides that: the viewer asks
+           /elem/v1/ping, which answers 200 when the mesh is present
+           and 404 when it is not, because the nginx include that routes
+           /ele* is a wildcard that matches nothing on a node without it.
+           A node with no messenger therefore shows Node Note and nothing
+           else, which is the intended degradation rather than an error. -->
+      <!-- STRETCHES. With Settings and Who's who moved under the picture,
+           this column carries one card, and a card that stops two inches
+           down a full-height column reads as unfinished rather than
+           finished early. flex:1 lets the message list use the height the
+           sidebar already had; min-height:0 is what makes the list inside
+           it scroll rather than push the card past the fold. -->
+      <div class="panel" id="elePanel" hidden style="flex:1; min-height:0;">
+        <!-- Two COLUMNS and a rule, not two rows. Each side is a thing and
+             its qualifier, stacked: what this card is, and who you are
+             speaking as. Read down rather than across.
+
+             The machine name leads its column because in the event this is
+             for, WHICH MACHINE IS STILL TALKING is the fact on the card that
+             changes. "Messages" and "ELEM" never change; the network it is
+             reaching over might; the name is the one that matters at a
+             glance, so it gets the size and the only tint in the header. -->
+        <div class="ele-top ele-sub">
+          <span class="ele-col">
+            <span class="ele-what eng">Messages</span>
+            <!-- No icon: /ele/icons was the removed server's path and 404s
+                 now. A broken image in the header reads as a broken card. -->
+            <span class="ele-brand">ELE Mesh</span>
+          </span>
+          <span class="ele-col right">
+            <span class="me" id="eleMe"></span>
+            <span class="ele-transport" id="eleTransport">—</span>
+          </span>
+        </div>
+        <div class="ele-list" id="eleList">checking…</div>
+        <!-- And replying happens here. A card you can only read from is a
+             link wearing a panel. -->
+        <!-- One field. There is a single rolling channel, so there is no
+             recipient to choose, and who you are comes from the session --
+             this machine, or you if you logged in. Nobody should be picking
+             from a dropdown to say the stairs are blocked. -->
+        <div class="ele-row" id="eleSend" hidden>
+          <input class="ele-in" id="eleMsg" type="text" placeholder="message…"
+                 maxlength="500" autocomplete="off" aria-label="Message"
+                 enterkeyhint="send" title="Enter sends">
+          <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
+        </div>
+        <!-- SIGNING IN HAPPENS HERE, not in another tab. The card used to
+             offer a link to /elem/, which means leaving the camera to type a
+             passphrase and coming back -- in the event this card exists for,
+             that is three decisions too many. The mesh already accepts a
+             passphrase over POST /v1/login and sets its own session cookie;
+             nothing needed inventing, only asking.
+             type=password so a passphrase said out loud is not also on
+             screen, and autocomplete=off because this is a shared house
+             machine rather than somebody's own browser. -->
+        <div class="ele-row" id="eleSignInRow" hidden>
+          <input class="ele-in" id="elePass" type="password" placeholder="mesh passphrase…"
+                 maxlength="200" autocomplete="off" aria-label="Mesh passphrase"
+                 enterkeyhint="go" title="Enter joins">
+          <button class="pbtn" id="eleJoinBtn" onclick="eleJoin()">Join</button>
+        </div>
+        <!-- THE WAY OUT, in the slot the passphrase field occupies when you
+             are not signed in. The card then has one shape in both states and
+             the control costs no new height. Only ever one of the two rows is
+             visible, which is also what makes the pair readable: this row
+             being here IS the statement that you are signed in.
+             Two-step rather than a dialog: a misclick on a screen in the hall
+             should not drop the household's messaging, and this card has no
+             room for a modal. -->
+        <div class="ele-row" id="eleLeaveRow" hidden>
+          <span class="quiet" id="eleLeaveNote">signed in to this mesh</span>
+          <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()"
+                  title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
+        </div>
+        <div class="ele-err" id="eleErr" hidden></div>
+        <div class="msg-actions two" id="eleActions" hidden>
+          <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
+                  title="Open the full chat in its own window">Open chat</button>
+          <!-- Hidden until signed in: a visitor cannot mint invites, and a
+               button that always 401s is worse than no button. -->
+          <button class="pbtn" id="eleInviteBtn" onclick="eleInvite()" hidden
+                  title="Copy a link that lets one device join, once, within a day">Copy invite</button>
+        </div>
+      </div>
+
+      <!-- Settings alone, full width. Reset used to share this row, and it
+           became redundant the moment Repair feed was escalated to call
+           /api/reset: Repair now does cv-reset AND reset, so it was a strict
+           superset of this button minus a page reload.
+           Measured on tanzania before removing it, because "restarts the
+           server" deserved checking: Reset restarted broadcast-api
+           (1119124 -> 1311941) and left mediamtx (2346) and nginx (2348)
+           untouched, with feed mode and mask style preserved. So it was never
+           a full-stack reset either -- it restarted the one service Repair
+           feed already restarts, from a card two panels away from the trace
+           that tells you the feed has stopped.
+           One restart control, and it lives where the symptom appears. -->
+      <div class="modemrow" style="padding:0 2px; display:flex;">
       </div>
       <!-- WHO'S WHO: the gallery. A roster is a COLLECTION, not a setting --
            it grows, each entry has its own state, and it needs add, rename
@@ -3165,7 +3196,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.6';
+    var build = info.version || 'mac-v7.1.6-1-g87c2226';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
