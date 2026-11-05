@@ -2188,7 +2188,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.7-1-g2a0e820"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.7-2-ge266ae6"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2572,7 +2572,7 @@
             <span class="cap2">BUZZ</span>
           </button>
           <button type="button" class="pbtn" id="settingsBtn" onclick="toggleSettings()"
-          style="flex:1 1 0; padding:6px 10px;" aria-expanded="false"
+          aria-expanded="false"
           aria-controls="settingsPanel" title="Theme, buzz and audio settings">Settings</button>
         </div>
       <!-- SETTINGS OPENS THE CALL BAR DOWNWARD, rather than unrolling 360
@@ -2582,6 +2582,15 @@
            adjacent -- and the sidebar is left to the Messages card, which
            can now use the full height instead of being shoved up by a
            panel that dwarfed it. -->
+    </div>
+      <!-- OUT OF THE A/V STRIP. .avstrip is display:flex, a ROW -- so a
+           panel dropped in beside .callctl-row became a flex ITEM next to
+           the bar and rendered as a narrow column to its right, which is
+           exactly what it did. It belongs to the stage column, after the
+           strip, where a block child fills the width. Boundaries here were
+           taken from an HTML parser: counting <div> with a regex is what
+           put it in the wrong parent, and then told me it was in the right
+           one. -->
       <div class="panel" id="settingsPanel" hidden style="margin-top:6px;">
         <div class="panel-title eng">Settings</div>
         <!-- Alphabetized (requirement: "alphabetize these settings") -- Disable
@@ -2992,7 +3001,6 @@
         </div>
       </div>
       </div>
-    </div>
   </div>
 
   <aside class="sidebar side-right" id="sidebar">
@@ -3240,7 +3248,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.7-1-g2a0e820';
+    var build = info.version || 'mac-v7.1.7-2-ge266ae6';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //

@@ -2572,7 +2572,7 @@
             <span class="cap2">BUZZ</span>
           </button>
           <button type="button" class="pbtn" id="settingsBtn" onclick="toggleSettings()"
-          style="flex:1 1 0; padding:6px 10px;" aria-expanded="false"
+          aria-expanded="false"
           aria-controls="settingsPanel" title="Theme, buzz and audio settings">Settings</button>
         </div>
       <!-- SETTINGS OPENS THE CALL BAR DOWNWARD, rather than unrolling 360
@@ -2582,6 +2582,15 @@
            adjacent -- and the sidebar is left to the Messages card, which
            can now use the full height instead of being shoved up by a
            panel that dwarfed it. -->
+    </div>
+      <!-- OUT OF THE A/V STRIP. .avstrip is display:flex, a ROW -- so a
+           panel dropped in beside .callctl-row became a flex ITEM next to
+           the bar and rendered as a narrow column to its right, which is
+           exactly what it did. It belongs to the stage column, after the
+           strip, where a block child fills the width. Boundaries here were
+           taken from an HTML parser: counting <div> with a regex is what
+           put it in the wrong parent, and then told me it was in the right
+           one. -->
       <div class="panel" id="settingsPanel" hidden style="margin-top:6px;">
         <div class="panel-title eng">Settings</div>
         <!-- Alphabetized (requirement: "alphabetize these settings") -- Disable
@@ -2992,7 +3001,6 @@
         </div>
       </div>
       </div>
-    </div>
   </div>
 
   <aside class="sidebar side-right" id="sidebar">
