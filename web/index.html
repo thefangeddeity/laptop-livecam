@@ -1939,8 +1939,28 @@
        This treats the cause, not the structure. If a THIRD card ever becomes
        height-variable, capping stops being enough and the packing has to give
        way to explicit placement. */
+    /* THE NOTCH LIST LEAVES THE FLOW. Capping its height was the wrong fix
+       and it did not work: capped at 340px the card still grew from about 90,
+       so the columns still re-packed and three unrelated cards still moved.
+       Norman argued this at the time -- capping treats the symptom -- and he
+       was right.
+       Out of flow, nothing can reflow, because no card's height changes at
+       all. It drops below its own card like the menu it is, over whatever is
+       beneath, and it can be as long as it likes.
+       Only where there are columns. On a phone this is one column and in-flow
+       growth simply pushes down, which is correct and expected. */
     @media (min-width: 721px) {
-      #combMenu { max-height: 340px; overflow-y: auto; }
+      .setcard { position: relative; }
+      #combMenu {
+        position: absolute; z-index: 40;
+        top: calc(100% - 10px); left: 10px; right: 10px;
+        max-height: 52vh; overflow-y: auto;
+        /* Opaque and lifted: it is floating over other cards now, so it needs
+           a surface of its own rather than the translucent inset it had while
+           it was part of one. */
+        background: var(--housing);
+        box-shadow: 0 10px 28px rgba(0,0,0,.55), var(--led-well);
+      }
       #rosterPanel { max-height: 300px; overflow-y: auto; }
     }
     .setcard { border: 1px solid var(--border); border-radius: 11px;
@@ -2285,7 +2305,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.7-7-g6901b8d"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.7-8-g4b8b324"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3345,7 +3365,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.7-7-g6901b8d';
+    var build = info.version || 'mac-v7.1.7-8-g4b8b324';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
