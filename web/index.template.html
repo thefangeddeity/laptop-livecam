@@ -2223,7 +2223,9 @@
        Node Note field, so all three surfaces in this rail turn over together.
        It was hardcoded #0b1512 on #cfe6de and stayed black in light mode,
        which is what was left once the list started following the theme. */
-    .ele-in { flex: 1 1 auto; min-width: 0; border-radius: 4px; padding: 5px 6px;
+    /* resize:none because it grows itself; a fixed line-height so the row
+       arithmetic in eleGrow is exact rather than approximate. */
+    .ele-in { resize: none; line-height: 1.35; flex: 1 1 auto; min-width: 0; border-radius: 4px; padding: 5px 6px;
               font-family: var(--mono); font-size: 11px; letter-spacing: .04em;
               color: var(--phos); caret-color: var(--phos);
               border: 1px solid #040809;
@@ -2784,9 +2786,14 @@
              this machine, or you if you logged in. Nobody should be picking
              from a dropdown to say the stairs are blocked. -->
         <div class="ele-row" id="eleSend" hidden>
-          <input class="ele-in" id="eleMsg" type="text" placeholder="message…"
+          <!-- A TEXTAREA, not an input, so a long message WRAPS instead of
+               scrolling sideways past its own left edge. One row to start,
+               growing to fit what is typed (see eleGrow) and capped so it
+               cannot swallow the card. Enter still sends; Shift+Enter is the
+               newline, which every chat box has already taught. -->
+          <textarea class="ele-in" id="eleMsg" rows="1" placeholder="message…"
                  maxlength="500" autocomplete="off" aria-label="Message"
-                 enterkeyhint="send" title="Enter sends">
+                 enterkeyhint="send" title="Enter sends, Shift+Enter for a new line"></textarea>
           <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
         </div>
         <!-- SIGNING IN HAPPENS HERE, not in another tab. The card used to
@@ -7458,6 +7465,7 @@
         if (ok === 'unauth') { eleShowSignIn(); return; }
         if (!ok) { eleSay('not sent — mesh unreachable'); return; }
         box.value = '';
+        eleGrow(box);   // back to one row
       });
   }
 
@@ -7518,6 +7526,27 @@ function eleProbe() {
       });
   }
 
+  // Grow to fit, up to a ceiling. Reset to auto FIRST: scrollHeight only
+
+  // reports the height the content needs when the box is not already taller
+
+  // than it, so measuring without the reset leaves a shrinking message at
+
+  // the height of the longest one ever typed.
+
+  var ELE_MSG_MAX = 120;
+
+  function eleGrow(el) {
+
+    if (!el) return;
+
+    el.style.height = 'auto';
+
+    el.style.height = Math.min(el.scrollHeight, ELE_MSG_MAX) + 'px';
+
+  }
+
+
   // Enter sends. In the event this is for, the Send button is a second
   // deliberate act between having something to say and saying it.
   var eleMsgBox = document.getElementById('eleMsg');
@@ -7527,6 +7556,7 @@ function eleProbe() {
       e.preventDefault();
       eleSendMsg();
     });
+    eleMsgBox.addEventListener('input', function () { eleGrow(eleMsgBox); });
   }
   // Same for the passphrase: a field you must reach for the mouse to submit
   // is a field people retype.
