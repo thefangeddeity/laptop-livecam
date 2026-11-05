@@ -1286,11 +1286,18 @@
      rather than offered, which is what a side action should look like.
      Still a button, still the same hit area: this is a change of rank, not
      of reach. */
+  /* INSET, not flat. Flat with no border read as disabled rather than
+     secondary -- the eye takes "no housing at all" for "not available".
+     Recessing it keeps it unmistakably a button, with a face you could press,
+     while sitting BELOW the plane the other two stand on. Same hit area;
+     lower rank, not lower reach. */
   .msg-actions .pbtn.aside {
-    background: none; border-color: transparent; box-shadow: none;
-    color: var(--text-muted); font-weight: 400; }
+    background: linear-gradient(180deg,#191a1c,#212124);
+    border-color: #2a2a30;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,.55), inset 0 -1px 0 rgba(255,255,255,.03);
+    color: var(--text-dim); font-weight: 400; }
   .msg-actions .pbtn.aside:hover {
-    color: var(--text-dim); border-color: var(--border); }
+    color: #d6d6da; border-color: #34343a; }
 
   .msg-hint {
     font-size: 11px; color: var(--text-muted);
@@ -1716,7 +1723,13 @@
     #elePanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     /* The card grows now (see #elePanel flex:1), so the LIST is what takes
        up the slack and therefore what has to scroll. */
-    #elePanel .ele-list { flex: 1; min-height: 0; overflow-y: auto; }
+    /* max-height:none is the whole fix. .ele-list is capped at 16em so the
+       card stays modest in a column it shares -- but this card now OWNS its
+       column, and flex-grow cannot grow a box past its own ceiling. The glass
+       stopped at 16em, the input and the buttons sat under it, and the slack
+       piled up below them as dead card. The list takes the slack now, which
+       puts the controls on the floor of the card where they belong. */
+    #elePanel .ele-list { flex: 1; min-height: 0; max-height: none; overflow-y: auto; }
     .ele-list { max-height: 16em; overflow-y: auto;
                 font: 11px/1.45 var(--mono); letter-spacing: .04em;
                 color: var(--phos); border-radius: 6px; padding: 6px 8px;
