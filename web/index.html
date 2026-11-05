@@ -1966,6 +1966,14 @@
       }
       #rosterPanel { max-height: 300px; overflow-y: auto; }
     }
+    /* WHO'S WHO SPANS. Face, name, count and a button on every row --
+       wide rows in a 260px column, wrapping badly and leaving the rest of
+       that column blank underneath. Spanning the flow gives the rows the
+       width they were drawn for and takes the hole with them. It lands at
+       the bottom because it is last in source order, which is where a
+       full-width band belongs. */
+    .setcard.wide { column-span: all; }
+
     .setcard { border: 1px solid var(--border); border-radius: 11px;
                padding: 10px 12px 12px; background: rgba(0,0,0,.12);
                min-width: 0;
@@ -2310,7 +2318,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.7-11-g82293a5"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.1.7-12-g22cf150"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3386,7 +3394,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.7-11-g82293a5';
+    var build = info.version || 'mac-v7.1.7-12-g22cf150';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //

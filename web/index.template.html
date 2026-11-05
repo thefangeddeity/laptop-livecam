@@ -1966,6 +1966,14 @@
       }
       #rosterPanel { max-height: 300px; overflow-y: auto; }
     }
+    /* WHO'S WHO SPANS. Face, name, count and a button on every row --
+       wide rows in a 260px column, wrapping badly and leaving the rest of
+       that column blank underneath. Spanning the flow gives the rows the
+       width they were drawn for and takes the hole with them. It lands at
+       the bottom because it is last in source order, which is where a
+       full-width band belongs. */
+    .setcard.wide { column-span: all; }
+
     .setcard { border: 1px solid var(--border); border-radius: 11px;
                padding: 10px 12px 12px; background: rgba(0,0,0,.12);
                min-width: 0;
