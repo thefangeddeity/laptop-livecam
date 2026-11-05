@@ -1122,7 +1122,14 @@
     scrollbar-width: thin;
     scrollbar-color: #2e2e33 transparent;
     flex-shrink: 0;
-    height: 100%;
+    /* NOT height:100%. .main is flex:0 0 auto, so its height is AUTO -- and a
+         percentage height against an auto-height parent resolves to auto, while
+         still overriding the align-items:stretch that would otherwise have done
+         the job. The column therefore sized to its content, there was no spare
+         height for the Messages card to claim, and flex-grow on that card did
+         nothing no matter how it was written. align-self makes the stretch
+         explicit and does not depend on the parent having a resolvable height. */
+      align-self: stretch;
   }
   .sidebar::-webkit-scrollbar { width: 6px; }
   .sidebar::-webkit-scrollbar-track { background: transparent; }
