@@ -4856,7 +4856,12 @@ def _ele_proxy(path):
     url = 'http://127.0.0.1:%d/%s%s' % (ELE_PORT, path, ('?' + qs) if qs else '')
     body = request.get_data() if request.method in ('POST', 'PUT', 'PATCH') else None
     req = _urlreq.Request(url, data=body, method=request.method)
-    for h in ('Content-Type', 'Authorization'):
+    # COOKIE GOES UP. The messenger authenticates with an HttpOnly session
+    # cookie (elemesh_session, Path=/, SameSite=Lax, 30 days), and this proxy
+    # forwarded two headers, neither of them Cookie -- so every request
+    # through here arrived at the messenger as an anonymous visitor no matter
+    # how recently the browser had signed in.
+    for h in ('Content-Type', 'Authorization', 'Cookie'):
         if h in request.headers:
             req.add_header(h, request.headers[h])
     try:
@@ -4869,8 +4874,25 @@ def _ele_proxy(path):
         status, data, hdrs = e.code, e.read(), e.headers
     except Exception:
         abort(502)
-    return Response(data, status=status,
+    resp = Response(data, status=status,
                     content_type=hdrs.get('Content-Type', 'application/json'))
+    # AND SET-COOKIE COMES BACK. Without this a successful sign-in through
+    # this proxy returns 200, the card believes it worked, and the browser
+    # was never given the session -- so the very next poll is a 401 and the
+    # card drops back to "enter the passphrase". That is the shape of the
+    # bug Ron reported as the Messages card login "not working": it was not
+    # failing to authenticate, it was failing to keep it.
+    #
+    # getlist, not get: a login can set more than one cookie, and taking only
+    # the first silently drops the rest.
+    try:
+        for v in hdrs.get_all('Set-Cookie') or []:
+            resp.headers.add('Set-Cookie', v)
+    except Exception:
+        v = hdrs.get('Set-Cookie')
+        if v:
+            resp.headers.add('Set-Cookie', v)
+    return resp
 
 
 @app.route('/ele-api/<path:rest>',

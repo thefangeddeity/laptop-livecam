@@ -1763,26 +1763,50 @@
        card and left the message breaking mid-word, "Tailscale" reading as
        "Tailsc / ale". Fixed tracks mean the message column cannot be starved
        by its neighbours, whatever arrives in them. */
+    /* TWO TRACKS, NOT THREE. The name had a fixed 6.5em column of its own,
+       right-aligned, which meant every short name sat against the message
+       with a gutter of air to its left -- "why is it so justified"
+       (requirement). Three equal-looking tracks also encoded a hierarchy
+       that is not there: this is one utterance with an attribution, not
+       three fields.
+
+       The fixed track existed for a real reason and the reason still
+       holds: an intrinsic track let a 22-character sender size the whole
+       row and break the message mid-word, "Tailscale" reading as
+       "Tailsc / ale". Inlining the name does not reintroduce that, because
+       a name with no track of its own cannot starve a sibling column --
+       there is no sibling. It wraps into the same text flow instead.
+
+       The trailing colon's old job -- marking where the name ends and the
+       message begins -- was being done by the right-alignment. Moving the
+       name left gives that job to weight and colour, or `amira Test` reads
+       as one phrase. */
     .ele-list .em { display: grid;
-                    grid-template-columns: 6.5em 1fr 3.4em;
+                    grid-template-columns: 1fr 3.4em;
                     gap: 0 6px; margin-bottom: 3px; }
-    /* Right-aligned so short names hug the text they introduce -- which is
-       the job the trailing colon used to do, and the colon was the first
-       thing an ellipsis ate. */
-    .ele-list .em .who { white-space: nowrap; overflow: hidden;
-                         text-overflow: ellipsis; text-align: right; }
     /* min-width:0 or a grid item refuses to shrink below its content.
        overflow-wrap breaks only a word that cannot fit; word-break broke
        eagerly, mid-syllable, even when there was room. */
-    .ele-list .em .txt { min-width: 0; overflow-wrap: break-word; }
-    .ele-list .em .who { grid-column: 1; }
-    .ele-list .em .txt { grid-column: 2; }
-    .ele-list .em .when { grid-column: 3; float: none; margin-left: 0; }
+    .ele-list .em .line { grid-column: 1; min-width: 0;
+                          overflow-wrap: break-word; }
+    .ele-list .em .who { font-weight: 700; margin-right: .45em; }
+    /* The softer failure Tog flagged when the track went: a pathological
+       name now pushes the message DOWN instead of sideways. Capped so it
+       cannot take more than its share of the first line, and ellipsised --
+       the hover title still carries the untruncated name and the machine. */
+    .ele-list .em .who { display: inline-block; max-width: 11em;
+                         overflow: hidden; text-overflow: ellipsis;
+                         white-space: nowrap; vertical-align: bottom; }
+    .ele-list .em .when { grid-column: 2; float: none; margin-left: 0; }
     .ele-list .em:last-child { margin-bottom: 0; }
-    .ele-list .who { color: #5fd3b2; }
+    /* Stepped UP from the body, not sideways: same hue family, clearly
+       brighter, so the eye finds the attribution without the card turning
+       into two competing colours. The old #5fd3b2 sat a shade under the
+       message text and read as part of it. */
+    .ele-list .who { color: #8fe6c8; }
     /* Inside the glass, light theme: Solarized-dark inks on base3, matching
        what .msg2 does with var(--phos) rather than inventing a second set. */
-    html[data-theme="light"] .ele-list .who { color: #176551; }
+    html[data-theme="light"] .ele-list .who { color: #0f5a48; }
     html[data-theme="light"] .ele-list .mine .who { color: #7a5a0c; }
     html[data-theme="light"] .ele-list .when,
     html[data-theme="light"] .ele-list .quiet,
@@ -2318,7 +2342,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.1.7-12-g22cf150"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.2.0-1-g76cd2dc"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -3394,7 +3418,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.1.7-12-g22cf150';
+    var build = info.version || 'mac-v7.2.0-1-g76cd2dc';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -7390,8 +7414,10 @@
       var full = eleEsc((m.nick || 'unnamed') + ' \u00b7 ' + (m.author || '?') +
                         ' \u00b7 ' + new Date(m.ts_ms).toLocaleString());
       return '<span class="em' + (runs ? ' cont' : '') + '" title="' + full + '">' +
-             '<span class="who">' + (runs ? '' : eleEsc(who)) + '</span>' +
-             '<span class="txt">' + eleEsc(m.text || '') + '</span>' +
+             '<span class="line">' +
+               '<span class="who">' + (runs ? '' : eleEsc(who)) + '</span>' +
+               '<span class="txt">' + eleEsc(m.text || '') + '</span>' +
+             '</span>' +
              '<span class="when">' + (runs ? '' : eleEsc(eleWhen(m.ts_ms))) + '</span>' +
              '</span>';
     }).join('');
