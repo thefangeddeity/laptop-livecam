@@ -4931,6 +4931,16 @@ def serve_index():
     return _nocache(send_from_directory(WEB_DIR, 'index.html'))
 
 
+@app.route('/elem/<path:rest>',
+           methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'])
+def elem_proxy(rest):
+    # The viewer's Messages card calls /elem/v1/*. Until now only tailscale
+    # serve mapped that, so the card worked at https://<node>/llc and failed
+    # by any other route -- the LAN address, :8080 direct -- where it fell
+    # through to the static catch-all. Same route amira got.
+    return _ele_proxy(rest)
+
+
 @app.route('/elem')
 def serve_short_elem():
     # No messenger on this node, so this lands on a 404. That is the honest
