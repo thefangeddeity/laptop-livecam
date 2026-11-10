@@ -813,6 +813,7 @@ class CVProcessor:
         # take this lock. Everything else the detection thread touches
         # (_accum_*) is private to that one thread and needs no lock.
         self._tracker_lock = threading.Lock()
+        self._hud_source = None         # processor whose tracks the HUD draws
         self._roi = None                # operator's detection region, as
                                         # (x, y, w, h) fractions, or None
         self._accum_box = None          # fixed crop rect for the in-progress
@@ -1087,6 +1088,11 @@ class CVProcessor:
         return {'mode': st['mode'], 'target': t[0] if t else None, 'meals': st['meals'],
                 'energy': st['energy'], 'asleep': st['asleep'], 'receptors': st['receptors'],
                 'champion': {'host': ch.get('host'), 'generation': ch.get('generation')} if ch else None}
+
+    def set_hud_source(self, proc):
+        """Draw another processor's tracks in this one's HUD (see
+        _detect_and_hud). None draws this processor's own."""
+        self._hud_source = proc
 
     def set_roi(self, box):
         """The DETECTION REGION: a fixed rectangle the detector is confined to.
@@ -1957,11 +1963,21 @@ class CVProcessor:
         and never blocks the writer loop on it."""
         self._frame_n += 1
         tracks = []
-        if self._tracker is not None:
-            with self._tracker_lock:
+        # The display processor has detection OFF (broadcast-api runs a second,
+        # detecting instance so alerts do not depend on the viewer's mode), so
+        # its own tracker is always empty. Since that split (5200d20, Nov 3)
+        # CV mode drew no boxes at all while alerts kept firing. Draw the
+        # detector's tracks instead; skip any it has not matched for a few
+        # seconds, so a parked detector leaves no frozen boxes on the picture.
+        src = self._hud_source or self
+        if src._tracker is not None:
+            stale_before = time.time() - 5.0 if src is not self else None
+            with src._tracker_lock:
                 tracks = [
-                    t for t in self._tracker.tracks.values()
+                    t for t in src._tracker.tracks.values()
                     if t.state != 'departed'
+                    and (stale_before is None
+                         or float(getattr(t, 'last_seen', 0) or 0) >= stale_before)
                 ]
         # Stashed every frame regardless of _hud_enabled (measured, not
         # configured -- same convention as _mog2_at/_crop_at below), so

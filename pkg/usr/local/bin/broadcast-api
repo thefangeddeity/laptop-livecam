@@ -153,6 +153,7 @@ _pub_proc = None
 # a Flask request handler, which runs on a different thread than the
 # writer loop that owns it.
 _cv_proc = None
+_cv_disp_proc = None   # the instance painting the CV picture (banner text)
 _cv_reset_evt = threading.Event()   # video Reset asks the writer loop to rebuild the CV model (reload ONNX + clear stale MOG2/evidence/scene)
 _audio_reload_evt = threading.Event()  # Settings panel changed a user-safe audio tunable: re-read denv + respawn the /cam publisher so the new -af applies
 # Set the instant SIGTERM arrives. Both supervisor loops respawn any child
@@ -2089,6 +2090,11 @@ def _writer_loop():
     # Scene status/re-registration are detection concerns, so they read the
     # detecting instance, not the one painting pictures.
     _cv_proc = det_holder[0]
+    # The boxes on the CV picture are the DETECTOR's tracks; the display
+    # instance has none of its own.
+    cv_proc.set_hud_source(det_holder[0])
+    global _cv_disp_proc
+    _cv_disp_proc = cv_proc
     threading.Thread(target=_detect_tap_loop, args=(det_holder,),
                      daemon=True).start()
     prev_mode = None
@@ -2130,6 +2136,7 @@ def _writer_loop():
                     pass
                 det_holder[0] = _cvp.CVProcessor(denv)
                 _cv_proc = det_holder[0]
+                cv_proc.set_hud_source(det_holder[0])
                 print('broadcast-api: CV model reset (reloaded)', flush=True)
             except Exception as e:
                 print(f'broadcast-api: CV reset failed: {e}', flush=True)
@@ -2876,7 +2883,16 @@ def cv_state_get():
                             'text': '', 'capability_text': ''}), 200, \
                {'Content-Type': 'application/json'}
     try:
-        return _json.dumps(proc.state()), 200, {'Content-Type': 'application/json'}
+        st = proc.state()
+        # The banner words are computed where the picture is painted, which
+        # is the display instance; the detecting one never draws.
+        disp = _cv_disp_proc
+        if disp is not None:
+            dst = disp.state()
+            for k in ('text', 'capability_text'):
+                if not st.get(k):
+                    st[k] = dst.get(k, '')
+        return _json.dumps(st), 200, {'Content-Type': 'application/json'}
     except Exception as e:
         print(f'broadcast-api: cv-state failed: {e}', flush=True)
         abort(503)
