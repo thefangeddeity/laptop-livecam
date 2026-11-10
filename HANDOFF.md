@@ -43,3 +43,19 @@ Updated 2026-11-09. Session ran out of budget; start a FRESH session per node.
 ## Still open from the brief
 publisher stderr visible / backoff; setup+camdash check G_FMT on /dev/video10;
 full sweep of bare `except: continue`, removed numpy/OpenCV APIs; release 7.2.1.
+
+## 2026-11-09 late — Spitsbergen cloned from hosts/tanzania, then WEDGED
+- device.env had 12 keys vs tanzania's 34 (no CV_*, NOTIFY_ENABLED, notify.urls,
+  night, echo duck, mixer). Installed hosts/tanzania/{device.env,notches.json,
+  audio.json,feed_mode} + ariana's notify.urls (same bot). Backup:
+  /etc/hls-livecam/device.env.pre-clone-<ts>.
+- Verified after clone: "notify: enabled, 1 destination, classes=[cat]",
+  recording=True, 35 notches/9 enabled, audio 60/14000/0dB. Scene model missing
+  (lived on tanzania's drive; CV_SCENE logs FileNotFoundError every pass).
+- Then POST feed-mode=cv -> within ~1 min ssh sessions stall (TCP 22 open, ping
+  17ms, `uptime` never returns). Suspect load/memory under CV + cloned options
+  (CV_FOVEAL, NIGHT_STACK, scene retries). Needs console look or power cycle.
+  If it recurs: set feed_mode back to show, then enable options one at a time.
+- Installer finding: setup writes a 12-key device.env and no notify.urls; a
+  fresh or migrated node gets no CV config, no notifier. Fix in repo: setup
+  should write the full template (hosts/tanzania is the reference).
