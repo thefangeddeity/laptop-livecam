@@ -116,3 +116,18 @@ lineages (7.0.13, 7.0.14, 1732dcf, a9c9864, 6acac62, this json bug); NameErrors
 shipped (4c768f3, a540c37, 95b424f, 175b3de, 1f2fa6a); installers destroying
 config (5254dd9, 4a412fd, 6043569, 7e48e43); blind regex edits (05b9c63,
 a6f7115). Cheapest guard: pyflakes undefined-name check in the build/deploy.
+
+## 2026-11-10 — alert messages (corrects my earlier "read-only root broke clips")
+- Template (user): "<HOSTNAME>: Cat detected, no <MEDIATYPE> due to person present."
+  Code matches it (Ariana 07:40 is correct).
+- Spitsbergen never used it: its "Never film people" is OFF. My Nov 9 clone copied
+  device.env/notches/audio/feed_mode but NOT /var/lib/hls-livecam switches.
+  tanzania's drive (sdb3, ro) had presence_pause=true, privacy_mask=true/black,
+  detect_roi set. Now in hosts/tanzania (main 4b16928).
+- AFTER the disk fix + reboot, copy hosts/tanzania/var/lib/hls-livecam/* to
+  Spitsbergen (http-owned), restart broadcast-api, verify /api/presence-pause=true,
+  then a person + cat in frame should give the template text.
+- Clips: cut works by hand (rc 0, 465 KB to /tmp). Real bug: newest segment treated
+  as open-ended -> every alert cut the 36-byte segment from 21:37 Nov 9 when the
+  recorder stopped. Fixed main ad9efba / macos b7dbbb0. Scene model: tanzania
+  retired its own on Sep 8, so "missing" is not a regression.
