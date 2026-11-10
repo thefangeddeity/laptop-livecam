@@ -1,0 +1,45 @@
+# HANDOFF — read first, then re-measure. Do not trust this over live state.
+
+Updated 2026-11-09. Session ran out of budget; start a FRESH session per node.
+
+## Verified (named measurement)
+- Spitsbergen streams: after deploying main 59426bd, /dev/video10 G_FMT 1280x720,
+  13 segments in the :8888 variant, rtsp=ok, 0 writer-loop errors in journal.
+- Ariana: Tailscale was stopped (fixed Nov 7, `tailscale up --accept-routes`).
+  Published frame YAVG=103 (not black). privacy-mask region is full-frame.
+- Ariana "Never film people" = /api/presence-pause. API round-trips. The NOTIFIER
+  never read it (NOTIFY_PRESENCE_FILE absent from config.env -> /dev/null).
+  Fixed a9c9864: notifier derives flag paths from DETECT_ROI_FILE's dir.
+  Verified ONLY as path resolution, NOT behaviour.
+
+## NOT verified — do these with a behavioural test
+- Ariana pictures/video "blocked whatever users select". notify_shots=false since
+  Oct 20, notify_video=true. Paths match and are re-read per alert, so not the
+  presence bug. Test: set each toggle, trigger a detection, confirm Telegram gets /
+  doesn't get photo+clip. Check NOTIFY_APPRISE_URLS_FILE exists and is readable.
+- Spitsbergen: CV (mode is show, cv=None), detection (OpenCV 5.0 "setPreferableTarget
+  not supported by new graph engine"; model path models/candidates/yolov8n.onnx),
+  Telegram, recorder/clips, scene model, audio, :8080/llc in a browser.
+  device.env carried from old install: check Telegram/ROI/NOTIFY_* keys.
+- Installers on Linux: does setup set notify flag paths / detect camera into a
+  preserved device.env?
+- tina: unreachable over ssh Nov 9 (timeout). main 59426bd NOT deployed there.
+
+## Repo changes
+- macos a9c9864: cv_notify flag-path derivation.
+- main 59426bd: vendored pyfakewebcam first (numpy 2), _writer_loop logs first
+  exception + rate-limited repeats, ffmpeg-cam.service reads VIDEO_DEVICE/SIZE.
+  Port cv_notify derivation to main? Linux defaults already /var/lib/hls-livecam.
+
+## Node changes to review with Ron
+- Spitsbergen: /etc/sudoers.d/99-ron NOPASSWD (ask keep?), ariana key in
+  ~/.ssh/authorized_keys (ask keep?), sed tostring->tobytes in distro
+  pyfakewebcam (now unnecessary; reverts on update), leftovers in
+  /root/llc-preinstall-20261107. No pacman hook exists.
+- Spitsbergen + tina(not yet): /usr/local/bin/broadcast-api and ffmpeg-cam unit
+  hand-installed from main; a package rebuild should match them.
+- NEVER enable Tailscale SSH. Don't change network settings.
+
+## Still open from the brief
+publisher stderr visible / backoff; setup+camdash check G_FMT on /dev/video10;
+full sweep of bare `except: continue`, removed numpy/OpenCV APIs; release 7.2.1.
