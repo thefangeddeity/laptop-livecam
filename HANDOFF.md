@@ -125,7 +125,8 @@ a6f7115). Cheapest guard: pyflakes undefined-name check in the build/deploy.
   means off (cv_notify/_presence_pause_on). Absent privacy_mask means ON (7.0.26),
   so the mask is fine. Ron installed with our installer; nothing was cloned into
   /var/lib. tanzania's own values (sdb3, ro) are now in hosts/tanzania (4b16928).
-- OPEN DECISION (Ron): should "Never film people" default ON in setup/code?
+- DECIDED 11-10 (Ron): "Never film people" stays OFF by default; setup does not ask.
+  Users find it in Settings. Spitsbergen sending bare "Cat detected" is by design.
 - AFTER the disk fix + reboot, copy hosts/tanzania/var/lib/hls-livecam/* to
   Spitsbergen (http-owned), restart broadcast-api, verify /api/presence-pause=true,
   then a person + cat in frame should give the template text.
