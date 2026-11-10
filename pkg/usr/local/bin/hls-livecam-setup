@@ -293,15 +293,13 @@ if ! modinfo v4l2loopback >/dev/null 2>&1; then
         exit 1
     fi
 fi
-if ! python3 -c "import pyfakewebcam" 2>/dev/null; then
-    echo "pyfakewebcam not found -- installing..."
-    python3 -m pip --version >/dev/null 2>&1 || apt install -y python3-pip
-    python3 -m pip install pyfakewebcam --break-system-packages 2>/dev/null || \
-    python3 -m pip install pyfakewebcam || true
-    if ! python3 -c "import pyfakewebcam" 2>/dev/null; then
-        echo -e "${RED}ERROR: pyfakewebcam still not available after install.${NC}"
-        exit 1
-    fi
+# pyfakewebcam ships vendored in this package (vendor/README.md); broadcast-api
+# prefers a distro copy and falls back to it. This check used to import it
+# WITHOUT the vendored path, so it always failed and pip-installed a second,
+# unowned copy as root -- the exact thing 7.0.12 removed from postinst.
+if ! PYTHONPATH=/usr/share/hls-livecam-server/vendor python3 -c "import pyfakewebcam" 2>/dev/null; then
+    echo -e "${RED}ERROR: the vendored pyfakewebcam does not import; reinstall the package.${NC}"
+    exit 1
 fi
 cat > /etc/modules-load.d/v4l2loopback.conf << 'EOF'
 v4l2loopback
