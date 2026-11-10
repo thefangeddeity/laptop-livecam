@@ -608,7 +608,9 @@ class Notifier:
             except Exception:
                 pass
             if r.returncode != 0 or not os.path.exists(out) or os.path.getsize(out) < 1024:
-                self._log('notify: clip cut failed (stills still sent)')
+                why = ((r.stderr or b'').decode('utf-8', 'replace').strip().splitlines() or
+                       ['rc=%s, %s' % (r.returncode, 'no output file' if not os.path.exists(out) else 'output under 1 KiB')])[-1]
+                self._log('notify: clip cut failed: %s' % why[:200])
                 try:
                     os.unlink(out)
                 except Exception:
@@ -616,8 +618,7 @@ class Notifier:
                 return None
             return out
         except Exception as exc:
-            self._log('notify: clip error %s (stills still sent)'
-                      % type(exc).__name__)
+            self._log('notify: clip error %s: %s' % (type(exc).__name__, exc))
             return None
 
     def _schedule_clip(self, item, text, text_pending=False):
@@ -1008,7 +1009,7 @@ class Notifier:
                                for p in item['picks'])
             self._log(f"notify: {item['cls']} track {item['track_id']}, "
                       f"{len(jpegs)} shot(s) [{scores}] "
-                      f"{'sent' if results and all(results) else 'FAILED'}")
+                      f"{'sent' if results and all(results) else ('text left to the clip' if not results and clip_coming else 'FAILED')}")
         finally:
             # Snapshots are transient by design -- recording is a separate
             # concern with its own retention budget.
