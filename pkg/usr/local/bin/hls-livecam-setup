@@ -410,7 +410,9 @@ chown root:www-data "$WEB_ROOT/cams/cams.json" 2>/dev/null || \
 chmod 0664 "$WEB_ROOT/cams/cams.json"
 
 # ── Port 80 conflict check ────────────────────────────────────
-PORT80_PID=$(ss -tlnp 'sport = :8080' 2>/dev/null | awk 'NR>1 && /LISTEN/ {match($0,/pid=([0-9]+)/,a); if(a[1]) print a[1]}' | head -1)
+# sed, not awk: match() with an array is gawk-only, and Ubuntu's mawk failed
+# this line with a syntax error, so the conflict check never saw anything.
+PORT80_PID=$(ss -tlnp 'sport = :8080' 2>/dev/null | sed -n 's/.*LISTEN.*pid=\([0-9]*\).*/\1/p' | head -1)
 if [ -n "$PORT80_PID" ]; then
   PORT80_PROC=$(ps -p "$PORT80_PID" -o comm= 2>/dev/null || echo "unknown")
   if [ "$PORT80_PROC" != "nginx" ]; then
