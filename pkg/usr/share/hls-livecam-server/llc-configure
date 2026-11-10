@@ -297,13 +297,41 @@ def verify(timeout, since):
         return st == 200, f"version {info.get('version') or '?'}"
     check('API answers', api, t=10)
 
+    def detector():
+        # Run the configured model once, with the OpenCV the service will use.
+        # Ubuntu 24.04 and Debian bookworm ship OpenCV 4.6, whose DNN cannot run
+        # YOLOv8's head (shape assertion in every pass) -- the service then
+        # streams and never detects anything, and only this says so.
+        model = '/usr/share/hls-livecam-server/models/candidates/yolov8n.onnx'
+        try:
+            with open(DEVICE_ENV) as f:
+                for ln in f:
+                    if _key(ln) == 'CV_DETECT_MODEL':
+                        model = ln.split('=', 1)[1].strip() or model
+        except OSError:
+            pass
+        code = ('import cv2, numpy as np\n'
+                'n = cv2.dnn.readNetFromONNX(%r)\n'
+                'n.setInput(cv2.dnn.blobFromImage('
+                'np.zeros((640, 640, 3), np.uint8), 1/255.0, (640, 640)))\n'
+                'print(cv2.__version__, n.forward().shape)' % model)
+        r = subprocess.run([sys.executable, '-c', code], capture_output=True,
+                           text=True, timeout=60)
+        if r.returncode == 0:
+            return True, 'OpenCV %s runs %s' % (r.stdout.strip(), os.path.basename(model))
+        ver = subprocess.run([sys.executable, '-c', 'import cv2;print(cv2.__version__)'],
+                             capture_output=True, text=True).stdout.strip() or '?'
+        return False, ('OpenCV %s cannot run %s (YOLOv8 needs OpenCV >= 4.7): '
+                       'streaming works, detection and alerts will not' % (ver, os.path.basename(model)))
+    check('detector runs the model', detector, t=1)
+
     def journal_clean():
         out = subprocess.run(['journalctl', '-u', 'broadcast-api', '--since', since,
                               '--no-pager', '-o', 'cat'], capture_output=True,
                              text=True).stdout
         bad = [ln for ln in out.splitlines()
-               if re.search(r'Traceback|NameError|AttributeError|ImportError', ln)]
-        return not bad, (bad[-1][:160] if bad else 'no tracebacks since setup began')
+               if re.search(r'Traceback|NameError|AttributeError|ImportError|DETECT THREAD ERROR', ln)]
+        return not bad, (bad[-1][:160] if bad else 'no tracebacks or detector errors since setup began')
     check('broadcast-api log clean', journal_clean, t=1)
 
     def notify():
