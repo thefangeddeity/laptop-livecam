@@ -316,9 +316,23 @@ if preserved:
     content += "\n# --- preserved from a previous config; not managed by setup ---\n"
     content += "\n".join(preserved) + "\n"
 
+# Add every default the template knows and this file lacks; see the Arch
+# setup for why. Present keys are never touched.
+_have = {l.split("=",1)[0].strip() for l in (managed_block + "\n" + "\n".join(preserved)).splitlines() if "=" in l and not l.strip().startswith("#")}
+_added = []
+try:
+    for _l in open("/usr/share/hls-livecam-server/device.env.template"):
+        _s = _l.strip()
+        if _s and not _s.startswith("#") and "=" in _s and _s.split("=",1)[0].strip() not in _have:
+            _added.append(_s)
+except FileNotFoundError:
+    pass
+if _added:
+    content += "\n# --- defaults added by setup from device.env.template ---\n" + "\n".join(_added) + "\n"
+
 with open(path, "w") as f:
     f.write(content)
-print("  device.env merged (existing tuning preserved).")
+print(f"  device.env merged ({len(_added)} default(s) added from template).")
 PYEOF
 chown root:root "$DEVICE_ENV_DIR" "$DEVICE_ENV"
 chmod 0755 "$DEVICE_ENV_DIR"

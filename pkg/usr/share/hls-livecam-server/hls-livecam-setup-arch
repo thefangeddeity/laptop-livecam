@@ -307,9 +307,25 @@ if preserved_lines:
     content += "\n# --- preserved from a previous config; not managed by setup ---\n"
     content += "\n".join(preserved_lines) + "\n"
 
+# Add every default the template knows and this file lacks. Setup used to
+# write only its six managed keys, so a fresh or migrated node had no CV_*,
+# no NOTIFY_ENABLED and no Telegram file -- a node that streamed and told
+# nobody anything. Present keys are never touched.
+_have = {l.split("=",1)[0].strip() for l in (managed_block + "\n" + "\n".join(preserved_lines)).splitlines() if "=" in l and not l.strip().startswith("#")}
+_added = []
+try:
+    for _l in open("/usr/share/hls-livecam-server/device.env.template"):
+        _s = _l.strip()
+        if _s and not _s.startswith("#") and "=" in _s and _s.split("=",1)[0].strip() not in _have:
+            _added.append(_s)
+except FileNotFoundError:
+    pass
+if _added:
+    content += "\n# --- defaults added by setup from device.env.template ---\n" + "\n".join(_added) + "\n"
+
 with open(path, "w") as f:
     f.write(content)
-print("  Config written.")
+print(f"  Config written ({len(_added)} default(s) added from template).")
 PYEOF
 echo -e "  ${GREEN}Written to $DEVICE_ENV${NC}"
 

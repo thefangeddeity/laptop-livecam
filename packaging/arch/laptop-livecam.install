@@ -1,0 +1,100 @@
+post_install() {
+
+    # The state directory, writable by the service.
+    #
+    # Nothing created this before 7.0.13, so it arrived as root:root 755 from
+    # whatever ran first, and the service (http) could write a file that
+    # already existed but could not CREATE one. Every new state file hit that:
+    # detect_roi in 7.0.11, notify_presence_pause in 7.0.13, and the next one
+    # too. setgid so files created in here inherit the group rather than
+    # depending on the umask of whoever wrote first.
+    install -d -o root -g http -m 2775 /var/lib/hls-livecam
+    # Existing files predate the rule and keep root:root.
+    find /var/lib/hls-livecam -maxdepth 1 -type f ! -group http \
+         -exec chgrp http {} + -exec chmod g+rw {} + 2>/dev/null || true
+    # 7.0.12 removed the Debian copy of this; this one outlived it by a
+    # release. It rewrote /usr/lib/python3*/site-packages/pyfakewebcam, a
+    # file the python-pyfakewebcam PACKAGE owns, so pacman -Qkk would report
+    # the package as modified and the next upgrade would silently revert it.
+    # It was also a no-op: upstream pyfakewebcam has used tobytes() since
+    # before this package declared the dependency.
+    echo ""
+    echo "  hls-livecam-server installed."
+    echo ""
+    echo "  Run the setup wizard to configure your webcam and start streaming:"
+    echo ""
+    echo "    sudo hls-livecam-setup"
+    echo ""
+    echo "  This will detect your webcam, download MediaMTX, configure nginx,"
+    echo "  and start all services."
+    echo ""
+}
+
+post_upgrade() {
+
+    # The state directory, writable by the service.
+    #
+    # Nothing created this before 7.0.13, so it arrived as root:root 755 from
+    # whatever ran first, and the service (http) could write a file that
+    # already existed but could not CREATE one. Every new state file hit that:
+    # detect_roi in 7.0.11, notify_presence_pause in 7.0.13, and the next one
+    # too. setgid so files created in here inherit the group rather than
+    # depending on the umask of whoever wrote first.
+    install -d -o root -g http -m 2775 /var/lib/hls-livecam
+    # Existing files predate the rule and keep root:root.
+    find /var/lib/hls-livecam -maxdepth 1 -type f ! -group http \
+         -exec chgrp http {} + -exec chmod g+rw {} + 2>/dev/null || true
+    # The pyfakewebcam source patch lived here too; removed with its twin
+    # in post_install. See the note there.
+    # Refresh the served viewer from the packaged copy.
+    #
+    # The package installs index.html to /usr/share and hls-livecam-setup
+    # copies it into /var/www at configure time, so /var/www is owned by
+    # nobody and pacman never touches it. That is right for a file the
+    # wizard substitutes into -- and wrong on upgrade, because the node
+    # then runs new code behind the viewer it had before, with no sign
+    # that anything is stale. Only refresh a web root that already exists:
+    # if setup has never run there is nothing to serve yet and post_install
+    # says so.
+    if [ -d /var/www/hls-livecam ] && [ -f /usr/share/hls-livecam-server/index.html ]; then
+        cp /usr/share/hls-livecam-server/index.html /var/www/hls-livecam/index.html
+        sed -i "s/@HOSTNAME@/$(hostname)/g" /var/www/hls-livecam/index.html
+        chmod 0644 /var/www/hls-livecam/index.html
+        [ -f /usr/share/hls-livecam-server/brand.png ] && \
+            cp /usr/share/hls-livecam-server/brand.png /var/www/hls-livecam/brand.png
+        # The home page is served from the web root too -- nginx resolves /
+        # to home.html -- and refreshing index.html while leaving it behind
+        # is the same staleness this block exists to prevent, one page over.
+        if [ -f /usr/share/hls-livecam-server/home.html ]; then
+            cp /usr/share/hls-livecam-server/home.html /var/www/hls-livecam/home.html
+            chmod 0644 /var/www/hls-livecam/home.html
+        fi
+        echo "  viewer refreshed: /var/www/hls-livecam/index.html"
+    fi
+    echo ""
+    echo "  hls-livecam-server upgraded."
+    echo "  If stream behavior changes, run: sudo hls-livecam-setup"
+    echo ""
+}
+
+pre_remove() {
+    systemctl stop ffmpeg-cam    2>/dev/null || true
+    systemctl disable ffmpeg-cam 2>/dev/null || true
+    systemctl stop mediamtx      2>/dev/null || true
+    systemctl disable mediamtx   2>/dev/null || true
+    systemctl stop broadcast-api 2>/dev/null || true
+    systemctl disable broadcast-api 2>/dev/null || true
+    systemctl daemon-reload      2>/dev/null || true
+    rm -f /etc/sudoers.d/hls-livecam-dark
+    rm -f /etc/sudoers.d/hls-livecam-services
+    rm -f /etc/sudoers.d/camdash-smart
+    # NEVER stop or disable nginx. It is a system-wide service shared with
+    # every other site on the host -- ele-messenger is on the same nginx on
+    # both nodes -- so removing this package was taking those down with it.
+    # The Debian prerm carries the same warning from when its v2.0.0 did
+    # exactly this; the Arch side was never corrected to match. Remove our
+    # own config and reload, which is the most a package may do to a service
+    # it does not own, and keep going if nginx -t fails for unrelated reasons.
+    rm -f /etc/nginx/conf.d/hls-livecam.conf
+    nginx -t 2>/dev/null && systemctl reload nginx 2>/dev/null || true
+}
