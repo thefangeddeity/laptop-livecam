@@ -25,6 +25,13 @@ with `deploy-local.sh`, so the package version does not describe what runs.
 - `var/lib/hls-livecam/audio.json`: the Settings panel's audio values (high-pass 60 Hz,
   low-pass 14000 Hz, inbound and outbound gain 0 dB, speaker not muted), copied from Ariana's.
 - `var/lib/hls-livecam/feed_mode`: the video mode.
+- `var/lib/hls-livecam/{notify_presence_pause,privacy_mask,mask_style,detect_roi,
+  notify_shots,notify_video,notify_classes,detect_always,blur_mode,msg_lock}`: the
+  privacy and alert switches, read from tanzania's own drive on 2026-11-10.
+  "Never film people" is on, the mask is on (black), the region is the right-hand
+  part of the room. A clone that copies device.env but not these films people and
+  never sends "<Node>: Cat detected, no <media> due to person present." -- which is
+  what Spitsbergen did after the Nov 9 clone. Copy them with the rest.
 - `usr/local/etc/mediamtx.yml`: MediaMTX.
 - `systemd/`: the units. mediamtx and broadcast-api are enabled at boot; nginx too.
 
