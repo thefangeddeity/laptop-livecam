@@ -218,3 +218,19 @@ main-serve-guard, windows-art)?
   /var/lib/hls-livecam.fresh-test.
 - Still to do: tag v7.2.1 + mac-v7.2.1; release_arch.sh (sha256/.SRCINFO, AUR
   push); gh release assets; macOS installer not re-tested this session.
+
+## 2026-11-10 afternoon — CV boxes regression (main 0a3f642, deployed to tanzania)
+- Cause: 5200d20 (Nov 3) split CV into a display instance (detection OFF) and
+  a detecting instance; draw_hud drew the display tracker, always empty. Boxes
+  gone since Nov 3, alerts unaffected. Fix: display draws detector's tracks
+  (stale >5s skipped), re-pointed on CV reset; cv-state banner from display.
+  MEASURED on tanzania: banner "DETECTING 1 TARGET", published frame shows a
+  labelled box (HUMAN 0.92). Frame deleted after viewing.
+- Alert study: today's 13 "Tanzania: Cat detected, no clip due to person
+  present" = a REAL cat by the chair + a phantom "person" (clothes hung over a
+  chair at the ROI's left edge, 0.34-0.64 in 116/120 ROI-crop frames).
+  on_promotion stamps _human_seen before the motion gate, so a static phantom
+  holds presence all day. Ron: "It's fine" -- no presence-rule change asked.
+- Deb private OpenCV (Ron chose it): wheels opencv-python-headless 4.10.0.84,
+  4.11.0.86, 4.12.0.88 all run yolov8n on Ubuntu 24.04 with system numpy 1.26
+  (--no-deps --target, ~136-145 MB). NOT YET WIRED into setup/broadcast-api.
