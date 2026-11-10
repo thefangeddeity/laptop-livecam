@@ -1082,6 +1082,23 @@ def _gallery_default(denv):
     return os.path.join(d, 'gallery') if d and os.path.isdir(d) else ''
 
 
+def _state_file(denv, name):
+    """A flag file in the API's own state directory, derived the same way
+    _gallery_default derives the gallery: from DETECT_ROI_FILE's directory.
+
+    The flag paths used to come ONLY from explicit NOTIFY_*_FILE keys, with
+    a Linux /var/lib default or /dev/null behind them. Ariana's config set
+    the video and shots keys by hand and never got a presence line, so the
+    "Never film people" switch wrote a file this notifier never opened --
+    flipping it changed nothing and it read as stuck. Deriving from the same
+    directory the API writes to means a new switch cannot silently miss its
+    reader again. Explicit keys still win.
+    """
+    roi = (denv or {}).get('DETECT_ROI_FILE') or ''
+    d = os.path.dirname(str(roi).strip())
+    return os.path.join(d, name) if d and os.path.isdir(d) else ''
+
+
 def make_notifier(denv, log=None):
     """Build from device.env, or a disabled Notifier if not configured."""
     denv = denv or {}
@@ -1132,12 +1149,16 @@ def make_notifier(denv, log=None):
                     gallery_dir=_get('GALLERY_DIR', '') or _gallery_default(denv),
                     gallery_keep=_num('GALLERY_KEEP', 400),
                     gallery_pad=_num('GALLERY_PAD', 0.15),
-                    classes_file=_get('NOTIFY_CLASSES_FILE', '') or '/dev/null',
-                    presence_file=_get('NOTIFY_PRESENCE_FILE', '') or '/dev/null',
+                    classes_file=_get('NOTIFY_CLASSES_FILE', '')
+                        or _state_file(denv, 'notify_classes') or '/dev/null',
+                    presence_file=_get('NOTIFY_PRESENCE_FILE', '')
+                        or _state_file(denv, 'notify_presence_pause') or '/dev/null',
                     presence_hold_sec=_num('NOTIFY_PRESENCE_HOLD_SEC', 60.0),
                     video_flag_file=_get('NOTIFY_VIDEO_FILE', '')
+                        or _state_file(denv, 'notify_video')
                         or '/var/lib/hls-livecam/notify_video',
                     shots_flag_file=_get('NOTIFY_SHOTS_FILE', '')
+                        or _state_file(denv, 'notify_shots')
                         or '/var/lib/hls-livecam/notify_shots',
                     rec_dir=_get('NOTIFY_REC_DIR', '') or None,
                     clip_pre=_num('NOTIFY_CLIP_PRE', 5.0),
