@@ -29,9 +29,9 @@ with `deploy-local.sh`, so the package version does not describe what runs.
   notify_shots,notify_video,notify_classes,detect_always,blur_mode,msg_lock}`: the
   privacy and alert switches, read from tanzania's own drive on 2026-11-10.
   "Never film people" is on, the mask is on (black), the region is the right-hand
-  part of the room. A clone that copies device.env but not these films people and
-  never sends "<Node>: Cat detected, no <media> due to person present." -- which is
-  what Spitsbergen did after the Nov 9 clone. Copy them with the rest.
+  part of the room. Setup does not write these; with presence_pause absent a fresh install films
+  people and never sends "<Node>: Cat detected, no <media> due to person present."
+  -- which is what Spitsbergen did after its install.
 - `usr/local/etc/mediamtx.yml`: MediaMTX.
 - `systemd/`: the units. mediamtx and broadcast-api are enabled at boot; nginx too.
 
