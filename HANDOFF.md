@@ -204,6 +204,17 @@ main-serve-guard, windows-art)?
   /usr/local/etc/mediamtx.yml.tanzania = its pre-test copy.
 - Found, not fixed: CV enhancement pipeline flaps (drops at ~100ms render, back
   on at 1.4ms, every few seconds) -- needs hysteresis. Load ~7 in show mode.
-- Still to do: Deb test in Ubuntu systemd container (in progress); tag v7.2.1 +
-  mac-v7.2.1; release_arch.sh (sha256/.SRCINFO, AUR push); gh release assets;
-  macOS installer not re-tested this session.
+- Deb MEASURED (main fb97caf) in a rootful Ubuntu 24.04 systemd container on
+  tanzania, real kernel + camera (host video/audio GIDs mapped in-container):
+  apt install ok, setup rc 0, run2 byte-identical; frames, HLS, viewer, API ok.
+  Also fixed from that run: gawk-only awk in the port check (mawk syntax error),
+  pyfakewebcam pip fallback. BLOCKER: Ubuntu 24.04 / bookworm OpenCV 4.6 cannot
+  run YOLOv8 (shape assertion; an opset-12 re-export from official weights is
+  numerically equal on OpenCV 5.0 but fails identically on 4.6). Setup now
+  FAILs with that reason. Decision for Ron: how Deb gets OpenCV >= 4.7.
+- Test leftovers on tanzania: ~/llc-build (logs, snaps, scripts, built pkgs);
+  /root/llc-fresh-test-20261110-115606 (tanzania originals, already restored)
+  and -115745 (fresh-test config); /etc/hls-livecam.fresh-test,
+  /var/lib/hls-livecam.fresh-test.
+- Still to do: tag v7.2.1 + mac-v7.2.1; release_arch.sh (sha256/.SRCINFO, AUR
+  push); gh release assets; macOS installer not re-tested this session.
