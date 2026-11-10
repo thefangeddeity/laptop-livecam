@@ -562,10 +562,25 @@ class Notifier:
             # one is still being written, so treat it as open-ended.
             chosen = []
             for i, (st, p) in enumerate(segs):
-                nxt = segs[i + 1][0] if i + 1 < len(segs) else float('inf')
+                # The newest segment ends when it was last written, not never.
+                # Treating it as open-ended is how a recorder that died at
+                # 21:37 had every alert the next morning cut from its last,
+                # 36-byte segment -- ffmpeg failing on a file nine hours older
+                # than the cat.
+                if i + 1 < len(segs):
+                    nxt = segs[i + 1][0]
+                else:
+                    try:
+                        nxt = os.path.getmtime(p)
+                    except OSError:
+                        nxt = st
                 if nxt > start and st < end:
                     chosen.append((st, p))
             if not chosen:
+                self._log('notify: no clip, the recording does not cover the '
+                          'alert (newest segment ended %s)' % time.strftime(
+                              '%Y-%m-%d %H:%M:%S',
+                              time.localtime(os.path.getmtime(segs[-1][1]))))
                 return None
 
             out = os.path.join(self.snapshot_dir,
