@@ -1,6 +1,6 @@
 # HANDOFF — read first, then re-measure. Do not trust this over live state.
 
-Updated 2026-11-09. Session ran out of budget; start a FRESH session per node.
+Updated 2026-11-10 (after a compaction). Start a FRESH session per node.
 
 ## Verified (named measurement)
 - Spitsbergen streams: after deploying main 59426bd, /dev/video10 G_FMT 1280x720,
@@ -66,7 +66,7 @@ full sweep of bare `except: continue`, removed numpy/OpenCV APIs; release 7.2.1.
   fresh or migrated node gets no CV config, no notifier. Fix in repo: setup
   should write the full template (hosts/tanzania is the reference).
 
-- TODO after root writable: standardize detection messages to the documented format.
+- (done 11-10: code already matches the template; see "alert messages" below.)
 
 ## 2026-11-10 — installer stock-take (verified)
 - Release assets v7.2.0: bytes match GitHub sha256 digests; archives list. Not
@@ -134,3 +134,39 @@ a6f7115). Cheapest guard: pyflakes undefined-name check in the build/deploy.
   as open-ended -> every alert cut the 36-byte segment from 21:37 Nov 9 when the
   recorder stopped. Fixed main ad9efba / macos b7dbbb0. Scene model: tanzania
   retired its own on Sep 8, so "missing" is not a regression.
+
+## 2026-11-10 — after Ron's reboot (NOT yet resolved; was only in chat)
+- 192.168.18.5 came up as **tanzania**: root = sdb3 (Toshiba, tanzania's drive),
+  sda (Spitsbergen's USB Seagate) unmounted, so its 19 ext4 errors are NOT fsck'd.
+  machine-id e74cf9dbf6ab4adf9f0cc89472967943.
+- Measured there: laptop-livecam 7.2.0-1 (AUR, none of the 11-10 fixes),
+  broadcast-api + mediamtx active, HLS playlist ok, 0 kernel I/O errors this boot,
+  presence-pause=true, privacy-mask=true, feed-mode=show. Load ~7 at 12 min:
+  python3 (broadcast-api) 75% CPU + three ffmpeg 42-61% -- not yet explained.
+- Which machine's hardware this is was NOT measured (no DMI read). Chat claimed
+  "tanzania's hardware"; that was an inference. Check /sys/class/dmi/id/product_name.
+- Host key differs (different OS install). Probe with
+  `-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR`;
+  ~/.ssh/known_hosts deliberately left untouched.
+- WAITING ON RON: keep tanzania booted, or put the Seagate first / unplug the
+  Toshiba so Spitsbergen boots and fsck runs. Then: copy
+  hosts/tanzania/var/lib/hls-livecam/* only if Ron wants tanzania's switches there
+  (default is OFF by decision), and verify the recorder writes new segments.
+
+## Release 7.2.1 (owed; nothing deployed to nodes yet)
+main 7a5dee2 (serve guard json->_json), 1c9be10 + macos be394cd (alert logs),
+ad9efba + macos b7dbbb0 (clip segment selection), 653f9aa (packaging/arch,
+device.env template). Steps: tag v7.2.1 + mac-v7.2.1 together (annotated, -a);
+regenerate sha256sums + .SRCINFO in packaging/arch; push AUR; rebuild deb
+(tina unreachable 11-09); DMG on ariana; deploy to nodes and measure.
+
+## Tooling (scratchpad, lost on reboot of this Mac)
+- pyflakes: $S/venv/bin/pyflakes (python -m via xargs failed).
+- python with cv2: ~/Projects/mac-hls-livecam/.venv/bin/python.
+- main clone: $S/llc-main (S = /private/tmp/claude-501/-Users-ron-Projects/<session>/scratchpad).
+- ssh probe that can't hang: `( ssh -n -o ConnectTimeout=5 -o BatchMode=yes ... & P=$!; sleep N; kill $P )`.
+
+## Open questions for Ron (not yet asked again)
+boot choice above; keep /etc/sudoers.d/99-ron NOPASSWD and ariana's key on
+Spitsbergen?; delete stale local branches (main-art, main-mesh-card,
+main-serve-guard, windows-art)?
