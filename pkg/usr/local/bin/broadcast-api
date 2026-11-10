@@ -4180,7 +4180,7 @@ def _serve_handlers():
     if not (r and r.returncode == 0):
         return None
     try:
-        d = json.loads(r.stdout or '{}')
+        d = _json.loads(r.stdout or '{}')
     except Exception:
         return None
     out = {}
@@ -4256,7 +4256,7 @@ def _serve_guard_loop():
                 # 404ing, which nobody reports because nothing looks wrong.
                 try:
                     with open(SERVE_MAP_FILE, 'w') as fh:
-                        json.dump(cur, fh)
+                        _json.dump(cur, fh)
                 except Exception:
                     pass
             else:
@@ -4274,7 +4274,7 @@ def _serve_guard_loop():
                     restored = []
                     try:
                         with open(SERVE_MAP_FILE) as fh:
-                            remembered = json.load(fh)
+                            remembered = _json.load(fh)
                     except Exception:
                         remembered = {}
                     for path, target in sorted(remembered.items()):
