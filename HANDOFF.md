@@ -67,3 +67,16 @@ full sweep of bare `except: continue`, removed numpy/OpenCV APIs; release 7.2.1.
   should write the full template (hosts/tanzania is the reference).
 
 - TODO after root writable: standardize detection messages to the documented format.
+
+## 2026-11-10 — installer stock-take (verified)
+- Release assets v7.2.0: bytes match GitHub sha256 digests; archives list. Not
+  corrupt files -- they install broken systems.
+- main 6xx (see git log): PKGBUILD now in packaging/arch/ (was only AUR +
+  tanzania; osiris aur-laptop-livecam.git == AUR 419512c). Installs whole
+  vendor/, drops python-pyfakewebcam dep. New pkg/.../device.env.template;
+  both setups merge missing defaults. Tested: 11->30 keys, rerun 0 added.
+- Still to do: setup/camdash frame check on /dev/video10 + HLS segments;
+  publish PKGBUILD to AUR from packaging/arch (needs a 7.2.1 tag + sha256);
+  rebuild deb on tina (unreachable 11-09); notify.urls stub in setup.
+- Spitsbergen root FS read-only since USB reset on port 2-4 (Nov 9); needs
+  cable/port change + reboot before anything can be deployed there.
