@@ -80,6 +80,8 @@ systemctl daemon-reload 2>/dev/null || true
 # Remove sudoers entries written by hls-livecam-setup. Removal only -- see
 # the note at the top of this file for what doing it on upgrade cost.
 rm -f /etc/sudoers.d/hls-livecam-dark
+# The private OpenCV setup installs on OpenCV-4.6 distros; dpkg does not own it.
+rm -rf /usr/share/hls-livecam-server/opencv
 rm -f /etc/sudoers.d/hls-livecam-services
 # camdash-smart may have been written by setup — remove it too.
 # The shipped /etc/sudoers.d/camdash-smart is removed by dpkg automatically.

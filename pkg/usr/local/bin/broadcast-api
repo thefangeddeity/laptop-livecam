@@ -20,6 +20,13 @@ sys.path.insert(0, '/usr/share/hls-livecam-server')
 # tobytes(). Preferring it means no distro patch is ever needed.
 sys.path.insert(1, '/usr/share/hls-livecam-server/vendor')
 import pyfakewebcam
+# PRIVATE OPENCV, only where setup installed one: Ubuntu 24.04 and Debian 12
+# ship OpenCV 4.6, which cannot run YOLOv8, so hls-livecam-setup puts a pinned
+# opencv-python-headless here on those systems and nowhere else. Absent, the
+# distro's cv2 is used as before.
+_PRIVATE_CV = '/usr/share/hls-livecam-server/opencv'
+if os.path.isdir(_PRIVATE_CV):
+    sys.path.insert(0, _PRIVATE_CV)
 
 import block_art as _ba
 import buzz_tone as _buzz

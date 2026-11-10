@@ -301,6 +301,33 @@ if ! PYTHONPATH=/usr/share/hls-livecam-server/vendor python3 -c "import pyfakewe
     echo -e "${RED}ERROR: the vendored pyfakewebcam does not import; reinstall the package.${NC}"
     exit 1
 fi
+# -- OpenCV new enough for the detector --------------------------
+# YOLOv8 needs OpenCV >= 4.7. Ubuntu 24.04 and Debian 12 ship 4.6, which loads
+# the model and then fails a shape assertion on every pass: the node streams
+# and never detects. There, and only there, install a pinned
+# opencv-python-headless into a directory this package owns at runtime.
+# --no-deps: it uses the distro's numpy (measured: 4.10.0.84 runs yolov8n on
+# Ubuntu 24.04 with numpy 1.26). Re-runs keep an existing copy.
+CV_PRIVATE=/usr/share/hls-livecam-server/opencv
+CV_PIN=4.10.0.84
+SYS_CV=$(python3 -c "import cv2; print(cv2.__version__)" 2>/dev/null || echo 0)
+if python3 -c "import sys; v=[int(x) for x in sys.argv[1].split('.')[:2]]; sys.exit(0 if v >= [4, 7] else 1)" "$SYS_CV" 2>/dev/null; then
+    echo -e "  ${GREEN}OpenCV ${SYS_CV} from the distro runs the detector.${NC}"
+    rm -rf "$CV_PRIVATE"
+elif [ -f "$CV_PRIVATE/.pin-$CV_PIN" ] && PYTHONPATH="$CV_PRIVATE" python3 -c "import cv2" 2>/dev/null; then
+    echo -e "  ${GREEN}Private OpenCV $CV_PIN already installed (distro has ${SYS_CV}).${NC}"
+else
+    echo "  Distro OpenCV ${SYS_CV} cannot run YOLOv8 -- installing opencv-python-headless ${CV_PIN} for laptop-livecam only..."
+    rm -rf "$CV_PRIVATE.tmp"
+    if python3 -m pip install -q --no-deps --break-system-packages --target "$CV_PRIVATE.tmp" "opencv-python-headless==$CV_PIN" 2>/dev/null || \
+       python3 -m pip install -q --no-deps --target "$CV_PRIVATE.tmp" "opencv-python-headless==$CV_PIN"; then
+        rm -rf "$CV_PRIVATE"; mv "$CV_PRIVATE.tmp" "$CV_PRIVATE"; touch "$CV_PRIVATE/.pin-$CV_PIN"
+        echo -e "  ${GREEN}Private OpenCV $(PYTHONPATH="$CV_PRIVATE" python3 -c "import cv2; print(cv2.__version__)") installed.${NC}"
+    else
+        rm -rf "$CV_PRIVATE.tmp"
+        echo -e "  ${YELLOW}Could not download OpenCV (network?). Streaming will work; detection will not until setup is re-run.${NC}"
+    fi
+fi
 cat > /etc/modules-load.d/v4l2loopback.conf << 'EOF'
 v4l2loopback
 EOF
