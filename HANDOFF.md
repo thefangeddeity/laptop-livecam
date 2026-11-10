@@ -170,3 +170,40 @@ regenerate sha256sums + .SRCINFO in packaging/arch; push AUR; rebuild deb
 boot choice above; keep /etc/sudoers.d/99-ron NOPASSWD and ariana's key on
 Spitsbergen?; delete stale local branches (main-art, main-mesh-card,
 main-serve-guard, windows-art)?
+
+## 2026-11-10 midday — tanzania study + installers (main 6568396, 4869178; pushed)
+- Reference copies (read these before trusting memory of the design):
+  osiris:repos/backups/llc-live/tanzania-llc-live-20261110-114057.tgz (live LLC
+  files, units, nginx, sudoers, udev, manifests: pacman -Qe, versions) and
+  ariana-llc-live-20261110.tgz (state/ config, LaunchAgents, versions). Both
+  sha256-verified. Excluded: rec/, gallery/, images, wav, notify.urls (token).
+- The machine is "HP Laptop 15-dw1xxx" with an HP TrueVision camera; it booted
+  tanzania's Toshiba because Ron left it plugged in.
+- Tanzania findings: package-owned code == 7.2.0 + index.html hand edit (50bb713,
+  already in main). Hand-placed: livecam-tools (== macos tools/), capability
+  units, mediamtx.yml (= setup's + `cam: record: no`), udev write-through rule
+  (node-specific serial), snd-aloop (unused: AUDIO_SINGLE_SESSION=0).
+  device.env: 3 stray `lili` lines; managed comments duplicated x4 (setup
+  merge was not idempotent); CV_SCENE_ENABLED=1 with model retired.
+- Installer fixes (7.2.1, both distros): shared `llc-configure` (device-env
+  merge idempotent, audio detection, notify.urls stub, `verify`); template =
+  tanzania values (CONF 0.50, recorder/clip keys, SCENE 0); home.html copied
+  (fresh installs served 404 at /); capability probe packaged at
+  /usr/share/hls-livecam-server/livecam-tools (NOT /usr/local/lib: pacman
+  refused to overwrite tanzania's hand copies); setup retires shadowing
+  /etc/systemd/system capability units; Debian pyfakewebcam check used no
+  vendor path -> always pip-installed; alsa-utils dep; stale share/ camdash,
+  camstack and dangling livecam-sync.timer removed; packaging/deb/build-deb.sh.
+- MEASURED on tanzania (Arch): fresh install (state moved aside to
+  /root/llc-fresh-test-20261110-115606, restored after) -> setup rc 0, 8 ok +
+  WARN no destination; second run byte-identical (sha256 of every file setup
+  writes + unit links). Upgrade over tanzania's real config -> 9/9 ok,
+  identical on rerun, presence-pause=true, feed=show, 1 destination kept.
+  CV on fresh install: detector loads packaged model, no tracebacks.
+- Tanzania is now on a locally built 7.2.1-1 (pacman -Qkk 0 altered).
+  /usr/local/etc/mediamtx.yml.tanzania = its pre-test copy.
+- Found, not fixed: CV enhancement pipeline flaps (drops at ~100ms render, back
+  on at 1.4ms, every few seconds) -- needs hysteresis. Load ~7 in show mode.
+- Still to do: Deb test in Ubuntu systemd container (in progress); tag v7.2.1 +
+  mac-v7.2.1; release_arch.sh (sha256/.SRCINFO, AUR push); gh release assets;
+  macOS installer not re-tested this session.
