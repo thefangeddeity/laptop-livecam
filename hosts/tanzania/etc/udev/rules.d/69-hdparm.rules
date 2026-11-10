@@ -1,0 +1,1 @@
+ACTION=="add|change", KERNEL=="sda", ATTR{queue/rotational}=="1", RUN+="/usr/bin/hdparm -B 254 /dev/sda"

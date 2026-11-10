@@ -65,6 +65,9 @@ if [ -f "$SHARE_VIEWER" ]; then
     chown root:www-data "$WEB_VIEWER"
     chmod 0644 "$WEB_VIEWER"
 fi
+# --- Home page: nginx serves / from it; see hls-livecam-setup ----
+[ -f /usr/share/hls-livecam-server/home.html ] && \
+    install -m0644 /usr/share/hls-livecam-server/home.html /var/www/hls-livecam/home.html
 # --- Install the served AGGREGATOR from the packaged copy ---------
 # Same bug as the viewer above, one directory across, and it outlived the
 # fix: cams.html existed BOTH as deb payload under pkg/var/www and as the

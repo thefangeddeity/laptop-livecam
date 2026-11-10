@@ -32,7 +32,20 @@ with `deploy-local.sh`, so the package version does not describe what runs.
   part of the room. Setup does not write these; with presence_pause absent a fresh install films
   people and never sends "<Node>: Cat detected, no <media> due to person present."
   -- which is what Spitsbergen did after its install.
-- `usr/local/etc/mediamtx.yml`: MediaMTX.
+- `usr/local/etc/mediamtx.yml`: MediaMTX. Equal to what setup writes, plus `cam: record: no`
+  (mediamtx's own recording is off; the evidence recorder in broadcast-api records instead).
+- `etc/udev/rules.d/61-usb-root-write-through.rules`: NODE-SPECIFIC. Turns the write cache off
+  on tanzania's USB system drive (Toshiba enclosure, no FUA), after a clean shutdown left
+  half-written inode blocks on 2026-09-25. Matches by serial, so it is inert anywhere else;
+  a node booting from a USB disk needs its own copy with its own serial.
+- `etc/udev/rules.d/69-hdparm.rules`: APM 254 on the rotational sda (no spin-down).
+- `etc/modprobe.d`, `etc/modules-load.d`: v4l2loopback (setup writes the same) and snd-aloop
+  (setup does NOT; only needed with AUDIO_SINGLE_SESSION=1, which is 0 here).
+- `etc/sudoers.d/hls-livecam-studio`: as setup writes it.
+- Refreshed from the live system on 2026-11-10 (booted from this drive by accident; full
+  snapshot on osiris: repos/backups/llc-live/tanzania-llc-live-20261110-114057.tgz).
+  device.env carries three stray `lili` lines (since Aug 26); setup from 7.2.1 drops them.
+  It also still has CV_SCENE_ENABLED=1 with the scene model retired on Sep 8.
 - `systemd/`: the units. mediamtx and broadcast-api are enabled at boot; nginx too.
 
 ## Boot

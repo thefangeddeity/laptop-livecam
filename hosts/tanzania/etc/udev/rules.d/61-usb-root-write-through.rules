@@ -1,0 +1,15 @@
+# Tanzania's system drive is a USB HDD (Toshiba EXTERNAL_USB, serial
+# 20210521019568F) whose enclosure has a write cache and supports neither
+# DPO nor FUA. On 2026-09-25 a clean shutdown still left one inode-table
+# block half-written (9 neighbouring inodes with bad checksums): the
+# enclosure acknowledged a flush before the data was on the platter.
+# "write through" (not "temporary write through") makes the kernel send
+# MODE SELECT to turn the drive's write cache off, so a completed write is
+# on disk. Writes get a little slower. Check after boot with:
+#   cat /sys/block/sd*/device/scsi_disk/*/cache_type
+# udev reports the enclosure serial as ID_USB_SERIAL_SHORT (newer udev) or ID_SERIAL_SHORT
+# (older), and the disk itself as ID_SERIAL_SHORT=51LGT1MXT: match any (2026-09-28: the
+# rule had silently stopped matching and the cache was back to write back).
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ENV{ID_USB_SERIAL_SHORT}=="20210521019568F", RUN+="/bin/sh -c 'for f in /sys/block/%k/device/scsi_disk/*/cache_type; do echo write through > $$f; done'"
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL_SHORT}=="20210521019568F", RUN+="/bin/sh -c 'for f in /sys/block/%k/device/scsi_disk/*/cache_type; do echo write through > $$f; done'"
+ACTION=="add|change", SUBSYSTEM=="block", ENV{DEVTYPE}=="disk", ENV{ID_SERIAL_SHORT}=="51LGT1MXT", RUN+="/bin/sh -c 'for f in /sys/block/%k/device/scsi_disk/*/cache_type; do echo write through > $$f; done'"

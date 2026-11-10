@@ -766,4 +766,21 @@ pathDefaults:
 
 paths:
   cam:
+    # RECORDING HERE IS OFF, and the block is kept so nobody re-adds it.
+    #
+    # mediamtx can only record what is PUBLISHED, and what is published in
+    # Hide is a black frame. So this recorded 391MB of black video and the
+    # alert clips cut from it were blank -- the evidence going dark in the
+    # mode you are most likely to be in when you want it.
+    #
+    # Clips now come from the evidence recorder in broadcast-api's writer
+    # loop, which is fed the real frame before the mode branch renders
+    # anything, and writes to /var/lib/hls-livecam/rec/evidence. That one is
+    # gated by RECORD_ENABLED in device.env.
+    #
+    # Note for anyone restoring this from a backup: hls-livecam-setup strips
+    # the whole `paths:` block and writes back a bare `cam:`, so `record: yes`
+    # was only ever a hand-edit that a wizard re-run removes anyway. Turning
+    # it off by hand is durable in the only direction that matters.
+    record: no
   all_others:

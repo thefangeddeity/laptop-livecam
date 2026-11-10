@@ -21,8 +21,8 @@ declare -A MAP=(
   # /usr/local/lib once, which is exactly the untracked-artifact failure
   # this script exists to end: a file running the node that no tree owns
   # and nothing can diff against.
-  ["$REPO/pkg/usr/local/lib/livecam-tools/node-capabilities"]="/usr/local/lib/livecam-tools/node-capabilities"
-  ["$REPO/pkg/usr/local/lib/livecam-tools/publish-capabilities"]="/usr/local/lib/livecam-tools/publish-capabilities"
+  ["$REPO/pkg/usr/share/hls-livecam-server/livecam-tools/node-capabilities"]="/usr/share/hls-livecam-server/livecam-tools/node-capabilities"
+  ["$REPO/pkg/usr/share/hls-livecam-server/livecam-tools/publish-capabilities"]="/usr/share/hls-livecam-server/livecam-tools/publish-capabilities"
 )
 # /etc/hls-livecam/notches.json is deliberately NOT in MAP or the payload:
 # it's curated, per-room tuning data (the live 12-entry list is nothing like
@@ -54,15 +54,15 @@ install -m0755 "$REPO/pkg/usr/local/bin/broadcast-api" /usr/local/bin/broadcast-
 echo "  installed broadcast-api"
 install -m0644 "$REPO/pkg/etc/nginx/conf.d/hls-livecam.conf" /etc/nginx/conf.d/hls-livecam.conf
 echo "  installed nginx conf"
-# -D so a fresh node gets /usr/local/lib/livecam-tools/ created rather than
+# -D so a fresh node gets /usr/share/hls-livecam-server/livecam-tools/ created rather than
 # failing on a missing parent. These were hand-placed once; a file running a
 # node that no tree owns is the failure this script exists to end.
-install -D -m0755 "$REPO/pkg/usr/local/lib/livecam-tools/node-capabilities" \
-        /usr/local/lib/livecam-tools/node-capabilities
-install -D -m0755 "$REPO/pkg/usr/local/lib/livecam-tools/publish-capabilities" \
-        /usr/local/lib/livecam-tools/publish-capabilities
+install -D -m0755 "$REPO/pkg/usr/share/hls-livecam-server/livecam-tools/node-capabilities" \
+        /usr/share/hls-livecam-server/livecam-tools/node-capabilities
+install -D -m0755 "$REPO/pkg/usr/share/hls-livecam-server/livecam-tools/publish-capabilities" \
+        /usr/share/hls-livecam-server/livecam-tools/publish-capabilities
 echo "  installed capability tools"
-/usr/local/lib/livecam-tools/publish-capabilities >/dev/null 2>&1 \
+/usr/share/hls-livecam-server/livecam-tools/publish-capabilities >/dev/null 2>&1 \
   && echo "  capabilities.json republished" \
   || echo "  WARNING: capability probe failed; capabilities.json left stale"
 

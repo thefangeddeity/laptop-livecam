@@ -4,6 +4,38 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.2.1
+
+Installers leave a working node on the first run, and a second run changes
+nothing. Spitsbergen was installed with 7.2.0 and came up streaming but
+otherwise half-configured; tanzania, the reference node, was measured file by
+file against what setup writes.
+
+- **One device.env merge for both distros** (`llc-configure device-env`). The
+  Debian and Arch setups each had their own and neither was idempotent: every
+  comment in the managed block was read back as the node's own and written
+  again, so tanzania's file carried each one four times. Now setup owns one
+  marked block, keeps every other line, and a re-run is byte-identical. Lines
+  that are not KEY=VALUE (tanzania had three stray `lili`) are dropped.
+- **The microphone is detected**: AUDIO_DEVICE, AUDIO_MIXER_CARD and
+  TALK_OUTPUT come from `arecord -l`/`aplay -l`, skipping the ALSA loopback and
+  HDMI. No capture card sets AUDIO_ENABLED=0. alsa-utils is now a dependency.
+- **The template is tanzania's**: CV_DETECT_CONF 0.50, the evidence recorder
+  and clip keys, NOTIFY_MIN_FG. CV_SCENE_ENABLED is 0 -- on without a
+  registration artifact it logged FileNotFoundError on every pass.
+- **notify.urls is created** (root:service-group 640, commented) so the
+  notifier has a file to read and the operator a place to put the bot URL.
+- **Setup measures what it installed** and exits non-zero on failure: units
+  active, frames on /dev/video10, segments in the HLS variant, the viewer and
+  API on :8080, no tracebacks since setup began, and (warning only) an alert
+  destination.
+- The capability probe (`livecam-capabilities.timer`) ships in both packages,
+  from the macos tools/ that tanzania was running by hand. The dangling
+  livecam-sync.timer (no service) is gone from the deb, as are the stale
+  share/ copies of camdash and camstack.
+- Carried from main since 7.2.0: the HTTPS guard's json NameError, alert logs
+  that say what happened, and clips cut from a segment that covers the alert.
+
 ## 7.2.0
 
 The settings panel moves out of the sidebar and the Messages card takes the

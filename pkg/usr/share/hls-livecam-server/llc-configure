@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+"""llc-configure -- the parts of hls-livecam-setup that must be identical on
+every distro, in one place.
+
+There were two setup scripts (Debian and Arch), each with its own copy of the
+device.env merge. They drifted: the Debian one managed four keys, the Arch one
+six, and neither was idempotent -- every comment inside the managed block was
+read back as a "preserved" line and written out again, so each re-run grew the
+file. A fresh install got a device.env with no microphone setting, a scene
+model switched on that no fresh node has, and an alert destination file that
+did not exist. Spitsbergen was installed exactly that way.
+
+  llc-configure device-env --file F --set K=V ...   merge, idempotent
+  llc-configure notify-stub --file F --group G      create the URL file once
+  llc-configure verify [--timeout S]                measure the install
+
+Run as root, by hls-livecam-setup. Safe to run any number of times: a second
+run of `device-env` leaves the file byte-identical.
+"""
+import argparse
+import grp
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+
+SHARE = os.environ.get('LLC_SHARE', '/usr/share/hls-livecam-server')  # override for tests
+TEMPLATE = os.path.join(SHARE, 'device.env.template')
+DEVICE_ENV = '/etc/hls-livecam/device.env'
+
+BEGIN = '# >>> managed by hls-livecam-setup -- rewritten on every run >>>'
+END = '# <<< end of managed block; everything below is this node\'s own <<<'
+
+MANAGED_NOTES = """\
+# hls-livecam -- persistent device config, read by broadcast-api,
+# the notifier and hls-livecam-repair. Re-running setup rewrites only this
+# block; every line below it is kept exactly as it is.
+# GOP_SECONDS: mediamtx can only cut a segment at a keyframe, so this sets
+# the real segment length. At 4 the 1s hlsSegmentDuration is ignored and
+# viewers get ~12s of live-edge lag.
+#
+# CV Mode tuning: every CV_* key is optional; the defaults live in
+# /usr/share/hls-livecam-server/cv_processor.py (_DEFAULTS). Cameras differ a
+# lot, so tune per node; do not copy a whole block between machines.
+#   CV_DETECT_CONF     confidence floor. Below ~0.1 on a degraded sensor the
+#                      class head is noise with labels attached.
+#   CV_DETECT_CLASSES  narrow what this node looks for ("cat", or "15,0").
+#   CV_SCENE_ENABLED   reference-image scene model; needs a registration
+#                      artifact (cv_scene_register.py). Off unless you made one.
+#   CV_PERSIST_ENABLED long-lived scene entities that survive restarts."""
+
+# Section headers and notes written by earlier setups. They are not this
+# node's own lines, so a re-run drops them instead of carrying them forever.
+_LEGACY_PREFIXES = (
+    '# --- preserved from a previous config',
+    '# --- defaults added by setup from device.env.template',
+    '# hls-livecam-server -- persistent device config',
+    '# Written by hls-livecam-setup',
+    '# Consumed by hls-livecam-repair',
+)
+
+
+def _key(line):
+    s = line.strip()
+    if not s or s.startswith('#') or '=' not in s:
+        return None
+    return s.split('=', 1)[0].strip()
+
+
+def _legacy_generated_lines():
+    """Every comment line an earlier setup wrote into its managed block or
+    legend (device.env.legacy-comments, collected from those versions).
+    Such lines are setup's, not the node's, and were re-emitted on every run
+    -- tanzania's device.env carried each of them four times."""
+    try:
+        with open(os.path.join(SHARE, 'device.env.legacy-comments')) as f:
+            return {ln.strip() for ln in f.readlines()[3:] if ln.strip()}
+    except OSError:
+        return set()
+
+
+def detect_audio():
+    """The first real capture card: not the ALSA loopback, not HDMI. Returns
+    {} when there is none, which is a result -- that node has no microphone
+    and AUDIO_ENABLED is set to 0 instead of pointing at a card that is not
+    there (the default hw:0,0 is often the loopback or an HDMI sink)."""
+    def cards(cmd):
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True,
+                                 timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        found = []
+        for m in re.finditer(r'^card (\d+): (\S+) \[([^\]]*)\], device (\d+): ([^\n]*)',
+                             out, re.M):
+            _, cid, cname, dev, dname = m.groups()
+            if cid.lower() == 'loopback' or 'hdmi' in (cname + dname).lower():
+                continue
+            found.append((cid, dev))
+        return found
+
+    cap = cards(['arecord', '-l'])
+    if cap is None:
+        return {}          # alsa-utils missing: leave the defaults alone
+    if not cap:
+        return {'AUDIO_ENABLED': '0'}
+    cid, dev = cap[0]
+    res = {'AUDIO_DEVICE': f'hw:CARD={cid},DEV={dev}', 'AUDIO_MIXER_CARD': cid}
+    play = [c for c in (cards(['aplay', '-l']) or []) if c[0] == cid]
+    if play:
+        res['TALK_OUTPUT'] = f'hw:CARD={cid},DEV={play[0][1]}'
+    return res
+
+
+def device_env(path, managed):
+    try:
+        with open(path) as f:
+            old = f.read().splitlines()
+    except FileNotFoundError:
+        old = []
+
+    legacy = _legacy_generated_lines()
+    own, inside, seen, dropped = [], False, set(managed), []
+    for ln in old:
+        s = ln.strip()
+        if s == BEGIN:
+            inside = True
+            continue
+        if s == END:
+            inside = False
+            continue
+        if inside:
+            continue
+        if s.startswith('#'):
+            if s.startswith(_LEGACY_PREFIXES) or s in legacy or s.startswith('# ──'):
+                continue
+            own.append(ln)
+            continue
+        k = _key(ln)
+        if k is None:
+            if s:
+                # Not KEY=VALUE, not a comment: systemd logs it as an invalid
+                # assignment and bash would run it as a command. tanzania
+                # carried three stray 'lili' lines like this since Aug 26.
+                dropped.append(s)
+            else:
+                own.append('')
+            continue
+        if k in seen:          # managed, or a duplicate of an earlier line
+            continue
+        seen.add(k)
+        own.append(ln)
+
+    # Hardware this node actually has, for keys it does not set yet.
+    added = []
+    for k, v in detect_audio().items():
+        if k not in seen:
+            seen.add(k)
+            added.append(f'{k}={v}')
+    try:
+        with open(TEMPLATE) as f:
+            for ln in f:
+                k = _key(ln)
+                if k and k not in seen:
+                    seen.add(k)
+                    added.append(ln.strip())
+    except FileNotFoundError:
+        pass
+
+    # Collapse blank runs so re-runs cannot accumulate empty lines.
+    body = []
+    for ln in own:
+        if ln.strip() == '' and (not body or body[-1].strip() == ''):
+            continue
+        body.append(ln)
+    while body and body[-1].strip() == '':
+        body.pop()
+    if added:
+        if body:
+            body.append('')
+        body.append('# Defaults added by setup (%s). Edit freely; setup never '
+                    'changes a key that is already here.' % time.strftime('%Y-%m-%d'))
+        body += added
+
+    text = '\n'.join([BEGIN, MANAGED_NOTES]
+                     + [f'{k}={v}' for k, v in managed.items()]
+                     + [END, ''] + body) + '\n'
+    try:
+        with open(path) as f:
+            if f.read() == text:
+                print('  device.env unchanged.')
+                return
+    except FileNotFoundError:
+        pass
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w') as f:
+        f.write(text)
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, path)
+    if dropped:
+        print(f'  dropped {len(dropped)} line(s) that were not KEY=VALUE: '
+              + ', '.join(repr(d[:40]) for d in dropped[:5]))
+    print(f'  device.env written ({len(added)} key(s) added: '
+          f'{", ".join(a.split("=", 1)[0] for a in added) or "none"}).')
+
+
+def notify_stub(path, group):
+    """The notifier reads its destinations from this file. Absent, it logs
+    'cannot read' once and alerts nobody -- a node that detects and tells no
+    one. Create it once, empty but explained, readable by the service; never
+    touch it again (it holds the bot token once someone fills it in)."""
+    if os.path.exists(path):
+        print(f'  {path} present (left as is).')
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w') as f:
+        f.write("# Alert destinations, one apprise URL per line. Lines starting\n"
+                "# with '#' are ignored. Telegram:\n"
+                "#   tgram://<bot token>/<chat id>\n"
+                "# Then: sudo systemctl restart broadcast-api\n")
+    gid = grp.getgrnam(group).gr_gid
+    os.chown(path, 0, gid)
+    os.chmod(path, 0o640)
+    print(f'  {path} created (root:{group} 640) -- add a destination to get alerts.')
+
+
+# ── verify ──────────────────────────────────────────────────────────────
+
+def _until(timeout, fn):
+    end = time.time() + timeout
+    last = None
+    while True:
+        try:
+            ok, last = fn()
+        except Exception as exc:       # a probe that throws is a failed probe
+            ok, last = False, f'{type(exc).__name__}: {exc}'
+        if ok or time.time() >= end:
+            return ok, last
+        time.sleep(2)
+
+
+def _get(url, t=5):
+    with urllib.request.urlopen(url, timeout=t) as r:
+        return r.status, r.read().decode('utf-8', 'replace')
+
+
+def verify(timeout, since):
+    results = []
+
+    def check(name, fn, warn_only=False, t=timeout):
+        ok, detail = _until(t, fn)
+        state = 'ok' if ok else ('WARN' if warn_only else 'FAIL')
+        results.append((state, name, detail))
+        print(f'  [{state:4}] {name}: {detail}')
+
+    def active(u):
+        def f():
+            s = subprocess.run(['systemctl', 'is-active', u], capture_output=True,
+                               text=True).stdout.strip()
+            return s == 'active', s
+        return f
+
+    for u in ('mediamtx', 'broadcast-api', 'nginx'):
+        check(f'{u} running', active(u))
+
+    def loop_fmt():
+        out = subprocess.run(['v4l2-ctl', '-d', '/dev/video10', '--get-fmt-video'],
+                             capture_output=True, text=True).stdout
+        m = re.search(r'Width/Height\s*:\s*(\d+)/(\d+)', out)
+        wh = m and f'{m.group(1)}x{m.group(2)}'
+        return bool(m) and m.group(1) != '0', wh or 'no format (no frame written yet)'
+    check('frames reach /dev/video10', loop_fmt)
+
+    def hls():
+        st, master = _get('http://127.0.0.1:8888/cam/index.m3u8')
+        variant = next((ln.strip() for ln in master.splitlines()
+                        if ln.strip() and not ln.startswith('#')), None)
+        if not variant:
+            return False, 'master playlist lists no variant'
+        st, v = _get('http://127.0.0.1:8888/cam/' + variant)
+        n = sum(1 for ln in v.splitlines() if ln.startswith('#EXTINF'))
+        return n > 0, f'{n} segment(s) in {variant}'
+    check('HLS carries segments', hls)
+
+    def viewer():
+        st, body = _get('http://127.0.0.1:8080/')
+        return st == 200 and len(body) > 200, f'HTTP {st}, {len(body)} bytes'
+    check('viewer served on :8080', viewer, t=10)
+
+    def api():
+        st, body = _get('http://127.0.0.1:8080/api/info')
+        info = json.loads(body)
+        return st == 200, f"version {info.get('version') or '?'}"
+    check('API answers', api, t=10)
+
+    def journal_clean():
+        out = subprocess.run(['journalctl', '-u', 'broadcast-api', '--since', since,
+                              '--no-pager', '-o', 'cat'], capture_output=True,
+                             text=True).stdout
+        bad = [ln for ln in out.splitlines()
+               if re.search(r'Traceback|NameError|AttributeError|ImportError', ln)]
+        return not bad, (bad[-1][:160] if bad else 'no tracebacks since setup began')
+    check('broadcast-api log clean', journal_clean, t=1)
+
+    def notify():
+        # Read the configuration, not the journal: the notifier is only built
+        # when CV runs, so in Show mode it never logs a line at all.
+        env = {}
+        try:
+            with open(DEVICE_ENV) as f:
+                for ln in f:
+                    k = _key(ln)
+                    if k:
+                        env[k] = ln.split('=', 1)[1].strip()
+        except OSError as exc:
+            return False, f'cannot read {DEVICE_ENV}: {exc}'
+        if env.get('NOTIFY_ENABLED', '0').lower() in ('0', 'false', 'no', 'off', ''):
+            return False, 'NOTIFY_ENABLED is off in device.env'
+        urls = [u for u in env.get('NOTIFY_APPRISE_URLS', '').split(',') if u.strip()]
+        uf = env.get('NOTIFY_APPRISE_URLS_FILE', '')
+        if uf:
+            try:
+                st = os.stat(uf)
+                with open(uf) as f:
+                    urls += [ln for ln in f if ln.strip() and not ln.lstrip().startswith('#')]
+                if not st.st_mode & 0o044:
+                    return False, f'{uf} is not readable by the service group'
+            except OSError as exc:
+                return False, f'cannot read {uf}: {exc}'
+        return bool(urls), (f'{len(urls)} destination(s)' if urls else
+                            f'none -- add a URL to {uf or "notify.urls"}')
+    check('alerts have a destination', notify, warn_only=True, t=1)
+
+    fails = [r for r in results if r[0] == 'FAIL']
+    warns = [r for r in results if r[0] == 'WARN']
+    print(f'  {len(results) - len(fails) - len(warns)} ok, {len(warns)} warning(s), '
+          f'{len(fails)} failure(s).')
+    return 1 if fails else 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    d = sub.add_parser('device-env')
+    d.add_argument('--file', required=True)
+    d.add_argument('--set', action='append', default=[], metavar='K=V')
+    n = sub.add_parser('notify-stub')
+    n.add_argument('--file', required=True)
+    n.add_argument('--group', required=True)
+    v = sub.add_parser('verify')
+    v.add_argument('--timeout', type=float, default=60)
+    v.add_argument('--since', default='-5min')
+    a = ap.parse_args()
+    if a.cmd == 'device-env':
+        managed = {}
+        for kv in a.set:
+            k, _, val = kv.partition('=')
+            managed[k.strip()] = val
+        device_env(a.file, managed)
+    elif a.cmd == 'notify-stub':
+        notify_stub(a.file, a.group)
+    else:
+        sys.exit(verify(a.timeout, a.since))
+
+
+if __name__ == '__main__':
+    main()

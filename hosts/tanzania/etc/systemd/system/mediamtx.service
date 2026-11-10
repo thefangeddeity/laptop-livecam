@@ -1,0 +1,12 @@
+[Unit]
+Description=MediaMTX streaming server
+After=network.target
+
+[Service]
+User=root
+ExecStart=/usr/local/bin/mediamtx /usr/local/etc/mediamtx.yml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

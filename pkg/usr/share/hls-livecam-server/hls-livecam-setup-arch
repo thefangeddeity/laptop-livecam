@@ -29,6 +29,7 @@ echo -e "${CYAN}${BOLD}╚══════════════════
 echo ""
 
 [ "$EUID" -ne 0 ] && { echo -e "${RED}Run as root: sudo hls-livecam-setup${NC}"; exit 1; }
+SETUP_STARTED="$(date "+%Y-%m-%d %H:%M:%S")"
 
 # ── Detect video devices ──────────────────────────────────────
 echo -e "${BOLD}Detecting webcams...${NC}"
@@ -192,142 +193,14 @@ print("  Config written.")
 PYEOF
 
 # ── Write device.env ──────────────────────────────────────────
-# Merges rather than overwrites: anything already in device.env that
-# setup doesn't manage (CV_* tuning you've hand-edited, etc.) survives
-# a re-run instead of getting silently wiped.
+# One implementation for every distro (llc-configure). It rewrites only its
+# own managed block, keeps every other line, adds the template's defaults and
+# the detected microphone for keys the node lacks, and leaves the file
+# byte-identical on a second run.
 echo ""
 echo -e "${BOLD}Writing device config...${NC}"
-mkdir -p "$(dirname $DEVICE_ENV)"
-MANAGED_BLOCK="VIDEO_DEVICE=$STABLE_DEV
-V4L2_INPUT_FMT=$INPUT_FMT
-VIDEO_SIZE=1280x720
-FRAMERATE=$FRAMERATE
-# Keyframe interval in seconds. mediamtx can only cut a segment at a
-# keyframe, so this determines real segment length -- at 4 the configured
-# 1s hlsSegmentDuration is silently ignored and viewers get ~12s of
-# live-edge lag. Raise it only if the encoder cannot keep up.
-GOP_SECONDS=1
-# Stopgap: yolov8n is the only model light enough for tina, so every
-# node points at the same tiny model for now. See models/candidates/
-# comment above.
-CV_DETECT_MODEL=$MODEL_PATH"
-
-python3 - <<PYEOF
-path = "$DEVICE_ENV"
-managed_keys = {"VIDEO_DEVICE", "V4L2_INPUT_FMT", "VIDEO_SIZE", "FRAMERATE",
-                 "GOP_SECONDS", "CV_DETECT_MODEL"}
-managed_block = """$MANAGED_BLOCK"""
-
-preserved_lines = []
-try:
-    with open(path) as f:
-        for raw in f:
-            line = raw.rstrip("\n")
-            # Keep comments. An earlier version dropped every line
-            # starting with '#', which meant any note an operator wrote
-            # next to a hand-tuned CV_* value was silently destroyed on
-            # the next setup run -- including the legend below.
-            if not line.strip():
-                continue
-            if line.strip().startswith("#"):
-                preserved_lines.append(line)
-                continue
-            key = line.split("=", 1)[0].strip()
-            if key and key not in managed_keys:
-                preserved_lines.append(line)
-except FileNotFoundError:
-    pass
-
-LEGEND = """
-# ── CV Mode tuning ────────────────────────────────────────────────────
-# Every key below is optional. Omit one and the built-in default applies;
-# defaults live in /usr/share/hls-livecam-server/cv_processor.py (_DEFAULTS),
-# which is the source of truth if this legend ever drifts from it.
-#
-# Cameras on this fleet differ enormously -- a healthy 1280x720 sensor and
-# one with peeled sensor film and dirt inside the lens do not share good
-# values. Tune per node; do not copy a whole block between machines.
-#
-# RENDER
-#   CV_EDGE_STYLE       overlay | sharpie | xdog
-#                       overlay: difference-of-Gaussians inked over the photo.
-#                         The restrained default and the best measured result
-#                         on a degraded sensor.
-#                       sharpie: discards the photo for a line drawing. Cheap,
-#                         but throws away photographic signal.
-#                       xdog:   tone-preserving extended DoG. Comparable to
-#                         overlay, not better -- keep CV_XDOG_SIGMA >= 3 or it
-#                         inks the JPEG block grid instead of the room.
-#                       An unrecognised value silently renders as overlay.
-#   CV_EDGE_STRENGTH    opacity of the darkest strokes (overlay). 0.25 is
-#                       restrained; 1.3 manufactures halos on a soft lens.
-#   CV_EDGE_SIGMA       stroke width. CV_EDGE_PERCENTILE normalises the DoG
-#                       against a high percentile rather than the max, so one
-#                       hot pixel cannot scale every real stroke to nothing.
-#   CV_EDGE_SHARPNESS_MIN / _OFF
-#                       Edges engage below _MIN and are absent at/above _OFF,
-#                       measured as variance-of-Laplacian. Setting _OFF far
-#                       above a node's actual sharpness pins the stage fully
-#                       on at all times.
-#   CV_UNSHARP_AMOUNT   Removing sharpening entirely reads as too soft;
-#                       heavy sharpening amplifies sensor noise. There is an
-#                       optimum in between.
-#
-# DETECTION
-#   CV_DETECT_CONF      Confidence floor. BELOW roughly 0.1 on a degraded
-#                       sensor the class head is noise with labels attached --
-#                       weak scores establish that something is THERE, never
-#                       what it is.
-#   CV_DETECT_CLASSES   Narrow what this node looks for: "cat", or "15,0".
-#                       Empty = every class in COCO_LABELS. Use this instead
-#                       of editing cv_detect.py -- a source edit is reverted
-#                       by every package upgrade.
-#   CV_DETECT_ACUITY_ADAPT
-#                       Scales the detector's input to the frame's measured
-#                       acuity, because feeding a detector more pixels than
-#                       the optics resolve costs accuracy. A healthy lens
-#                       clamps to 1.0 and is untouched. Do not lower
-#                       CV_DETECT_SCALE_MIN below 0.30: at 0.12 the detector
-#                       returned nothing at all on 20% of frames.
-#
-# SCENE / PERSISTENCE  (both off by default)
-#   CV_SCENE_ENABLED    Reference-image scene model. Needs a registration
-#                       artifact; cross-device registration does not work on
-#                       a badly degraded lens.
-#   CV_PERSIST_ENABLED  Long-lived scene entities that survive restarts.
-#                       Identity is an entity, not a bounding box.
-# ──────────────────────────────────────────────────────────────────────
-"""
-
-content = managed_block + "\n"
-has_legend = any("CV Mode tuning" in l for l in preserved_lines)
-if not has_legend:
-    content += LEGEND
-if preserved_lines:
-    content += "\n# --- preserved from a previous config; not managed by setup ---\n"
-    content += "\n".join(preserved_lines) + "\n"
-
-# Add every default the template knows and this file lacks. Setup used to
-# write only its six managed keys, so a fresh or migrated node had no CV_*,
-# no NOTIFY_ENABLED and no Telegram file -- a node that streamed and told
-# nobody anything. Present keys are never touched.
-_have = {l.split("=",1)[0].strip() for l in (managed_block + "\n" + "\n".join(preserved_lines)).splitlines() if "=" in l and not l.strip().startswith("#")}
-_added = []
-try:
-    for _l in open("/usr/share/hls-livecam-server/device.env.template"):
-        _s = _l.strip()
-        if _s and not _s.startswith("#") and "=" in _s and _s.split("=",1)[0].strip() not in _have:
-            _added.append(_s)
-except FileNotFoundError:
-    pass
-if _added:
-    content += "\n# --- defaults added by setup from device.env.template ---\n" + "\n".join(_added) + "\n"
-
-with open(path, "w") as f:
-    f.write(content)
-print(f"  Config written ({len(_added)} default(s) added from template).")
-PYEOF
-echo -e "  ${GREEN}Written to $DEVICE_ENV${NC}"
+python3 /usr/share/hls-livecam-server/llc-configure device-env --file "$DEVICE_ENV"   --set "VIDEO_DEVICE=$STABLE_DEV"   --set "V4L2_INPUT_FMT=$INPUT_FMT"   --set "VIDEO_SIZE=1280x720"   --set "FRAMERATE=$FRAMERATE"   --set "GOP_SECONDS=1"   --set "CV_DETECT_MODEL=$MODEL_PATH"
+python3 /usr/share/hls-livecam-server/llc-configure notify-stub   --file /etc/hls-livecam/notify.urls --group http
 
 # ── Install systemd services ──────────────────────────────────
 echo ""
@@ -421,6 +294,11 @@ mkdir -p "$WEB_ROOT/vendor"
 cp /usr/share/hls-livecam-server/vendor/hls.min.js "$WEB_ROOT/vendor/hls.min.js"
 cp /usr/share/hls-livecam-server/index.html "$WEB_ROOT/index.html"
 sed -i "s/@HOSTNAME@/$HOSTNAME_VAL/g" "$WEB_ROOT/index.html"
+# The home page. nginx answers / with home.html (try_files /home.html =404),
+# and nothing put it in the web root on a fresh install -- only the Arch
+# post_upgrade hook did -- so every first install served 404 at /. Found by
+# setup's own check on a clean node, 2026-11-10.
+install -m0644 /usr/share/hls-livecam-server/home.html "$WEB_ROOT/home.html"
 
 # The header brand mark. The viewer asks for /brand.png; nothing copied it
 # there until 6.0.0, so it existed only on nodes where someone had put it
@@ -579,6 +457,37 @@ if [ -f /usr/local/bin/camdash-gui ]; then
   fi
 fi
 
+# ── Measure the install ───────────────────────────────────────
+# "is running!" used to print unconditionally, which is how Spitsbergen was
+# declared installed while its notifier had no destination and its loopback
+# device had never seen a frame. Each line below is a measurement; any FAIL
+# makes setup exit non-zero. Re-running setup is safe and is the fix for most.
+# The capability probe's units ship in the package now. Hand-placed copies in
+# /etc/systemd/system (tanzania, Oct 15) shadow the packaged ones and run the
+# hand-placed tools in /usr/local/lib/livecam-tools; retire them so the
+# packaged probe is what runs.
+for u in livecam-capabilities.service livecam-capabilities.timer; do
+  if [ -f "/etc/systemd/system/$u" ] && [ -f "/usr/lib/systemd/system/$u" -o -f "/lib/systemd/system/$u" ]; then
+    systemctl disable -q "$u" 2>/dev/null || true
+    mv "/etc/systemd/system/$u" "/etc/systemd/system/$u.retired-by-setup"
+    echo "  retired hand-placed $u (the package ships it)"
+  fi
+done
+systemctl daemon-reload
+systemctl enable --now livecam-capabilities.timer 2>/dev/null || true
+# Probe once now: the timer's first run is 3 min after BOOT, so a node set up
+# mid-session would serve no capabilities.json for up to 15 minutes.
+systemctl start --no-block livecam-capabilities.service 2>/dev/null || true
+echo ""
+echo -e "${BOLD}Checking the install...${NC}"
+if ! python3 /usr/share/hls-livecam-server/llc-configure verify --since "$SETUP_STARTED" --timeout 60; then
+  echo ""
+  echo -e "${RED}${BOLD}Setup finished, but the checks above failed.${NC}"
+  echo -e "  Logs:    ${YELLOW}journalctl -u broadcast-api -u mediamtx --since \"$SETUP_STARTED\"${NC}"
+  echo -e "  Repair:  ${YELLOW}sudo hls-livecam-repair${NC}, then run setup again."
+  exit 1
+fi
+
 # ── Done ──────────────────────────────────────────────────────
 IP=$(ip route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
 echo ""
@@ -586,7 +495,7 @@ echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━�
 echo -e "${GREEN}${BOLD}  hls-livecam-server is running!${NC}"
 echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "  Web viewer:  ${YELLOW}http://$IP${NC}"
+echo -e "  Web viewer:  ${YELLOW}http://$IP:8080${NC}"
 echo -e "  HLS stream:  ${YELLOW}http://$IP:8888/cam/index.m3u8${NC}"
 echo -e "  RTSP (VLC):  ${YELLOW}rtsp://$IP:8554/cam${NC}"
 echo ""
@@ -594,8 +503,8 @@ echo -e "  Video: ${CYAN}$STABLE_DEV${NC}"
 echo -e "  Host:  ${CYAN}${HOSTNAME_VAL}${NC}"
 echo ""
 echo -e "Monitor:        ${YELLOW}camdash${NC}"
-echo -e "Services:       ${YELLOW}systemctl status mediamtx ffmpeg-cam${NC}"
-echo -e "Logs:           ${YELLOW}journalctl -u ffmpeg-cam -f${NC}"
+echo -e "Services:       ${YELLOW}systemctl status mediamtx broadcast-api${NC}"
+echo -e "Logs:           ${YELLOW}journalctl -u broadcast-api -f${NC}"
 echo -e "To repair:      ${YELLOW}sudo hls-livecam-repair${NC}"
 echo -e "To reconfigure: ${YELLOW}sudo hls-livecam-setup${NC}"
 echo ""

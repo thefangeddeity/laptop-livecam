@@ -1,6 +1,6 @@
 # Maintainer: thefangeddeity
 pkgname=laptop-livecam
-pkgver=7.2.0
+pkgver=7.2.1
 pkgrel=1
 pkgdesc="Stream a USB webcam via HLS using MediaMTX and ffmpeg, with browser viewer, camdash monitor, and family presence features"
 arch=('any')
@@ -16,7 +16,13 @@ conflicts=('hls-livecam-server')
 replaces=('hls-livecam-server')
 url="https://github.com/thefangeddeity/laptop-livecam"
 license=('GPL-3.0-or-later')
-depends=('ffmpeg' 'nginx' 'python' 'python-psutil' 'python-flask' 'python-pillow' 'python-numpy' 'python-opencv' 'pyside6' 'v4l2loopback-dkms' 'smartmontools' 'v4l-utils' 'wget' 'ttf-dejavu')
+depends=('ffmpeg' 'nginx' 'python' 'python-psutil' 'python-flask' 'python-pillow' 'python-numpy' 'python-opencv' 'pyside6' 'v4l2loopback-dkms' 'smartmontools' 'v4l-utils' 'wget' 'ttf-dejavu' 'alsa-utils')
+# alsa-utils: setup finds the microphone with arecord -l and the publisher sets
+# capture levels with amixer. Without it a fresh node points AUDIO_DEVICE at
+# the hw:0,0 default, which is often the HDMI sink or the ALSA loopback.
+optdepends=('avahi: announce this node to peers over mDNS (livecam-capabilities)'
+            'tailscale: HTTPS on the tailnet (tailscale serve)'
+            'python-apprise: alert destinations other than Telegram')
 install=laptop-livecam.install
 # The detector model is fetched here, not carried in the repo. It used to be
 # a 12.3 MiB blob in every clone that NOTHING installed -- the file the nodes
@@ -70,10 +76,12 @@ package() {
                    "$pkgdir/usr/share/hls-livecam-server/camdash-gui.desktop"
 
     # ── Shared data ──────────────────────────────────────────────────────────
-    install -Dm755 pkg/usr/share/hls-livecam-server/camdash \
-                   "$pkgdir/usr/share/hls-livecam-server/camdash"
-    install -Dm755 pkg/usr/share/hls-livecam-server/camstack \
-                   "$pkgdir/usr/share/hls-livecam-server/camstack"
+    # setup's shared half: the device.env merge, the alert-file stub and the
+    # post-install measurement, one implementation for Arch and Debian.
+    install -Dm755 pkg/usr/share/hls-livecam-server/llc-configure \
+                   "$pkgdir/usr/share/hls-livecam-server/llc-configure"
+    install -Dm644 pkg/usr/share/hls-livecam-server/device.env.legacy-comments \
+                   "$pkgdir/usr/share/hls-livecam-server/device.env.legacy-comments"
     install -Dm755 pkg/usr/share/hls-livecam-server/hls-livecam-setup-arch \
                    "$pkgdir/usr/share/hls-livecam-server/hls-livecam-setup"
     install -Dm755 pkg/usr/share/hls-livecam-server/hls-livecam-repair \
@@ -176,6 +184,22 @@ package() {
                    "$pkgdir/usr/lib/systemd/system/ffmpeg-cam-dark.service"
     install -Dm644 pkg/usr/lib/systemd/system/ffmpeg-cam.service \
                    "$pkgdir/usr/lib/systemd/system/ffmpeg-cam.service"
+
+    # Capability probe: writes capabilities.json to the web root and announces
+    # it over mDNS. Peers and the home page read it. Live on tanzania since
+    # Oct 15 from a hand copy in /usr/local/lib/livecam-tools -- which is why it
+    # is installed HERE instead: pacman refuses to install over unowned files,
+    # so claiming the hand copy's path made the upgrade fail on that node.
+    install -Dm755 pkg/usr/share/hls-livecam-server/livecam-tools/announce-capabilities \
+                   "$pkgdir/usr/share/hls-livecam-server/livecam-tools/announce-capabilities"
+    install -Dm755 pkg/usr/share/hls-livecam-server/livecam-tools/node-capabilities \
+                   "$pkgdir/usr/share/hls-livecam-server/livecam-tools/node-capabilities"
+    install -Dm755 pkg/usr/share/hls-livecam-server/livecam-tools/publish-capabilities \
+                   "$pkgdir/usr/share/hls-livecam-server/livecam-tools/publish-capabilities"
+    install -Dm644 pkg/etc/systemd/system/livecam-capabilities.service \
+                   "$pkgdir/usr/lib/systemd/system/livecam-capabilities.service"
+    install -Dm644 pkg/etc/systemd/system/livecam-capabilities.timer \
+                   "$pkgdir/usr/lib/systemd/system/livecam-capabilities.timer"
 
     # ── tmpfiles.d ───────────────────────────────────────────────────────────
     install -Dm644 pkg/usr/lib/tmpfiles.d/hls-livecam.conf \
