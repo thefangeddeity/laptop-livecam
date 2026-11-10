@@ -80,3 +80,39 @@ full sweep of bare `except: continue`, removed numpy/OpenCV APIs; release 7.2.1.
   rebuild deb on tina (unreachable 11-09); notify.urls stub in setup.
 - Spitsbergen root FS read-only since USB reset on port 2-4 (Nov 9); needs
   cable/port change + reboot before anything can be deployed there.
+
+## 2026-11-10 — full-history stock-take (main 444, macos 316, windows 182 commits)
+Method: read every subject; pyflakes over both lineages; symbol parity checks;
+diffed v7.2.0 deb vs Arch payloads. Ranked:
+1. FIXED main 7a5dee2: Linux HTTPS guard NameError (json vs _json) -> sudo
+   `tailscale serve --bg 8080` every 5 min, serve map never saved, /elem never
+   restored. Spitsbergen journal: 25 "restored" in 2h. Needs deploy (7.2.1).
+2. windows: viewer compiled in has privacy mask / Never film people / ROI /
+   gallery / alert switches; Rust server has NO routes for them. Controls inert.
+   windows is parked at 7.0.45.
+3. macos: evidence recorder writes even when low power is on or the CPU gate
+   parked detection (main fixed this in 7e528a9; bin/broadcast-api:1502).
+4. main lacks macOS 35fcc3f stale-frame guard (_SLOT_MAX_AGE_S): a stalled
+   capture can keep scoring/alerting off a frozen frame on Linux.
+5. Arch pkg installs TWO camdash: /usr/local/bin (current) and a stale share/
+   copy (no room-audio panel); also legacy camstack x2. Nothing references the
+   share copies. ffmpeg-cam.service also has two copies (setup uses share/).
+6. deb ships no GUI (gui/ + camdash-gui live outside pkg/); Arch does.
+7. Notifier lineages diverged 850 lines. Linux manual Snapshot schedules a clip,
+   macOS doesn't (`not manual`). Documented alert text (CHANGELOG 7.0.47):
+   "<Node>: Cat detected[, no photo due to person present.]" -- code on both
+   matches; "all over the place" likely = nodes on different versions/repos
+   (amira separate repo). Need a sample of the bad messages to go further.
+8. Linux API hardcodes NOTIFY_*_FILE while notifier honours device.env: latent
+   split if anyone sets them (nobody does today).
+9. Silent handlers (except -> pass/continue): mac broadcast-api 24, Linux 32,
+   cv_notify 7/6. The json bug above hid in one. Sweep still owed.
+10. Stale local branches main-art/main-mesh-card/main-serve-guard/windows-art are
+   pre-rewrite copies; content is on origin. Safe to delete (ask).
+11. Release state: v7.2.0 has deb+Arch+DMG; mac-v7.2.0 tag has no GH release;
+   main is 5 commits past v7.2.0, macos 8+ past mac-v7.2.0.
+Recurring classes in history (why this keeps happening): half-ports between
+lineages (7.0.13, 7.0.14, 1732dcf, a9c9864, 6acac62, this json bug); NameErrors
+shipped (4c768f3, a540c37, 95b424f, 175b3de, 1f2fa6a); installers destroying
+config (5254dd9, 4a412fd, 6043569, 7e48e43); blind regex edits (05b9c63,
+a6f7115). Cheapest guard: pyflakes undefined-name check in the build/deploy.
