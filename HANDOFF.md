@@ -234,3 +234,18 @@ main-serve-guard, windows-art)?
 - Deb private OpenCV (Ron chose it): wheels opencv-python-headless 4.10.0.84,
   4.11.0.86, 4.12.0.88 all run yolov8n on Ubuntu 24.04 with system numpy 1.26
   (--no-deps --target, ~136-145 MB). NOT YET WIRED into setup/broadcast-api.
+
+## 2026-11-10 evening — RELEASED 7.2.1 (Arch + macOS); Deb pending as 7.2.2
+- Tags: v7.2.1 -> 0a3f642 (main), mac-v7.2.1 -> 11f5f10 (macos), annotated, pushed.
+- GitHub release v7.2.1: laptop-livecam-7.2.1-1-any.pkg.tar.zst (sha256 6201290c...,
+  built by release_arch.sh from the GH tag tarball; all its checks OK on tanzania)
+  and HLS-Livecam-mac-v7.2.1-20261110T234916Z-11f5f10.dmg (f04406f2...).
+- AUR: 69222bf "laptop-livecam 7.2.1" pushed from tanzania ~/Projects/aur-laptop-livecam
+  (also osiris origin). AUR cgit .SRCINFO = 7.2.1; RPC lagged at 7.2.0 for a while.
+- main 3a4ccf0 (after the tag): Deb private OpenCV (opencv-python-headless 4.10.0.84
+  --no-deps into /usr/share/hls-livecam-server/opencv, only when distro cv2 < 4.7;
+  python3-pip Depends; prerm removes). UNTESTED as a whole -> bump to 7.2.2, test in
+  an Ubuntu 24.04 systemd container (see scratchpad build/debrun.sh: rootful, host
+  video/audio GIDs mapped), then release deb + Arch 7.2.2.
+- Next: Spitsbergen (Seagate) reboot -> fsck health -> upgrade test + fresh test of
+  the Arch 7.2.1 installer (package staged on ariana: scratchpad spb/).
