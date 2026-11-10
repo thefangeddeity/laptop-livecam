@@ -52,10 +52,18 @@ full sweep of bare `except: continue`, removed numpy/OpenCV APIs; release 7.2.1.
 - Verified after clone: "notify: enabled, 1 destination, classes=[cat]",
   recording=True, 35 notches/9 enabled, audio 60/14000/0dB. Scene model missing
   (lived on tanzania's drive; CV_SCENE logs FileNotFoundError every pass).
-- Then POST feed-mode=cv -> within ~1 min ssh sessions stall (TCP 22 open, ping
+- CORRECTED 11-10: NOT load (load 0.58). At 21:38 Nov 9 USB port 2-4 reset 3x,
+  I/O errors on sda (Spitsbergen's USB Seagate root), ext4 journal aborted:
+  root read-only in practice (state 'clean with errors', 19 errors) though
+  findmnt says rw. Both disks SMART-clean; tanzania drive sdb fsck clean.
+  Fix: move Seagate off port 2-4 / swap cable, reboot (fsck runs). Optane
+  nvme RAID = Hera's Windows, leave alone.
+- (old, wrong) Then POST feed-mode=cv -> within ~1 min ssh sessions stall (TCP 22 open, ping
   17ms, `uptime` never returns). Suspect load/memory under CV + cloned options
   (CV_FOVEAL, NIGHT_STACK, scene retries). Needs console look or power cycle.
   If it recurs: set feed_mode back to show, then enable options one at a time.
 - Installer finding: setup writes a 12-key device.env and no notify.urls; a
   fresh or migrated node gets no CV config, no notifier. Fix in repo: setup
   should write the full template (hosts/tanzania is the reference).
+
+- TODO after root writable: standardize detection messages to the documented format.
