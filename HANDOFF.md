@@ -120,10 +120,12 @@ a6f7115). Cheapest guard: pyflakes undefined-name check in the build/deploy.
 ## 2026-11-10 — alert messages (corrects my earlier "read-only root broke clips")
 - Template (user): "<HOSTNAME>: Cat detected, no <MEDIATYPE> due to person present."
   Code matches it (Ariana 07:40 is correct).
-- Spitsbergen never used it: its "Never film people" is OFF. My Nov 9 clone copied
-  device.env/notches/audio/feed_mode but NOT /var/lib/hls-livecam switches.
-  tanzania's drive (sdb3, ro) had presence_pause=true, privacy_mask=true/black,
-  detect_roi set. Now in hosts/tanzania (main 4b16928).
+- Spitsbergen never used it: its "Never film people" is OFF because the
+  INSTALLER never writes /var/lib/hls-livecam switches, and absent presence_pause
+  means off (cv_notify/_presence_pause_on). Absent privacy_mask means ON (7.0.26),
+  so the mask is fine. Ron installed with our installer; nothing was cloned into
+  /var/lib. tanzania's own values (sdb3, ro) are now in hosts/tanzania (4b16928).
+- OPEN DECISION (Ron): should "Never film people" default ON in setup/code?
 - AFTER the disk fix + reboot, copy hosts/tanzania/var/lib/hls-livecam/* to
   Spitsbergen (http-owned), restart broadcast-api, verify /api/presence-pause=true,
   then a person + cat in frame should give the template text.
