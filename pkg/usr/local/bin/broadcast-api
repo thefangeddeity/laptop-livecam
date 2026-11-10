@@ -13,11 +13,13 @@ sys.path.insert(0, '/usr/share/hls-livecam-server')
 # back to the vendored copy, because Debian/Ubuntu do not package it at all.
 # See vendor/README.md -- this replaced a root pip install in postinst that
 # could fail silently and left unowned files behind.
-try:
-    import pyfakewebcam
-except ImportError:
-    sys.path.insert(1, '/usr/share/hls-livecam-server/vendor')
-    import pyfakewebcam
+# VENDORED FIRST. The distro's python-pyfakewebcam 0.1.0 calls
+# ndarray.tostring(), which numpy 2 removed, so on a current Arch every frame
+# write raised AttributeError -- swallowed by the writer loop -- and
+# /dev/video10 never received a frame. The vendored copy already uses
+# tobytes(). Preferring it means no distro patch is ever needed.
+sys.path.insert(1, '/usr/share/hls-livecam-server/vendor')
+import pyfakewebcam
 
 import block_art as _ba
 import buzz_tone as _buzz
@@ -1867,6 +1869,27 @@ def _drain_loop(cam_holder, denv):
                 return
             time.sleep(1.0)
 
+_wl_seen = {}
+
+
+def _wl_report(exc):
+    """Log a writer-loop exception: traceback first time, then rate-limited."""
+    import traceback
+    key = type(exc).__name__ + ':' + str(exc)[:120]
+    now = time.monotonic()
+    rec = _wl_seen.get(key)
+    if rec is None:
+        _wl_seen[key] = [now, 0]
+        print('broadcast-api: writer loop raised (first occurrence):\n'
+              + traceback.format_exc(), file=sys.stderr, flush=True)
+        return
+    rec[1] += 1
+    if now - rec[0] >= 60.0:
+        print(f'broadcast-api: writer loop: {key} repeated {rec[1]}x in the '
+              f'last {now - rec[0]:.0f}s', file=sys.stderr, flush=True)
+        rec[0], rec[1] = now, 0
+
+
 def _writer_loop():
     global _hide_frame
     denv  = _read_device_env()
@@ -2219,7 +2242,12 @@ def _writer_loop():
             loop_cam.schedule_frame(frame_arr)
             globals()['_last_out'] = frame_arr   # what the feed shows: /api/snapshot
 
-        except Exception:
+        except Exception as _exc:
+            # NEVER SILENT. This was a bare sleep-and-continue, and a numpy 2
+            # AttributeError on every frame hid behind it for hours. First
+            # occurrence of each exception gets a traceback; repeats are
+            # counted and reported once a minute.
+            _wl_report(_exc)
             time.sleep(0.1)
             continue
         finally:
