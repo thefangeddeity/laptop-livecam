@@ -264,3 +264,27 @@ main-serve-guard, windows-art)?
   setup rc 0, 9 ok + WARN, second run identical, / 200. After restore: 10/10 ok,
   identical on rerun.
 - main d172524 (after 3a4ccf0): install hook uses hostnamectl (no hostname(1) there).
+
+## 2026-11-11 ~01:20 — RELEASED 7.2.2 (deb + Arch + DMG); AUR still on 7.2.1
+- Tags: v7.2.2 -> 9f445f5 (main), mac-v7.2.2 -> ee03e74 (macos). Release assets:
+  laptop-livecam_7.2.2_amd64.deb (f3fd6566, built on tina from 9f445f5),
+  laptop-livecam-7.2.2-1-any.pkg.tar.zst (08b7972d, release_arch.sh on Spitsbergen
+  from the GH tag tarball, all OK), HLS-Livecam-mac-v7.2.2-...-ee03e74.dmg (0f733915).
+- MEASURED: Ubuntu 24.04 container (rootful podman on Spitsbergen, host GIDs mapped):
+  private OpenCV 4.10 installed, the running service maps opencv/cv2/cv2.abi3.so,
+  setup rc 0 twice, identical. tina (Ubuntu 26.04, distro OpenCV 4.10): upgrade
+  7.2.0->7.2.2, 9 ok + WARN (tina has no alert destination), identical, its own
+  nginx TLS file kept (conffile). Spitsbergen on 7.2.2: setup 10/10.
+- Bugs found and fixed on the way: deb overwrote tina's nginx file (now conffile /
+  Arch backup=); include ele-messenger* matched old+new snippet -> duplicate /elem/;
+  verify followed a redirect to an unresolvable tailnet name; journal check counted
+  the pre-restart process; pyfakewebcam imports cv2 before the private path was set.
+- AUR NOT updated to 7.2.2: the AUR key lives only on tanzania (~/.ssh/aur). When
+  tanzania is up: copy main packaging/arch/{PKGBUILD,laptop-livecam.install,
+  release_arch.sh} into ~/Projects/aur-laptop-livecam, makepkg --printsrcinfo >
+  .SRCINFO, commit "laptop-livecam 7.2.2", push aur + origin.
+- Node notes: tina's Tailscale is LOGGED OUT (Ron must sign in); tina and the
+  fresh Spitsbergen have no alert destination / Spitsbergen has ariana's.
+  Spitsbergen: podman + pacman-contrib installed after `pacman -Sy` (partial
+  upgrade) -- a full `pacman -Syu` is advisable. Spitsbergen feed_mode is empty
+  (= Hide) since the Nov 9 fault; left for Ron.
