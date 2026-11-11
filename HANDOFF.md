@@ -249,3 +249,18 @@ main-serve-guard, windows-art)?
   video/audio GIDs mapped), then release deb + Arch 7.2.2.
 - Next: Spitsbergen (Seagate) reboot -> fsck health -> upgrade test + fresh test of
   the Arch 7.2.1 installer (package staged on ariana: scratchpad spb/).
+
+## 2026-11-10 19:00 — Spitsbergen back on its Seagate; Arch 7.2.1 installer MEASURED there
+- Boot fsck ran 19:00:37: sda3 "clean", rw, write test ok, no EXT4/I/O errors this boot.
+- Backup before testing: /root/spitsbergen-llc-pre-7.2.1-20261110-190335.tgz (on Spitsbergen).
+- Upgrade 7.2.0 -> 7.2.1 (release package 6201290c): no conflicts, Qkk 0 altered,
+  setup rc 0 twice, byte-identical, 9 ok + WARN (no destination).
+- Nov 9 disk fault left ZERO-BYTE files written at 21:32: notify.urls, notches.json,
+  audio.json, feed_mode, device.env.pre-clone-*. Restored: notify.urls from ariana's
+  (same bot, 0640 root:http, not printed), notches.json + audio.json from
+  hosts/tanzania. feed_mode left empty (= Hide) for Ron to choose. device.env is
+  setup's (template + detected PCH audio); the Nov 7 backup held no URL.
+- Fresh install (state moved to /root/llc-fresh-test-20261110-190805, restored after):
+  setup rc 0, 9 ok + WARN, second run identical, / 200. After restore: 10/10 ok,
+  identical on rerun.
+- main 1e? (after 3a4ccf0): install hook uses hostnamectl (no hostname(1) there).
