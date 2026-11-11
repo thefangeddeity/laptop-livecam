@@ -208,6 +208,7 @@ over, or hand-apply the same one-line changes, then add an entry there with
   `smartctl`; the panel degrades to `N/A`/`NO ACCESS`. Install
   `brew install smartmontools` for external drives.
 - **CPU temp**: unavailable without extra tooling on macOS; shown as `?`.
+- **Unplugging the camera** shows as `NO CAMERA` in camdash. Linux notices within 2 seconds. macOS can take up to 5 minutes while the stream is down, because macOS has no cheap device file to check. Built-in Mac cameras cannot be unplugged, so this only matters for a USB webcam on a Mac.
 - Optional end-to-end smoke test: `./tests/smoke.sh` (run while services are up).
 
 ## License
