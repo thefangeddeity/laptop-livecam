@@ -362,8 +362,20 @@ def verify(timeout, since):
                        'streaming works, detection and alerts will not' % (ver, os.path.basename(model)))
     check('detector runs the model', detector, t=1)
 
+    def _service_since():
+        # Count only the CURRENT broadcast-api process. A process that setup
+        # has since restarted (the old OpenCV, the old config) is not this
+        # node's state any more, and its errors are not this run's.
+        ts = subprocess.run(['systemctl', 'show', '-p', 'ActiveEnterTimestamp',
+                             '--value', 'broadcast-api'], capture_output=True,
+                            text=True).stdout.strip()
+        m = re.search(r'(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)', ts)
+        if m and (since.startswith('-') or m.group(1) > since):
+            return m.group(1)
+        return since
+
     def journal_clean():
-        out = subprocess.run(['journalctl', '-u', 'broadcast-api', '--since', since,
+        out = subprocess.run(['journalctl', '-u', 'broadcast-api', '--since', _service_since(),
                               '--no-pager', '-o', 'cat'], capture_output=True,
                              text=True).stdout
         bad = [ln for ln in out.splitlines()
