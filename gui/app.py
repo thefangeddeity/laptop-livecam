@@ -1088,7 +1088,7 @@ class Dashboard(QWidget):
 
         svc = snap.get("svc", False)
         hls = snap.get("hls", "DOWN")
-        base = cd.system_status(hls, snap.get("ff"), snap.get("mm"))
+        base = cd.system_status(hls, snap.get("ff"), snap.get("mm"), snap.get("v4l2"))
 
         # A server the operator deliberately stopped is not degraded, and
         # Repair is not the remedy for it. Two independent signals say the
@@ -1127,6 +1127,8 @@ class Dashboard(QWidget):
             quals.append("stopped by operator" if deliberate else "services stopped")
         elif pending:
             quals.append("checking stream")
+        elif base == "NO CAMERA":
+            quals.append("plug in the camera")
         elif base in ("DEGRADED", "ERROR", "DOWN"):
             quals.append("suggest repair")
         # The feed mode is a fact about what viewers are seeing, and it

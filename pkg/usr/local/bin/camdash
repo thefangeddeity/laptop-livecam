@@ -164,7 +164,13 @@ def proc(name):
     return False
 
 # ---------- SYSTEM STATUS ----------
-def system_status(hls, ff, mm):
+# NO CAMERA outranks every stream state. Unplugging the camera used to read
+# LIVE (the publisher kept sending its last frames) or, once the stream
+# stalled, ERROR | suggest repair -- and Repair cannot conjure a camera. The
+# honest state is that there is nothing to film; it returns to LIVE by itself
+# when the camera is back. `cam` is None when presence is unknown.
+def system_status(hls, ff, mm, cam=None):
+    if cam is False:      return "NO CAMERA"
     if hls == "LIVE":    return "LIVE"
     if hls == "STALE":   return "DEGRADED"
     if hls == "ERROR":   return "ERROR"
@@ -613,7 +619,9 @@ def camera_present_cached():
     SlowWorker tick -- same caching shape as local_ip()/disk_model() on the
     macOS side."""
     now = time.time()
-    if _cam_present_cache[0] is None or now - _cam_present_cache[1] > 60:
+    # 2s, not 60: a stat is cheap, and a minute-old answer is how the GUI
+    # kept showing a camera that had been unplugged.
+    if _cam_present_cache[0] is None or now - _cam_present_cache[1] > 2:
         dev = read_device_env().get("VIDEO_DEVICE", "")
         _cam_present_cache[0] = bool(dev and os.path.exists(dev))
         _cam_present_cache[1] = now
@@ -747,7 +755,7 @@ def status_attr(status, dim=False):
         return curses.A_DIM
     if status in ("LIVE", "OK"):
         return curses.color_pair(1) | curses.A_BOLD
-    if status in ("DEGRADED", "RUNNING", "SHARED", "STALE"):
+    if status in ("NO CAMERA", "DEGRADED", "RUNNING", "SHARED", "STALE"):
         return curses.color_pair(2) | curses.A_BOLD
     if status in ("ERROR", "DOWN", "FAIL"):
         return curses.color_pair(3) | curses.A_BOLD
@@ -760,6 +768,8 @@ def header_attr(sys_status, svc, dark, dim=False):
         if dark:
             return curses.color_pair(2) | curses.A_BOLD
         return curses.color_pair(1) | curses.A_BOLD
+    if sys_status == "NO CAMERA":
+        return curses.color_pair(2) | curses.A_BOLD
     if sys_status == "LIVE":
         if dark:
             return curses.color_pair(2) | curses.A_BOLD
@@ -1250,7 +1260,7 @@ def draw_dashboard(scr, snap, cur_repair, dim=False, editing_buffer=None):
     api   = snap["api"];   v4l2 = snap["v4l2"]
     dark  = snap["dark"];  svc  = snap["svc"];  cputemp = snap["cputemp"]
 
-    base_status = system_status(hls, ff, mm)
+    base_status = system_status(hls, ff, mm, bool(v4l2))
     sys_status = base_status if cur_repair in ("IDLE", "OK") else cur_repair
 
     # -- HEADER --
@@ -1260,6 +1270,8 @@ def draw_dashboard(scr, snap, cur_repair, dim=False, editing_buffer=None):
     qualifiers = []
     if not svc:
         qualifiers.append("services stopped")
+    elif base_status == "NO CAMERA":
+        qualifiers.append("plug in the camera")
     elif base_status in ("DEGRADED", "ERROR", "DOWN"):
         qualifiers.append("suggest repair")
     # Feed mode belongs in the header next to health. Without a qualifier of
