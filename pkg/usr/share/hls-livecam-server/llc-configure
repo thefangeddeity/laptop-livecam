@@ -25,6 +25,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 SHARE = os.environ.get('LLC_SHARE', '/usr/share/hls-livecam-server')  # override for tests
@@ -243,9 +244,38 @@ def _until(timeout, fn):
         time.sleep(2)
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    # A redirect IS the answer: tina sends :8080 to its TLS address, by its
+    # tailnet name, which does not resolve while Tailscale is signed out --
+    # following it would fail a node whose web server is doing its job.
+    def redirect_request(self, *a, **k):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
 def _get(url, t=5):
-    with urllib.request.urlopen(url, timeout=t) as r:
-        return r.status, r.read().decode('utf-8', 'replace')
+    try:
+        with _opener.open(url, timeout=t) as r:
+            return r.status, r.read().decode('utf-8', 'replace')
+    except urllib.error.HTTPError as e:
+        if 300 <= e.code < 400:
+            return e.code, e.headers.get('Location', '')
+        raise
+
+
+def _api_port():
+    # The unit's port, if it names one; broadcast-api's default otherwise.
+    try:
+        out = subprocess.run(['systemctl', 'show', '-p', 'Environment', 'broadcast-api'],
+                             capture_output=True, text=True).stdout
+        m = re.search(r'(?:API_PORT|PORT)=(\d+)', out)
+        if m:
+            return m.group(1)
+    except OSError:
+        pass
+    return '5000'
 
 
 def verify(timeout, since):
@@ -288,11 +318,15 @@ def verify(timeout, since):
 
     def viewer():
         st, body = _get('http://127.0.0.1:8080/')
+        if 300 <= st < 400:
+            return True, f'HTTP {st} -> {body[:80]} (this node redirects to TLS)'
         return st == 200 and len(body) > 200, f'HTTP {st}, {len(body)} bytes'
     check('viewer served on :8080', viewer, t=10)
 
     def api():
-        st, body = _get('http://127.0.0.1:8080/api/info')
+        # broadcast-api itself, not through nginx: nginx may redirect, and
+        # that was checked above.
+        st, body = _get('http://127.0.0.1:%s/api/info' % _api_port())
         info = json.loads(body)
         return st == 200, f"version {info.get('version') or '?'}"
     check('API answers', api, t=10)
