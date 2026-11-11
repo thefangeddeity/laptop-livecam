@@ -4,6 +4,16 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.2.2
+
+- **The .deb runs the detector on Ubuntu 24.04 and Debian 12.** Their OpenCV
+  4.6 cannot run YOLOv8 (a shape assertion on every pass; an opset-12
+  re-export fails the same way), so on those systems setup installs a pinned
+  opencv-python-headless 4.10.0.84 for laptop-livecam alone, using the
+  distro's numpy. Systems with OpenCV >= 4.7 are left as they are.
+  python3-pip joins the Depends; removing the package removes the copy.
+- Arch install hook uses hostnamectl; hostname(1) is not installed everywhere.
+
 ## 7.2.1
 
 Installers leave a working node on the first run, and a second run changes
