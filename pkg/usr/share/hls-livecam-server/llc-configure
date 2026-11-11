@@ -389,7 +389,7 @@ def verify(timeout, since):
                              text=True).stdout
         bad = [ln for ln in out.splitlines()
                if re.search(r'Traceback|NameError|AttributeError|ImportError|DETECT THREAD ERROR', ln)]
-        return not bad, (bad[-1][:160] if bad else 'no tracebacks or detector errors since setup began')
+        return not bad, (bad[-1][:160] if bad else 'no tracebacks or detector errors since broadcast-api started')
     check('broadcast-api log clean', journal_clean, t=1)
 
     def notify():

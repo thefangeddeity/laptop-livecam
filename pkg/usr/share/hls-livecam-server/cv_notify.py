@@ -697,7 +697,8 @@ class Notifier:
             start, end = when - pre, when + post
 
             # A segment covers [its start, the next segment's start). The last
-            # one is still being written, so treat it as open-ended.
+            # one ends at its mtime -- never open-ended, or a stopped recorder
+            # leaves every alert cutting the same stale segment (ad9efba).
             chosen = []
             for i, (st, p) in enumerate(segs):
                 # The newest segment ends when it was last written, not never.
