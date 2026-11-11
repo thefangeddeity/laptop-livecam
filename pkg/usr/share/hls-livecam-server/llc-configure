@@ -352,11 +352,20 @@ def verify(timeout, since):
         env = dict(os.environ)
         if os.path.isdir(os.path.join(SHARE, 'opencv')):
             env['PYTHONPATH'] = os.path.join(SHARE, 'opencv')
-        r = subprocess.run([sys.executable, '-c', code], capture_output=True,
+        # As the SERVICE user: a module root can import and the service cannot
+        # read is skipped without a word, and the service then runs whatever
+        # else is on its path.
+        user = subprocess.run(['systemctl', 'show', '-p', 'User', '--value',
+                               'broadcast-api'], capture_output=True,
+                              text=True).stdout.strip()
+        pre = (['runuser', '-u', user, '--', 'env'] +
+               ['%s=%s' % (k, env[k]) for k in ('PYTHONPATH',) if k in env]
+               if user and user != 'root' else [])
+        r = subprocess.run(pre + [sys.executable, '-c', code], capture_output=True,
                            text=True, timeout=60, env=env)
         if r.returncode == 0:
             return True, 'OpenCV %s runs %s' % (r.stdout.strip(), os.path.basename(model))
-        ver = subprocess.run([sys.executable, '-c', 'import cv2;print(cv2.__version__)'],
+        ver = subprocess.run(pre + [sys.executable, '-c', 'import cv2;print(cv2.__version__)'],
                              capture_output=True, text=True, env=env).stdout.strip() or '?'
         return False, ('OpenCV %s cannot run %s (YOLOv8 needs OpenCV >= 4.7): '
                        'streaming works, detection and alerts will not' % (ver, os.path.basename(model)))

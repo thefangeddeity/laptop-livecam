@@ -315,6 +315,7 @@ if python3 -c "import sys; v=[int(x) for x in sys.argv[1].split('.')[:2]]; sys.e
     echo -e "  ${GREEN}OpenCV ${SYS_CV} from the distro runs the detector.${NC}"
     rm -rf "$CV_PRIVATE"
 elif [ -f "$CV_PRIVATE/.pin-$CV_PIN" ] && PYTHONPATH="$CV_PRIVATE" python3 -c "import cv2" 2>/dev/null; then
+    chmod -R a+rX "$CV_PRIVATE"
     echo -e "  ${GREEN}Private OpenCV $CV_PIN already installed (distro has ${SYS_CV}).${NC}"
 else
     echo "  Distro OpenCV ${SYS_CV} cannot run YOLOv8 -- installing opencv-python-headless ${CV_PIN} for laptop-livecam only..."
@@ -322,6 +323,10 @@ else
     if python3 -m pip install -q --no-deps --break-system-packages --target "$CV_PRIVATE.tmp" "opencv-python-headless==$CV_PIN" 2>/dev/null || \
        python3 -m pip install -q --no-deps --target "$CV_PRIVATE.tmp" "opencv-python-headless==$CV_PIN"; then
         rm -rf "$CV_PRIVATE"; mv "$CV_PRIVATE.tmp" "$CV_PRIVATE"; touch "$CV_PRIVATE/.pin-$CV_PIN"
+        # pip builds --target in a 0700 temp dir. Unreadable by www-data, the
+        # path entry is silently skipped and the service imports the distro's
+        # OpenCV 4.6 again -- measured: libopencv_dnn.so.4.6.0 mapped.
+        chmod -R a+rX "$CV_PRIVATE"
         echo -e "  ${GREEN}Private OpenCV $(PYTHONPATH="$CV_PRIVATE" python3 -c "import cv2; print(cv2.__version__)") installed.${NC}"
     else
         rm -rf "$CV_PRIVATE.tmp"
