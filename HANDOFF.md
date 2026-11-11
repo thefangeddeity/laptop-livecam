@@ -263,4 +263,4 @@ main-serve-guard, windows-art)?
 - Fresh install (state moved to /root/llc-fresh-test-20261110-190805, restored after):
   setup rc 0, 9 ok + WARN, second run identical, / 200. After restore: 10/10 ok,
   identical on rerun.
-- main 1e? (after 3a4ccf0): install hook uses hostnamectl (no hostname(1) there).
+- main d172524 (after 3a4ccf0): install hook uses hostnamectl (no hostname(1) there).
