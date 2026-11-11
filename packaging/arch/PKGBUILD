@@ -24,6 +24,9 @@ optdepends=('avahi: announce this node to peers over mDNS (livecam-capabilities)
             'tailscale: HTTPS on the tailnet (tailscale serve)'
             'python-apprise: alert destinations other than Telegram')
 install=laptop-livecam.install
+# A node that edits its nginx file (tina's carries its TLS server blocks) keeps
+# it: pacman writes the new one as .pacnew instead of replacing it.
+backup=('etc/nginx/conf.d/hls-livecam.conf')
 # The detector model is fetched here, not carried in the repo. It used to be
 # a 12.3 MiB blob in every clone that NOTHING installed -- the file the nodes
 # loaded was hand-placed and `pacman -Qo` reported it owned by no package. As

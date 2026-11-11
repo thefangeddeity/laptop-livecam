@@ -13,6 +13,12 @@ release tags on 2026-10-20, having been skipped as they shipped; the older
   distro's numpy. Systems with OpenCV >= 4.7 are left as they are.
   python3-pip joins the Depends; removing the package removes the copy.
 - Arch install hook uses hostnamectl; hostname(1) is not installed everywhere.
+- **An upgrade no longer replaces a node's own nginx file.** The deb now
+  declares /etc/nginx/conf.d/hls-livecam.conf a conffile and the Arch package
+  lists it in backup=(); 7.2.2 on tina had silently swapped its TLS wrapper
+  for the packaged copy. The packaged include narrows to
+  ele-messenger-mesh*.conf, since an old and a new messenger snippet together
+  declared /elem/ twice and failed nginx -t.
 
 ## 7.2.1
 
