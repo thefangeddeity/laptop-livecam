@@ -952,7 +952,7 @@ class Dashboard(QWidget):
         self.uptime.setText(f"uptime {up // 3600}h {(up % 3600) // 60}m")
 
         svc = snap.get("svc", False)
-        base = cd.system_status(snap.get("hls", "DOWN"), snap.get("ff"), snap.get("mm"))
+        base = cd.system_status(snap.get("hls", "DOWN"), snap.get("ff"), snap.get("mm"), snap.get("v4l2"))
 
         # §2/§6c: the on-air pill is RED and pulsing. Service-up rows stay green.
         if not svc:
@@ -965,6 +965,8 @@ class Dashboard(QWidget):
         quals = []
         if not svc:
             quals.append("services stopped")
+        elif base == "NO CAMERA":
+            quals.append("plug in the camera")
         elif base in ("DEGRADED", "ERROR", "DOWN"):
             quals.append("suggest repair")
         if snap.get("dark"):

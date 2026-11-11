@@ -131,6 +131,7 @@ def status_color(state: str) -> str:
         "FOUND":    HEALTHY,
         "PASSED":   HEALTHY,
         "WARN":     WARN,
+        "NO CAMERA": WARN,   # nothing to film; not a fault Repair can fix
         "DEGRADED": WARN,
         "RUNNING":  WARN,
         "RECONNECTING": WARN,
