@@ -288,3 +288,13 @@ main-serve-guard, windows-art)?
   Spitsbergen: podman + pacman-contrib installed after `pacman -Sy` (partial
   upgrade) -- a full `pacman -Syu` is advisable. Spitsbergen feed_mode is empty
   (= Hide) since the Nov 9 fault; left for Ron.
+
+## 2026-11-11 — AUR at 7.2.2, pushed from ariana
+- Ron registered ariana's id_ed25519.pub with the AUR account; ariana pushes now
+  (no ~/.ssh/config entry needed). AUR host keys added to ariana known_hosts after
+  matching the fingerprints published on aur.archlinux.org.
+- AUR checkout on ariana: ~/Projects/aur-laptop-livecam-ariana (remotes: origin =
+  AUR, osiris = osiris:repos/aur-laptop-livecam.git). 07eb87a "laptop-livecam 7.2.2"
+  pushed to both; tag tarball and install sums re-verified before the push.
+  .SRCINFO came from the Spitsbergen release build (no makepkg on macOS).
+- tanzania's ~/Projects/aur-laptop-livecam is now BEHIND (at 7.2.1): `git pull` there.
