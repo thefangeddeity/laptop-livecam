@@ -298,3 +298,12 @@ main-serve-guard, windows-art)?
   pushed to both; tag tarball and install sums re-verified before the push.
   .SRCINFO came from the Spitsbergen release build (no makepkg on macOS).
 - tanzania's ~/Projects/aur-laptop-livecam is now BEHIND (at 7.2.1): `git pull` there.
+
+## 2026-11-11 afternoon — ELE Mesh on Spitsbergen; Spitsbergen fully upgraded
+- `pacman -Syu` (127 pkgs, OpenSSL 3.6 -> 4.1, linux-lts 6.18.62) fixed the partial
+  upgrade Claude caused with `-Sy`. v4l2loopback built for 6.18.62-lts; GRUB boots lts.
+- ele-messenger 1.5.7 from AUR (replaced retired ele-messenger-client 1.3.5);
+  linger on, `elemesh` user service active; /elem/ 200; ping joined:false --
+  **Ron must enter the mesh passphrase** in the app on Spitsbergen.
+- After reboot: livecam verify 10/10 (frames, HLS, detector on OpenCV 5.0, 1 alert
+  destination), 0 EXT4/I/O/reset lines this boot. Spitsbergen tailnet 100.100.17.2.
