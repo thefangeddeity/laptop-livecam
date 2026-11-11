@@ -54,6 +54,8 @@ is an in-progress Rust port.
 ffmpeg, nginx, python3 with flask / numpy / opencv / pillow / psutil,
 v4l-utils. The installers pull these for you.
 
+**Unplugging the camera** shows as `NO CAMERA` in camdash. Linux notices within 2 seconds. macOS can take up to 5 minutes while the stream is down, because macOS has no cheap device file to check. Built-in Mac cameras cannot be unplugged, so this only matters for a USB webcam on a Mac.
+
 The detector model is not in this repo — it is a release asset, and both
 installers fetch it. To place it by hand: `scripts/fetch-model.sh`.
 
