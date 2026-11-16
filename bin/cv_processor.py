@@ -632,6 +632,8 @@ class CVProcessor:
     Optional -- omitting it, or omitting individual CV_* keys, reproduces
     the original hardcoded defaults exactly.
     """
+    _ECO_RETRY_MIN_S = 30.0     # first retry of the full path after entering eco
+    _ECO_RETRY_MAX_S = 600.0    # ceiling for the doubling backoff
 
     HISTORY = 3
 
@@ -661,6 +663,9 @@ class CVProcessor:
         # cost more than either state.
         self._eco = False
         self._eco_hist = deque(maxlen=45)       # ~3s at 15fps
+        self._eco_since = 0.0
+        self._eco_probing = False
+        self._eco_retry_s = self._ECO_RETRY_MIN_S
         self._last_timings = {}
         try:
             self._budget_ms = 1000.0 / max(1, int(denv.get('FRAMERATE', 15)))
@@ -1284,36 +1289,54 @@ class CVProcessor:
     def _note_frame_cost(self, total_s):
         """One rendered frame's cost, and the eco decision that follows.
 
-        MEDIAN, not mean: a single long frame is a scheduler hiccup and
-        must not flip the pipeline, while a pipeline that is genuinely over
-        budget is over budget in the middle of its distribution too.
+        MEDIAN, not mean: one long frame is a scheduler hiccup and must not
+        flip the pipeline, while a pipeline genuinely over budget is over
+        budget in the middle of its distribution too. The threshold is the
+        frame budget, so no re-tuning at another framerate.
 
-        The thresholds are a ratio of the frame budget rather than
-        milliseconds, so this needs no re-tuning at a different framerate
-        -- the same reasoning as the e% HUD rule. ENTER at the budget
-        (being late every frame is exactly what this exists to stop) and
-        LEAVE at 0.6 of it, measured in eco. The gap is deliberate: eco's
-        own cost is not the full path's cost, so a single threshold would
-        read "cheap now" the instant it engaged and switch straight back.
+        LEAVING eco is by time, not by measurement. Eco's own cost (~1 ms)
+        says nothing about whether the full path now fits, so the old rule
+        -- leave when the eco median fell under 0.6x budget -- was satisfied
+        the instant eco engaged and the pipeline flapped every few seconds
+        (measured on ariana and tanzania, 2026-11). Now eco holds for
+        _eco_retry_s, then the full path is TRIED for one window: if it fits,
+        it stays on and the wait resets; if it is still over budget, eco
+        returns and the wait doubles, up to _ECO_RETRY_MAX_S. A node that
+        cannot afford the enhancement pipeline tries again every ten
+        minutes instead of every three seconds.
         """
+        now = time.monotonic()
+        if self._eco:
+            if now - self._eco_since >= self._eco_retry_s:
+                self._eco = False
+                self._eco_probing = True
+                self._eco_hist.clear()
+                print('CV: trying the enhancement pipeline again after %.0fs '
+                      'in eco.' % self._eco_retry_s, file=sys.stderr, flush=True)
+            return
         self._eco_hist.append(total_s * 1000.0)
         if len(self._eco_hist) < self._eco_hist.maxlen:
             return
         xs = sorted(self._eco_hist)
         med = xs[len(xs) // 2]
-        if not self._eco and med > self._budget_ms:
+        if med > self._budget_ms:
+            if self._eco_probing:
+                self._eco_retry_s = min(self._eco_retry_s * 2, self._ECO_RETRY_MAX_S)
             self._eco = True
+            self._eco_probing = False
+            self._eco_since = now
             self._eco_hist.clear()
             print('CV: render is %.1fms against a %.1fms budget -- dropping '
                   'the enhancement pipeline (flow, denoise, tone, sharpen, '
-                  'edges). Detection and the HUD are unaffected.'
-                  % (med, self._budget_ms), file=sys.stderr, flush=True)
-        elif self._eco and med < self._budget_ms * 0.6:
-            self._eco = False
-            self._eco_hist.clear()
-            print('CV: render is %.1fms against a %.1fms budget -- enhancement '
-                  'pipeline back on.' % (med, self._budget_ms),
+                  'edges) for %.0fs. Detection and the HUD are unaffected.'
+                  % (med, self._budget_ms, self._eco_retry_s),
                   file=sys.stderr, flush=True)
+        elif self._eco_probing:
+            self._eco_probing = False
+            self._eco_retry_s = self._ECO_RETRY_MIN_S
+            print('CV: render is %.1fms against a %.1fms budget -- '
+                  'enhancement pipeline fits again.'
+                  % (med, self._budget_ms), file=sys.stderr, flush=True)
 
     def _measure_sharpness(self, luma):
         """Variance of the Laplacian on a quarter-scale luminance image.
