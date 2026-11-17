@@ -1,0 +1,24 @@
+#!/bin/sh
+# ExecStartPre for mediamtx.service: wait (bounded) for the addresses WebRTC
+# will advertise. mediamtx reads the interfaces' addresses when it starts and
+# offers only those as ICE candidates. On tanzania it started 7 s before the
+# wifi connected and 11 s before Tailscale was running, so for the whole boot
+# it offered ONLY 127.0.0.1 -- a browser on the LAN still connected (peer-
+# reflexive), but an iPhone (mDNS-hidden candidates, often on mobile data via
+# Tailscale) never did: "closed: deadline exceeded while waiting connection",
+# black picture, 0 FPS. Never fails the unit: after 45 s it lets mediamtx start
+# with whatever exists, as before.
+i=0
+while [ $i -lt 45 ]; do
+    lan=$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p')
+    ts_ok=1
+    if systemctl is-enabled --quiet tailscaled 2>/dev/null; then
+        ip -4 addr show dev tailscale0 2>/dev/null | grep -q 'inet ' || ts_ok=0
+    fi
+    if [ -n "$lan" ] && [ "$lan" != "127.0.0.1" ] && [ $ts_ok -eq 1 ]; then
+        exit 0
+    fi
+    sleep 1; i=$((i + 1))
+done
+echo "wait-for-network: gave up after 45 s (lan='${lan}', tailnet ok=${ts_ok}); WebRTC may offer only some addresses until mediamtx restarts" >&2
+exit 0

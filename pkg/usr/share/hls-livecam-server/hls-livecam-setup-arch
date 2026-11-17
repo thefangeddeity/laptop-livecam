@@ -210,10 +210,16 @@ echo -e "${BOLD}Installing systemd services...${NC}"
 cat > /etc/systemd/system/mediamtx.service <<EOF
 [Unit]
 Description=MediaMTX streaming server
-After=network.target
+# Ordered after the network AND tailscaled, and the ExecStartPre waits for
+# real addresses: mediamtx advertises only the interface addresses it sees
+# at start (see wait-for-network).
+Wants=network-online.target
+After=network-online.target tailscaled.service
 
 [Service]
 User=root
+ExecStartPre=-/usr/share/hls-livecam-server/wait-for-network
+TimeoutStartSec=90
 ExecStart=$MEDIAMTX_BIN $MEDIAMTX_CONF
 Restart=on-failure
 RestartSec=5

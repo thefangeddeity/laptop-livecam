@@ -85,6 +85,8 @@ package() {
                    "$pkgdir/usr/share/hls-livecam-server/llc-configure"
     install -Dm644 pkg/usr/share/hls-livecam-server/device.env.legacy-comments \
                    "$pkgdir/usr/share/hls-livecam-server/device.env.legacy-comments"
+    install -Dm755 pkg/usr/share/hls-livecam-server/wait-for-network \
+                   "$pkgdir/usr/share/hls-livecam-server/wait-for-network"
     install -Dm755 pkg/usr/share/hls-livecam-server/hls-livecam-setup-arch \
                    "$pkgdir/usr/share/hls-livecam-server/hls-livecam-setup"
     install -Dm755 pkg/usr/share/hls-livecam-server/hls-livecam-repair \

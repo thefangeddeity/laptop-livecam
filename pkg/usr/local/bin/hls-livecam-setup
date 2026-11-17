@@ -232,11 +232,15 @@ echo -e "${BOLD}Installing mediamtx.service...${NC}"
 cat > "$MEDIAMTX_UNIT_DST" <<EOF
 [Unit]
 Description=MediaMTX streaming server
-After=network-online.target
+# After tailscaled too, and wait for real addresses: mediamtx advertises
+# only the interface addresses it sees at start (see wait-for-network).
+After=network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 User=root
+ExecStartPre=-/usr/share/hls-livecam-server/wait-for-network
+TimeoutStartSec=90
 ExecStart=/usr/local/bin/mediamtx ${MEDIAMTX_CONF}
 Restart=on-failure
 RestartSec=5
