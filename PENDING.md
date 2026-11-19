@@ -324,6 +324,13 @@ drawn near a frame edge is at the mercy of the consumer's aspect ratio, and
 
 ---
 
+## PARKED: the HUD as a terminal (Ron, via the ELEM Tech Lead session, 2026-11-20)
+
+When someone clicks a **Terminal** button on the ELEM card, the viewer's HUD
+turns into a terminal. ELE is adding SSH over the mesh; the card's Terminal
+button would open it. **Not to build now** -- it depends on ELE's mesh SSH
+landing first. The viewer is shared, so it would apply to every node.
+
 ## Room audio landed — and it is nearly free on this architecture
 
 Ported from ariana, but the shape differs and the difference is the point.
