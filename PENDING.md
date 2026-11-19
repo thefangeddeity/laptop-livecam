@@ -209,6 +209,12 @@ other branches:
 
 ## Queued, deliberately not started
 
+- **PARKED (Ron, via the ELEM Tech Lead session, 2026-11-20): the HUD as a terminal.** When
+  someone clicks a "Terminal" button on the ELEM card, the viewer's HUD turns into a terminal.
+  Context: ELE is adding SSH over the mesh; the card's Terminal button would open it. Not to
+  build now -- depends on ELE's mesh SSH landing first. The viewer is shared, so it applies to
+  every node.
+
 - **New art** for the web viewer and the GUI, placed in tanzania's `art/`.
   Not visible in git as of `77897d8` — either uncommitted there or unpushed.
   On macOS it would replace `web/brand.png` / `@2x` and the `.icns` behind the
