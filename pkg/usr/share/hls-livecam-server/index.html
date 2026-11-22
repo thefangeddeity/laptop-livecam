@@ -2435,7 +2435,7 @@
           <div class="modem-group">
             <button class="modem" id="blurBtn" onclick="toggleBlur()"
                     title="Mosaic the picture -- the room is there but not legible, over Show or CV">
-              <span class="bulb" id="blurLamp"></span><span class="cap2">BLUR</span>
+              <span class="bulb" id="blurLamp"></span><span class="cap2">PIX</span>
             </button>
             <button class="modem" id="fovealBtn" onclick="clickFoveal()"
                     title="Foveal layer -- detection gated to the moving region">
@@ -2484,7 +2484,7 @@
              without being heard is the ordinary case.
 
              MUTE is deliberately NOT in the bank. It silences what you hear
-             without changing which direction is open, exactly as BLUR
+             without changing which direction is open, exactly as PIX
              modifies a video mode without being one.
 
              2-Way is present and DISABLED rather than wired to nothing --
@@ -4656,7 +4656,7 @@
     updateFeedAR();
   }
 
-  // ── BLUR — server-side, modifier over Show and CV alike ──
+  // ── PIX (blur*) — server-side, modifier over Show and CV alike ──
   //
   // Ported from amira's arrangement: a modem button with its own lamp, not
   // a picture-row key. Not a feed mode: the operator has already decided
