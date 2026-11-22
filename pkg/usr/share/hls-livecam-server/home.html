@@ -184,8 +184,11 @@
         var n = d && d.identity && d.identity.node && d.identity.node.value;
         // Falls back to the hostname part of the URL, which is right when
         // reached by name and merely unhelpful when reached by address --
-        // better than an empty heading either way.
-        el.textContent = n || location.hostname.split('.')[0];
+        // better than an empty heading either way. The tab title uses the
+        // same value, so it and the heading never disagree.
+        var name = n || location.hostname.split('.')[0];
+        el.textContent = name;
+        document.title = name + ' Home';
       });
   })();
 

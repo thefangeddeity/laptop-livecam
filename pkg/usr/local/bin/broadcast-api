@@ -4056,7 +4056,7 @@ def info():
     # the first time someone installs the parent package -- silently, in the
     # licence line. /etc/hls-livecam is node configuration and no installer
     # touches it. Identity is a property of the node, not of the payload.
-    product, product_short = 'HLS Livecam Server', 'HLSLS'
+    product, product_short = 'Laptop LiveCam', 'LLC'
     source = 'https://github.com/thefangeddeity/hls-livecam-server'
     for _pp in ('/etc/hls-livecam/PRODUCT',
                 '/usr/share/hls-livecam-server/PRODUCT'):

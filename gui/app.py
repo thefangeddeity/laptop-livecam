@@ -867,7 +867,7 @@ class BottomBar(QFrame):
 class Dashboard(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("camdash — HLS Livecam Operator")
+        self.setWindowTitle("camdash — Laptop LiveCam Operator")
         self.setStyleSheet(T.QSS)
         self.last = {}
         # Shared across FeedPanel (Pause/Repair) and BottomBar (On/Off): all

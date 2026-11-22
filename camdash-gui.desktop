@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Camdash GUI
-GenericName=HLS Livecam Operator
+GenericName=Laptop LiveCam Operator
 Comment=Operator dashboard for the HLS livecam server
 Exec=/usr/local/bin/camdash-gui
 Icon=/usr/share/hls-livecam-server/gui/assets/icon_1024.png
