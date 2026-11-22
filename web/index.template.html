@@ -4199,8 +4199,18 @@
   // permissive on a plain network blip or a service restart -- which is
   // exactly backend-down, not measured-and-fine. Hold the last verdict the
   // server actually gave us; only a fresh successful read may move it.
+  // A page opened while the service is off has no in-session verdict to
+  // hold yet -- the in-memory variables alone would still fail open on
+  // exactly the case this exists for (a permanently-unfit node, turned
+  // off). So the last verdict is also kept in localStorage, per host, and
+  // read back here before the first poll has even gone out.
+  var CV_CAP_KEY = 'llc_cv_capable_' + location.hostname;
   var lastKnownCvCapable = null;
   var lastKnownCvCapability = null;
+  try {
+    var _savedCap = localStorage.getItem(CV_CAP_KEY);
+    if (_savedCap) lastKnownCvCapable = JSON.parse(_savedCap);
+  } catch (e) { /* private browsing, storage disabled, or a bad value -- fall open */ }
   function cvAllowed() {
     // Only a machine that cannot render inside the frame interval loses the
     // key. `weak` renders -- with no margin, which the title says -- and a
@@ -4279,6 +4289,8 @@
         if (p && p.cv_capable) {
           lastKnownCvCapable = p.cv_capable;
           lastKnownCvCapability = p.cv_capability || lastKnownCvCapability;
+          try { localStorage.setItem(CV_CAP_KEY, JSON.stringify(lastKnownCvCapable)); }
+          catch (e) { /* private browsing or storage disabled -- in-memory only */ }
         }
         if (p && typeof p.detect_gated === 'boolean') {
           detectGated = p.detect_gated;
