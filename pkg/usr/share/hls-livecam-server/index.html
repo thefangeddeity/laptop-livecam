@@ -4117,18 +4117,30 @@
   // because a measurement errored is worse than one that stays and performs
   // badly. 'weak' always carries a measured reason, which goes in the tooltip
   // so the decision is inspectable, not mysterious.
+  //
+  // That "unknown" leniency is meant for a probe that genuinely hasn't run
+  // yet -- it is not meant to re-open the key every time /api/pipeline has a
+  // bad moment on a machine that already told us it's unfit. pipeline gets
+  // reset to null on ANY failed poll (pollPipeline below, for the lamps'
+  // sake), so reading pipeline.cv_capable straight would flip this back to
+  // permissive on a plain network blip or a service restart -- which is
+  // exactly backend-down, not measured-and-fine. Hold the last verdict the
+  // server actually gave us; only a fresh successful read may move it.
+  var lastKnownCvCapable = null;
+  var lastKnownCvCapability = null;
   function cvAllowed() {
     // Only a machine that cannot render inside the frame interval loses the
     // key. `weak` renders -- with no margin, which the title says -- and a
     // control that works should not vanish because it is not comfortable.
-    return !pipeline || pipeline.cv_capable !== 'unfit';
+    var capable = pipeline ? pipeline.cv_capable : lastKnownCvCapable;
+    return capable !== 'unfit';
   }
   function applyCvCapability() {
     if (!cvBtn) return;
     var ok = cvAllowed();
     cvBtn.hidden = !ok;
     cvBtn.disabled = !ok;
-    var cap = (pipeline && pipeline.cv_capability) || null;
+    var cap = (pipeline && pipeline.cv_capability) || lastKnownCvCapability;
     cvBtn.title = ok ? '' :
       ('CV rendering cannot keep up on this machine' +
        (cap && cap.reason ? ' -- ' + cap.reason : '') +
@@ -4191,6 +4203,10 @@
       .catch(function() { return null; })
       .then(function(p) {
         pipeline = p;
+        if (p && p.cv_capable) {
+          lastKnownCvCapable = p.cv_capable;
+          lastKnownCvCapability = p.cv_capability || lastKnownCvCapability;
+        }
         if (p && typeof p.detect_gated === 'boolean') {
           detectGated = p.detect_gated;
           detectGateWhy = p.detect_gate_reason || '';
