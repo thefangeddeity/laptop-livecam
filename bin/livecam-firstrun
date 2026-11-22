@@ -47,12 +47,12 @@ BIN_DIR   = os.path.dirname(os.path.abspath(__file__))
 RUNTIME   = os.path.dirname(BIN_DIR)                 # Contents/Resources/app
 RESOURCES = os.path.dirname(RUNTIME)                 # Contents/Resources
 CONTENTS  = os.path.dirname(RESOURCES)               # Contents
-APP_PATH  = os.path.dirname(CONTENTS)                # HLS Livecam.app
+APP_PATH  = os.path.dirname(CONTENTS)                # Laptop LiveCam.app
 
 SETUP_VERSION = "2"
 MARKER        = os.path.join(P.state_dir(), "setup-complete")
 
-TITLE = "HLS Livecam Setup"
+TITLE = f"{P.APP_NAME} Setup"
 
 
 def log(msg):
@@ -139,7 +139,7 @@ def check_dependencies():
     if find_ffmpeg():
         return True
     dialog("FFmpeg is required but was not found.\n\n"
-           "Install it, then launch HLS Livecam again:\n\n"
+           f"Install it, then launch {P.APP_NAME} again:\n\n"
            "    brew install ffmpeg\n\n"
            "Setup cannot continue without it.",
            buttons=("Quit",), icon="stop")
@@ -319,51 +319,45 @@ def configure_autologin(user):
     log("autologin verified" if autologin_user() == user else "autologin NOT set")
 
 
-# ── Login Item ───────────────────────────────────────────────────
+# ── Autostart ────────────────────────────────────────────────────
 
-LOGIN_ITEM_NAME = "HLS Livecam"
+AGENT_LABEL = "com.livecam.autostart"
 
 
-def login_item_registered():
-    out = _osa('tell application "System Events" to get name of every login item')
-    return LOGIN_ITEM_NAME in out.stdout
+def agent_bootstrapped():
+    return subprocess.run(
+        ["launchctl", "print", f"gui/{os.getuid()}/{AGENT_LABEL}"],
+        capture_output=True).returncode == 0
 
 
 def register_login_item():
-    """Register the app itself, not a Terminal shim.
+    """Enable login autostart via `livecam enable`'s launchd agent.
 
-    The app carries its own bundle identity and camera/microphone usage
-    strings, so prompts name this app and the grant lands on it. A LaunchAgent
-    cannot be used at all here: launchd starts agents outside any GUI session,
-    and capture with no GUI/TCC ancestry is refused the camera -- whereupon
-    ffmpeg deadlocks instead of failing, leaving a healthy-looking stack that
-    serves 404s.
+    This used to register the app itself as a System Events Login Item. That
+    needed Automation consent, which an operator can dismiss -- after which
+    registration fails silently and the box needs SSH surgery after every
+    reboot. `livecam enable` bootstraps a LaunchAgent into the gui/<uid> Aqua
+    session domain instead: no Automation prompt, and (unlike a launchd job
+    in the system domain) it still runs inside the GUI session, so TCC still
+    grants the camera. Same mechanism `livecam setup` already uses from the
+    terminal; this just calls it from the no-tty first-run path too.
     """
-    # Delete first: re-registering an existing name silently keeps the OLD
-    # path, so an app that moved stays registered pointing at nothing.
-    _osa(f'''tell application "System Events"
-        if exists login item "{LOGIN_ITEM_NAME}" then
-            delete login item "{LOGIN_ITEM_NAME}"
-        end if
-    end tell''')
-    _osa(f'''tell application "System Events" to make login item at end
-        with properties {{name:"{LOGIN_ITEM_NAME}", path:"{APP_PATH}", hidden:false}}''')
+    subprocess.run([os.path.join(BIN_DIR, "livecam"), "enable"],
+                   capture_output=True, text=True)
 
-    if login_item_registered():
-        log("login item registered (verified)")
+    if agent_bootstrapped():
+        log("login agent enabled (verified)")
         return True
 
-    # Verify, never assume. This needs Automation consent for System Events;
-    # if that prompt is dismissed the calls above fail silently, nothing starts
-    # at login, and the box needs hands-on recovery after every reboot.
-    dialog("Could not add HLS Livecam to your Login Items.\n\n"
-           "This usually means the Automation permission was declined.\n\n"
-           "Add it by hand:\n"
-           "    System Settings > General > Login Items > +\n"
-           f"    {APP_PATH}\n\n"
+    # Verify, never assume. If this failed, log(s) from `livecam enable`
+    # have the reason; worth a look before suspecting a permission prompt --
+    # there isn't one in this path.
+    dialog(f"Could not enable autostart for {P.APP_NAME}.\n\n"
+           f"Run this once from a terminal and check the output:\n"
+           f"    {os.path.join(BIN_DIR, 'livecam')} enable\n\n"
            "Without this, streaming will not resume after a restart.",
            buttons=("OK",), icon="caution")
-    log("login item registration FAILED")
+    log("login agent bootstrap FAILED")
     return False
 
 
@@ -413,10 +407,9 @@ def main():
 
     seed_config(ffmpeg)
 
-    dialog("Welcome to HLS Livecam.\n\n"
+    dialog(f"Welcome to {P.APP_NAME}.\n\n"
            "Setup will ask for a few macOS permissions:\n\n"
            "  - Camera and microphone, to publish the feed\n"
-           "  - Automation, to start the stream when you log in\n"
            "  - Admin rights, only if you enable automatic login\n\n"
            "This happens once.", buttons=("Continue",))
 
@@ -442,14 +435,14 @@ def main():
         problems.append("- Microphone access was not granted. Allow it in "
                         "System Settings > Privacy & Security > Microphone.")
     if not registered:
-        problems.append("- Login Item not registered; streaming will not "
+        problems.append("- Autostart agent not enabled; streaming will not "
                         "resume after a restart.")
 
     if problems:
         dialog("Setup finished with warnings:\n\n" + "\n\n".join(problems),
                buttons=("OK",), icon="caution")
     else:
-        dialog("Setup complete.\n\nHLS Livecam will now start automatically "
+        dialog(f"Setup complete.\n\n{P.APP_NAME} will now start automatically "
                "whenever you log in.", buttons=("OK",))
     return 0
 

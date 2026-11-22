@@ -1,5 +1,5 @@
 """
-Design tokens — HLS Livecam Unified Design System v1 (RATIFIED, §1-§5 binding).
+Design tokens — Laptop LiveCam Unified Design System v1 (RATIFIED, §1-§5 binding).
 
 Token NAMES are the interface; raw hex appears exactly once, here. Everything
 else in the GUI references these names, per design system §1.

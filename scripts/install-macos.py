@@ -9,12 +9,12 @@ import plistlib
 
 ROOT = Path.home() / "Projects/mac-hls-livecam"
 SOURCE_APP = ROOT / "camdash-gui.app"
-APP = Path("/Applications/HLS Livecam.app")
+APP = Path("/Applications/Laptop LiveCam.app")
 CONTENTS = APP / "Contents"
 RES = CONTENTS / "Resources"
 RUNTIME = RES / "app"
 MACOS = CONTENTS / "MacOS"
-SUPPORT = Path.home() / "Library/Application Support/HLS Livecam"
+SUPPORT = Path.home() / "Library/Application Support/Laptop LiveCam"
 LAUNCH = Path.home() / "Library/LaunchAgents/com.livecam.autostart.plist"
 BIN = Path("/usr/local/bin")
 DIST = ROOT / "dist"
@@ -152,7 +152,7 @@ def configure_autologin(user):
     else:
         print("  !! autoLoginUser did not take -- check the sudo output above")
 
-print("=== HLS Livecam macOS installer ===")
+print("=== Laptop LiveCam macOS installer ===")
 print("Source:", ROOT)
 print("Target:", APP)
 
@@ -190,7 +190,7 @@ if LAUNCH.exists():
 # 3. Rebuild installed app from scratch.
 # ------------------------------------------------------------
 
-print("[1/10] Rebuilding /Applications/HLS Livecam.app...")
+print("[1/10] Rebuilding /Applications/Laptop LiveCam.app...")
 
 if APP.exists():
     shutil.rmtree(APP)
@@ -303,7 +303,7 @@ old = (
 )
 
 new = (
-    'APP_SUPPORT="$HOME/Library/Application Support/HLS Livecam"\n'
+    'APP_SUPPORT="$HOME/Library/Application Support/Laptop LiveCam"\n'
     'STATE_DIR="$APP_SUPPORT/state"\n'
     'LOG_DIR="$STATE_DIR/logs"\n'
     'VENDOR="$ROOT/vendor"\n'
@@ -382,8 +382,8 @@ launcher.chmod(0o755)
 # ------------------------------------------------------------
 
 info = {
-    "CFBundleName": "HLS Livecam",
-    "CFBundleDisplayName": "HLS Livecam",
+    "CFBundleName": "Laptop LiveCam",
+    "CFBundleDisplayName": "Laptop LiveCam",
     "CFBundleIdentifier": "com.livecam.hls-livecam",
     "CFBundleExecutable": "hls-livecam",
     "CFBundleIconFile": "AppIcon",
@@ -391,8 +391,8 @@ info = {
     "CFBundleShortVersionString": VERSION,
     "CFBundleVersion": "1.0.0",
     "LSMinimumSystemVersion": "13.0",
-    "NSCameraUsageDescription": "HLS Livecam uses the camera to publish the live room video feed.",
-    "NSMicrophoneUsageDescription": "HLS Livecam uses the microphone to publish sound from the room.",
+    "NSCameraUsageDescription": "Laptop LiveCam uses the camera to publish the live room video feed.",
+    "NSMicrophoneUsageDescription": "Laptop LiveCam uses the microphone to publish sound from the room.",
     "NSHighResolutionCapable": True,
     "LSUIElement": False,
 }
@@ -443,99 +443,41 @@ else:
 print("[6/10] Configuring automatic login...")
 configure_autologin(os.environ.get("USER") or Path.home().name)
 
-print("[7/10] Installing unattended camera Login Item...")
+print("[7/10] Enabling login autostart...")
 
-STARTER = Path.home() / "Applications" / "HLS Livecam Startup.app"
-STARTER_CONTENTS = STARTER / "Contents"
-STARTER_MACOS = STARTER_CONTENTS / "MacOS"
+# `livecam enable` bootstraps a LaunchAgent into gui/<uid> -- the Aqua session
+# domain -- rather than registering a System Events Login Item. The Login
+# Item needed Automation consent, which an operator can dismiss, after which
+# registration failed without any useful error and the box needed SSH surgery
+# after every reboot. A gui/<uid> agent needs no such consent, and (unlike a
+# launchd job in the system domain) still runs inside the GUI session, which
+# is what TCC actually gates camera access on. Same mechanism `livecam setup`
+# already uses from the terminal, and what the installed app's own first-run
+# now uses too -- this just keeps the dev installer consistent with both.
+LIVECAM = RUNTIME / "bin" / "livecam"
+AGENT_LABEL = "com.livecam.autostart"
 
-STARTER_MACOS.mkdir(parents=True, exist_ok=True)
-
-# The Login Item opens Terminal and runs the supervisor there. Terminal is the
-# point: launchd agents start outside any GUI session, and a process with no
-# GUI/TCC ancestry is refused camera access -- at which point ffmpeg's
-# avfoundation input deadlocks instead of erroring, leaving a live-looking
-# stack serving 404s. Running under Terminal inherits an approved ancestry.
-starter_exe = STARTER_MACOS / "start"
-starter_exe.write_text(f"""#!/bin/bash
-exec /usr/bin/osascript <<'APPLESCRIPT'
-tell application "Terminal"
-    do script "exec {RUNTIME}/.venv/bin/python {RUNTIME}/bin/livecam-supervisor"
-end tell
-APPLESCRIPT
-""")
-starter_exe.chmod(0o755)
-
-starter_info = {
-    "CFBundleIdentifier": "com.livecam.hls-livecam.startup",
-    "CFBundleName": "HLS Livecam Startup",
-    "CFBundleDisplayName": "HLS Livecam Startup",
-    "CFBundleExecutable": "start",
-    "CFBundlePackageType": "APPL",
-    "CFBundleShortVersionString": VERSION,
-    "CFBundleVersion": "1.0.0",
-    "LSUIElement": True,
-}
-
-with open(STARTER_CONTENTS / "Info.plist", "wb") as f:
-    plistlib.dump(starter_info, f)
-
-run(["codesign", "--force", "--deep", "--sign", "-", str(STARTER)])
-
-# Remove the old LaunchAgent if an older installer left one behind.
-run([
-    "launchctl", "bootout",
-    f"gui/{os.getuid()}/com.livecam.autostart"
-], check=False)
-
-LAUNCH.unlink(missing_ok=True)
-
-# Replace an older managed Login Item and install ours. Deleting first matters:
-# re-registering an existing name silently keeps the OLD path, so a starter app
-# that has moved stays registered while pointing at nothing.
-run(["osascript", "-e", """
-tell application "System Events"
-    if exists login item "HLS Livecam Startup" then
-        delete login item "HLS Livecam Startup"
-    end if
-end tell
-"""], check=False)
-
-run(["osascript", "-e", f"""
-tell application "System Events"
-    make login item at end with properties {{name:"HLS Livecam Startup", path:"{STARTER}", hidden:false}}
-end tell
-"""], check=False)
+run([str(LIVECAM), "enable"], check=False)
 
 
-def login_item_registered():
-    out = subprocess.run(
-        ["osascript", "-e",
-         'tell application "System Events" to get name of every login item'],
-        capture_output=True, text=True)
-    return "HLS Livecam Startup" in out.stdout
+def agent_bootstrapped():
+    return subprocess.run(
+        ["launchctl", "print", f"gui/{os.getuid()}/{AGENT_LABEL}"],
+        capture_output=True).returncode == 0
 
 
-# Verify rather than assume. Both calls above need Automation consent for
-# System Events; if the operator dismisses that prompt they fail without any
-# useful error, autostart never happens, and the box needs hands-on recovery
-# after every reboot. That is precisely the failure this installer exists to
-# prevent, so refuse to report success we have not confirmed.
-if login_item_registered():
-    print("  login item registered (verified)")
+# Verify rather than assume -- refuse to report success we have not confirmed.
+if agent_bootstrapped():
+    print("  login agent enabled (verified)")
 else:
     print()
-    print("  !! LOGIN ITEM REGISTRATION FAILED")
+    print("  !! LOGIN AGENT NOT BOOTSTRAPPED")
     print("     Nothing will start at login until this is fixed.")
-    print("     Most likely cause: Automation access for System Events was")
-    print("     denied. Re-run the installer and allow it, or add it by hand:")
-    print("       System Settings > General > Login Items > +")
-    print(f"       {STARTER}")
+    print(f"     Run by hand and check the output: {LIVECAM} enable")
     print()
 
-# Do not launch the Login Item here.
-# It is installed for the next GUI login. Launching it immediately
-# would race the Login Item and create duplicate supervisors.
+# `livecam enable` already started the stack (same as `livecam setup`'s
+# enable + start). Nothing further to launch here.
 
 # ------------------------------------------------------------
 # 9. Ad-hoc sign and verify.
@@ -613,17 +555,17 @@ DIST.mkdir(parents=True, exist_ok=True)
 stage = Path(tempfile.mkdtemp(prefix="hls-livecam-release-"))
 
 try:
-    stage_app = stage / "HLS Livecam.app"
+    stage_app = stage / "Laptop LiveCam.app"
     shutil.copytree(APP, stage_app, symlinks=True)
     (stage / "Applications").symlink_to("/Applications")
 
-    dmg = DIST / f"HLS-Livecam-{VERSION}.dmg"
+    dmg = DIST / f"Laptop-LiveCam-{VERSION}.dmg"
     if dmg.exists():
         dmg.unlink()
 
     run([
         "hdiutil", "create",
-        "-volname", f"HLS Livecam {VERSION}",
+        "-volname", f"Laptop LiveCam {VERSION}",
         "-srcfolder", str(stage),
         "-ov",
         "-format", "UDZO",
@@ -642,7 +584,7 @@ print("Commands:")
 print("  /usr/local/bin/camdash")
 print("  /usr/local/bin/camdash-gui")
 print("State:", SUPPORT)
-print("Login Item:", STARTER)
+print("Autostart agent:", LAUNCH)
 print("DMG:", dmg)
 print()
 print("Minimum macOS: 13.0")

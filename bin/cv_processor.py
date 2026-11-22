@@ -257,7 +257,7 @@ _DEFAULTS = {
     'CV_DETECT_ENABLED':      1,     # off by default
     'CV_DETECT_BACKEND':      'onnx',   # motion | onnx | null
     'CV_DETECT_INTERVAL':     8,     # run the detector every N frames
-    'CV_DETECT_MODEL':        '~/Library/Application Support/HLS Livecam/state/models/yolov8n.onnx',
+    'CV_DETECT_MODEL':        '~/Library/Application Support/Laptop LiveCam/state/models/yolov8n.onnx',
     'CV_DETECT_CONF':         0.12,
     'CV_DETECT_MIN_AREA':     0.004, # motion backend: ignore blobs smaller than this
     'CV_DETECT_CLASSES':      '',    # '' = every class in COCO_LABELS.

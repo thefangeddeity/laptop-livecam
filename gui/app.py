@@ -787,7 +787,7 @@ class Dashboard(QWidget):
         # The build goes in the title so it is readable from the window list
         # and from a screenshot, without needing the window focused.
         self.setWindowTitle(
-            f"camdash — HLS Livecam Operator — {probes.version_label(short=True)}")
+            f"camdash — Laptop LiveCam Operator — {probes.version_label(short=True)}")
         self.resize(1400, 900)
         self.setStyleSheet(T.QSS)
         self.last = {}

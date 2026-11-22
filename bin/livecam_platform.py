@@ -21,9 +21,14 @@ Two things in here are load-bearing for the fleet:
 """
 import os
 import sys
+import shutil
 import subprocess
 
-APP_NAME = "HLS Livecam"
+APP_NAME = "Laptop LiveCam"
+# The product was called this when every current install was set up.
+# Rescued below so a rename doesn't orphan config.env, notify.urls and the
+# enabled flag under a directory nothing looks at anymore.
+_LEGACY_APP_NAME = "HLS Livecam"
 SLUG     = "hls-livecam"
 
 BIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -36,13 +41,33 @@ IS_LINUX   = sys.platform.startswith("linux")
 
 # ── Locations ────────────────────────────────────────────────────
 
+def _migrate_legacy_base_dir(new_dir, legacy_dir):
+    """One-time rescue for the HLS Livecam -> Laptop LiveCam rename.
+
+    Only runs while the new directory doesn't exist yet, so it is a single
+    move on the first launch after an upgrade and a no-op forever after.
+    """
+    if os.path.exists(new_dir) or not os.path.isdir(legacy_dir):
+        return
+    try:
+        os.makedirs(os.path.dirname(new_dir), exist_ok=True)
+        shutil.move(legacy_dir, new_dir)
+    except Exception:
+        pass
+
+
 def _base_dir():
     """Per-user, writable, survives reboots, outside any signed bundle."""
     if IS_MACOS:
-        return os.path.expanduser(f"~/Library/Application Support/{APP_NAME}")
+        d = os.path.expanduser(f"~/Library/Application Support/{APP_NAME}")
+        legacy = os.path.expanduser(f"~/Library/Application Support/{_LEGACY_APP_NAME}")
+        _migrate_legacy_base_dir(d, legacy)
+        return d
     if IS_WINDOWS:
         root = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-        return os.path.join(root, APP_NAME)
+        d = os.path.join(root, APP_NAME)
+        _migrate_legacy_base_dir(d, os.path.join(root, _LEGACY_APP_NAME))
+        return d
     xdg = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
     return os.path.join(xdg, SLUG)
 

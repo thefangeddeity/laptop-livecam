@@ -57,7 +57,18 @@ CONFIG    = os.path.join(ROOT, "config.env")
 # normal case for anything installed from a DMG by somebody other than its
 # builder.
 _IN_BUNDLE = ".app/Contents/Resources/" in BIN_DIR
-_APP_SUPPORT = os.path.expanduser("~/Library/Application Support/HLS Livecam")
+_APP_SUPPORT = os.path.expanduser("~/Library/Application Support/Laptop LiveCam")
+
+# One-time rescue for the HLS Livecam -> Laptop LiveCam rename. config.env,
+# notify.urls and the enabled flag all lived under the old name; without this
+# an upgraded node would silently start from empty instead of failing loudly.
+_LEGACY_APP_SUPPORT = os.path.expanduser("~/Library/Application Support/HLS Livecam")
+if not os.path.isdir(_APP_SUPPORT) and os.path.isdir(_LEGACY_APP_SUPPORT):
+    try:
+        shutil.copytree(_LEGACY_APP_SUPPORT, _APP_SUPPORT)
+    except Exception:
+        pass
+
 STATE_DIR = os.path.join(_APP_SUPPORT, "state") if _IN_BUNDLE \
     else os.path.join(ROOT, "state")
 os.makedirs(STATE_DIR, exist_ok=True)
@@ -133,7 +144,7 @@ _CAMERA_HELPER = os.path.normpath(os.path.join(
     os.path.dirname(__file__),
     "..",
     "Helpers",
-    "HLS Livecam Camera.app",
+    "Laptop LiveCam Camera.app",
     "Contents",
     "MacOS",
     "camera-capture",
@@ -2865,7 +2876,7 @@ def _writer_loop():
                            ' -- this stack was started outside a GUI session '
                            '(launchctl managername is not Aqua), so macOS '
                            'refuses the camera and avfoundation hangs. Quit '
-                           'it and launch HLS Livecam.app instead.'))
+                           'it and launch Laptop LiveCam.app instead.'))
                     _kill_hard(proc)
                     _stop_cv_publisher()
                 else:
@@ -4542,7 +4553,7 @@ def info():
     # definition: the box cannot end up sized for a length the server will
     # then truncate.
     # Product identity is served, not spelled out in the viewer. The fleet is
-    # two products now -- HLS Livecam and HLS LightCV -- and which one a node
+    # two products now -- Laptop LiveCam and HLS LightCV -- and which one a node
     # runs is a property of the node, not of the page. amira is a Mac running
     # LightCV, so platform cannot stand in for it either. Same reasoning as
     # the version: a constant in the viewer is a second place to forget.

@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/hls-livecam-dmg.XXXXXX")"
-APP="$STAGE/HLS Livecam.app"
+APP="$STAGE/Laptop LiveCam.app"
 CONTENTS="$APP/Contents"
 RES="$CONTENTS/Resources"
 RUNTIME="$RES/app"
@@ -63,7 +63,7 @@ SHORT_VERSION="$(printf '%s' "$VERSION" | grep -oE '[0-9]+(\.[0-9]+){1,2}' | hea
 # The filename carries version, build stamp and commit so a stale DMG is
 # obvious at a glance rather than after a wasted trip to the console, and so
 # it can be matched against the label the installed app shows.
-OUT="$DIST/HLS-Livecam-${VERSION}-${BUILD_STAMP}-${GIT_COMMIT}.dmg"
+OUT="$DIST/Laptop-LiveCam-${VERSION}-${BUILD_STAMP}-${GIT_COMMIT}.dmg"
 
 # Install-time policy, shared with install-macos.py. Empty identity = ad-hoc,
 # which is this fleet's permanent state by decision.
@@ -95,15 +95,18 @@ FFMPEG="$(command -v ffmpeg || true)"
 # and delivers roughly a fifth of the stream with no error, so a machine
 # without SoX has no usable room audio at all. Checked here so that is found
 # at build time rather than by a listener hearing bursts and silence.
-SOX="$(command -v sox || true)"
-[[ -n "$SOX" ]] || { echo "ERROR: sox not found (brew install sox)" >&2; exit 1; }
+# Homebrew has no bottle for sox/icecast on Intel + Ventura/Sonoma (Tier 3),
+# so some build machines get them via MacPorts instead -- fall back to its
+# default bin dir directly in case that isn't symlinked onto PATH.
+SOX="$(command -v sox || echo /opt/local/bin/sox)"
+[[ -x "$SOX" ]] || { echo "ERROR: sox not found (brew install sox, or on Tier-3 Intel: sudo port install sox)" >&2; exit 1; }
 # Icecast serves the listening path. The viewer's Monitor key plays a
 # progressive MP3 from it; without Icecast there is a picture and no way to
 # hear the room. Two-way would still work, which is exactly why this is worth
 # failing the build over -- a half-working install is harder to diagnose than
 # one that refuses to build.
-ICECAST="$(command -v icecast || true)"
-[[ -n "$ICECAST" ]] || { echo "ERROR: icecast not found (brew install icecast)" >&2; exit 1; }
+ICECAST="$(command -v icecast || echo /opt/local/bin/icecast)"
+[[ -x "$ICECAST" ]] || { echo "ERROR: icecast not found (brew install icecast, or on Tier-3 Intel: sudo port install icecast2)" >&2; exit 1; }
 
 echo "[1/6] Preflight"
 "$PY" -c 'import PySide6; print("PySide6 OK")'
@@ -123,8 +126,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-<key>CFBundleName</key><string>HLS Livecam</string>
-<key>CFBundleDisplayName</key><string>HLS Livecam</string>
+<key>CFBundleName</key><string>Laptop LiveCam</string>
+<key>CFBundleDisplayName</key><string>Laptop LiveCam</string>
 <key>CFBundleIdentifier</key><string>com.livecam.hls-livecam</string>
 <key>CFBundleExecutable</key><string>hls-livecam</string>
 <key>CFBundlePackageType</key><string>APPL</string>
@@ -143,9 +146,8 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 <key>LivecamBuildLabel</key><string>${VERSION} · ${BUILD_STAMP} · ${GIT_COMMIT}</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSCameraUsageDescription</key><string>HLS Livecam uses the camera to publish the live room video feed.</string>
-<key>NSMicrophoneUsageDescription</key><string>HLS Livecam uses the microphone to publish sound from the room.</string>
-<key>NSAppleEventsUsageDescription</key><string>HLS Livecam adds itself to your Login Items so the stream resumes after a restart.</string>
+<key>NSCameraUsageDescription</key><string>Laptop LiveCam uses the camera to publish the live room video feed.</string>
+<key>NSMicrophoneUsageDescription</key><string>Laptop LiveCam uses the microphone to publish sound from the room.</string>
 </dict>
 </plist>
 PLIST
@@ -244,7 +246,7 @@ s = s.replace(
     'VENDOR="$ROOT/vendor"\n'
     'WEB_DIR="$ROOT/web"\n'
     'CONFIG="$ROOT/config.env"\n',
-    'APP_SUPPORT="$HOME/Library/Application Support/HLS Livecam"\n'
+    'APP_SUPPORT="$HOME/Library/Application Support/Laptop LiveCam"\n'
     'STATE_DIR="$APP_SUPPORT/state"\n'
     'LOG_DIR="$STATE_DIR/logs"\n'
     'VENDOR="$ROOT/vendor"\n'
@@ -270,7 +272,19 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 ROOT="$HERE/Resources/app"
 PY="$ROOT/.venv/bin/python"
-LOGS="$HOME/Library/Application Support/HLS Livecam/state/logs"
+
+# One-time rescue for the HLS Livecam -> Laptop LiveCam rename: config.env,
+# notify.urls and the enabled flag all lived under the old name. Done here,
+# before LOGS is created below, because livecam-firstrun's own migration (in
+# livecam_platform) runs too late to help -- by then this launcher would
+# already have created an empty new-named directory for its own log file,
+# which makes that migration see the new path as already in use and skip.
+LEGACY_SUPPORT="$HOME/Library/Application Support/HLS Livecam"
+APP_SUPPORT="$HOME/Library/Application Support/Laptop LiveCam"
+if [ ! -d "$APP_SUPPORT" ] && [ -d "$LEGACY_SUPPORT" ]; then
+  mv "$LEGACY_SUPPORT" "$APP_SUPPORT" 2>/dev/null || true
+fi
+LOGS="$APP_SUPPORT/state/logs"
 
 # Homebrew's bin is not on a Finder-launched process's PATH, and ffmpeg lives
 # there. Without this the first-run dependency check would report ffmpeg
@@ -311,16 +325,16 @@ echo "[5/6] DMG layout"
 ln -s /Applications "$STAGE/Applications"
 
 cat > "$STAGE/README.txt" <<README
-HLS Livecam ${VERSION}
+Laptop LiveCam ${VERSION}
 Build ${BUILD_STAMP}  commit ${GIT_COMMIT}$([[ "$BUILD_TRUST" != "release" ]] && echo "  [UNTRACKED BUILD]")
 
 SETUP
-  1. Drag HLS Livecam.app to Applications.
+  1. Drag Laptop LiveCam.app to Applications.
   2. Right-click it in Applications and choose Open. (Required once: this
      build is ad-hoc signed, so a normal double-click is blocked.)
   3. Click through the prompts. You will be asked for camera and microphone
-     access, for Automation, and -- if you enable automatic login -- for your
-     password and admin rights.
+     access, and -- if you enable automatic login -- for your password and
+     admin rights.
 
 That is the whole install. No separate installer, no Terminal, no checkout.
 Setup runs from inside the app on first launch and does not repeat.
@@ -331,6 +345,14 @@ Three command-line tools must be installed:
   brew install ffmpeg
   brew install sox
   brew install icecast
+
+On an Intel Mac running Ventura or Sonoma, Homebrew has no prebuilt bottle
+for sox or icecast (it only builds those for Apple Silicon and newer macOS),
+so `brew install` will try to compile them and may fail. Use MacPorts
+instead:
+
+  sudo port install sox icecast2
+  sudo ln -s /opt/local/bin/sox /opt/local/bin/icecast /usr/local/bin/
 
 The app will tell you if any is missing.
 
@@ -394,7 +416,7 @@ mkdir -p "$DIST"
 rm -f "$OUT"
 
 hdiutil create \
-  -volname "HLS Livecam ${VERSION}" \
+  -volname "Laptop LiveCam ${VERSION}" \
   -srcfolder "$STAGE" \
   -ov \
   -format UDZO \
