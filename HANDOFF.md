@@ -307,3 +307,14 @@ main-serve-guard, windows-art)?
   **Ron must enter the mesh passphrase** in the app on Spitsbergen.
 - After reboot: livecam verify 10/10 (frames, HLS, detector on OpenCV 5.0, 1 alert
   destination), 0 EXT4/I/O/reset lines this boot. Spitsbergen tailnet 100.100.17.2.
+
+## 2026-11-23 — 7.2.3 RELEASED (lead: Tanzania-based LLC Implementer)
+- Tags v7.2.3 -> 061b0b9 (after the lead's version-bump fix; first tag said 7.2.2),
+  mac-v7.2.3 -> ed28a72. GitHub release (latest): deb 951a1000 (tina), pkg 22eb0632
+  (release_arch.sh on tanzania), DMG e5653b47 (lead, from ~/llc-dmgfix). AUR fe3b162
+  (ariana). main PKGBUILD sums 1ee66e4.
+- tanzania on 7.2.3: nginx had been DISABLED since its Nov 21 boot (viewer down);
+  re-enabled by setup, 10/10. .pacnew taken (old kept .pre-7.2.3). Cause of the
+  disable unknown.
+- Pending: tina + spitsbergen to 7.2.3; amira OS-layer checks (VMM flag off? OCLP
+  root patches? trackpad drag) -- amira unreachable at last try; TeamViewer deferred.
