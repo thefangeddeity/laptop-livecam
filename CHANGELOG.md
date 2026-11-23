@@ -4,6 +4,44 @@ Newest first. Entries for 7.0.2 through 7.0.11 were reconstructed from the
 release tags on 2026-10-20, having been skipped as they shipped; the older
 5.x/2.x section below is not consistently ordered and has been left as it was.
 
+## 7.2.3
+
+- **Rebrand: HLS Livecam -> Laptop LiveCam.** config.env's PRODUCT_NAME had
+  already said Laptop LiveCam for a while; the rest of the macOS tree (app
+  bundle name, Application Support path, the camera Helper .app, dialogs,
+  DMG naming) still hardcoded the old name. One-time migration moves an
+  existing install's Application Support directory so config.env,
+  notify.urls and the enabled flag survive the rename.
+- **macOS login autostart no longer depends on Automation consent.**
+  First-run setup registered a System Events Login Item, which silently
+  fails forever if that one-time permission prompt is dismissed. It now
+  calls the existing `livecam enable`, a LaunchAgent in the gui/<uid> Aqua
+  session domain -- no Automation prompt, and TCC still grants the camera
+  since it's inside the GUI session.
+- **macOS Icecast actually starts now.** The binary was required at build
+  time but nothing configured or launched it, so the Monitor key's audio
+  listening leg never worked. `livecam` now generates a loopback-only
+  config and starts/stops it alongside mediamtx and broadcast-api.
+- **Viewer: the CV key no longer reappears on hardware that already told
+  us it can't do CV.** It read the live pipeline state directly, and that
+  state resets to unknown on any failed poll (a network blip, a restart) --
+  indistinguishable, on permanently-unfit hardware, from the one case the
+  leniency was meant to cover (a probe that genuinely never ran). The last
+  verdict is now held in-session and in localStorage, so only a fresh
+  successful read can move it.
+- The BLUR button is now labelled PIX; it mosaics the picture, it never
+  blurred it.
+- CV eco mode no longer flaps every ~3s on CPUs whose own eco-rendering
+  cost sits right at the gate threshold (timed backoff instead).
+- mediamtx no longer races the network at boot, which was serving WebRTC
+  on 127.0.0.1 only and left iPhone viewers at a black screen.
+
+Known open issues, not landmines: the macOS .venv is still built against
+the build machine's own Homebrew Python and isn't relocatable (works on
+Amira only via a matching python.org 3.14.10 installed as a fallback); the
+Mac build still doesn't fetch the CV detector model, which is silent and
+harmless since CV-unfit hardware never loads it anyway.
+
 ## 7.2.2
 
 - **The .deb runs the detector on Ubuntu 24.04 and Debian 12.** Their OpenCV
