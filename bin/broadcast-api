@@ -4965,10 +4965,23 @@ def serve_cams():
     return _nocache(send_from_directory(os.path.join(WEB_DIR, 'cams'), 'cams.html'))
 
 
+# Fixed assets (the brand icon, fonts, images) may be cached; pages and live
+# state may not. Everything here used to go out no-store, and Chrome/Edge do
+# not keep a favicon the server forbids storing -- so the Macs' tabs showed a
+# generic globe while the Linux nodes (nginx, no such header) showed the icon.
+_STATIC_CACHEABLE = ('.png', '.ico', '.svg', '.jpg', '.jpeg', '.webp',
+                     '.woff', '.woff2', '.ttf')
+
+
 @app.route('/<path:path>')
 def serve_static(path):
     full = os.path.join(WEB_DIR, path)
     if os.path.isfile(full):
+        if path.lower().endswith(_STATIC_CACHEABLE):
+            resp = send_from_directory(WEB_DIR, path, max_age=86400)
+            resp.headers['Cache-Control'] = 'public, max-age=86400'
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            return resp
         return _nocache(send_from_directory(WEB_DIR, path))
     abort(404)
 
