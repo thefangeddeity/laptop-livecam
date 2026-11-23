@@ -303,8 +303,23 @@ start_mediamtx() {
   # switched on.
   gen_mediamtx_yml
   rotate_log "$LOG_DIR/mediamtx.log"
-  nohup "$MEDIAMTX_BIN" "$MEDIAMTX_YML" >>"$LOG_DIR/mediamtx.log" 2>&1 &
-  echo $! > "$MMTX_PID"
+  local tries=0
+  while :; do
+    nohup "$MEDIAMTX_BIN" "$MEDIAMTX_YML" >>"$LOG_DIR/mediamtx.log" 2>&1 &
+    echo $! > "$MMTX_PID"
+    # `livecam restart` on ariana left mediamtx dead while broadcast-api and
+    # icecast came up fine: a tight stop/start exits RTSP/HLS/WebRTC's old
+    # listeners a moment before the kernel actually frees the ports, so the
+    # new process's bind() loses the race and it exits immediately -- which
+    # a bare `nohup ... &` never notices, since backgrounding always
+    # "succeeds". Give it a moment to actually still be there.
+    sleep 0.5
+    pid_alive "$MMTX_PID" && break
+    tries=$((tries+1))
+    [ $tries -lt 3 ] || { echo -e "  ${R}mediamtx failed to start${N} (see $LOG_DIR/mediamtx.log)" >&2; return 1; }
+    echo -e "  ${Y}mediamtx exited immediately, retrying (port likely still held by the old process)${N}"
+    sleep 1
+  done
   echo -e "  ${G}mediamtx started${N} (pid $(cat "$MMTX_PID"))"
 }
 
