@@ -164,7 +164,12 @@ ditto "$ROOT/vendor" "$RUNTIME/vendor"
 # Nothing in the installed bundle runs livecam-setup, so the page copied here
 # is the page the operator gets, permanently. Rendering makes the shipped
 # viewer a function of committed source instead of local disk state.
-BUILD_HLS_PORT="$(grep -E '^HLS_PORT=' "$ROOT/config.env" 2>/dev/null | cut -d= -f2 | tr -d ' ')"
+# `2>/dev/null` only hides grep's error text, not its exit status -- when
+# config.env doesn't exist at all (a build-only worktree with no node config,
+# as opposed to every dev checkout, which has a real one), that status trips
+# `set -e` on this assignment itself, before the fallback below ever runs.
+# `|| true` inside the substitution is what actually makes this line safe.
+BUILD_HLS_PORT="$(grep -E '^HLS_PORT=' "$ROOT/config.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || true)"
 [[ -n "$BUILD_HLS_PORT" ]] || BUILD_HLS_PORT=8888
 sed -e "s|@HLS_PORT@|${BUILD_HLS_PORT}|g" \
     -e "s|@VERSION@|${VERSION}|g" \
