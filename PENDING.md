@@ -213,6 +213,16 @@ other branches:
   basic shell on the host, LLC-native (NOT ELE's mesh SSH). Only Ron's Tailscale identity
   (Tailscale-User-Login via `tailscale serve`); never on plain LAN :8080. Supersedes the
   withdrawn "HUD as a terminal via ELE" idea below.
+  **Semantics (Ron, 2026-11-24): same as before -- you still log in, and it logs you out if
+  the connection drops.** Design agreed: gate 1 = request came via `tailscale serve` (remote
+  addr 127.0.0.1 on macOS; Linux needs nginx to strip/derive the header for non-local
+  clients) AND Tailscale-User-Login in config TERMINAL_USERS (ariana: rony.gonzales@gmail.com);
+  gate 2 = login prompt checked against the node's own account password (dscl on macOS, PAM
+  on Linux); heartbeat every few s, none for ~10 s -> kill the shell's process group; 15 min
+  idle cap. Backend: pty login shell + /api/term/{status,open,input,read(long-poll),resize,
+  close} in broadcast-api (no new deps); front end: xterm.js vendored locally in the slot of the
+  viewer's MESSAGES card (#elePanel / .ele-list in web/index.template.html ~L1729). Build on
+  macos (test on ariana) first, then port to main. NOT started yet.
 - **Home page: drop launcher role (Ron, 2026-11-24).** Keep the "(Server name) Home" tab
   title; remove tiles/links to other apps, the ELE card, anything presenting LLC as a
   launcher.
