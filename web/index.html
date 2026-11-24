@@ -1723,6 +1723,36 @@
        the list below takes the slack. As a rule rather than an inline style,
        because inline beat a stylesheet rule elsewhere in this very file and
        cost an hour. */
+    /* ── TERMINAL ──
+       The glass is the same surface the messenger list used, so the rail
+       still reads as one instrument; xterm draws on top of it with a
+       transparent background. min-height so a short rail still gets a
+       usable screen, and the card's flex column hands it the rest. */
+    #termPanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+    #termPanel[hidden] { display: none; }
+    .term-glass { flex: 1 1 auto; min-height: 18em; position: relative;
+                  border-radius: 6px; padding: 6px 4px 6px 8px; overflow: hidden;
+                  border: 1px solid #040809;
+                  background:
+                    repeating-linear-gradient(180deg,rgba(0,0,0,.15) 0 1px,transparent 1px 3px),
+                    linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+                  box-shadow: inset 0 1px 0 rgba(255,255,255,.05),
+                              inset 0 0 20px rgba(0,0,0,.75); }
+    html[data-theme="light"] .term-glass {
+                  border-color: #c9c0a6;
+                  background:
+                    repeating-linear-gradient(180deg,rgba(101,123,131,.08) 0 1px,transparent 1px 3px),
+                    linear-gradient(180deg,var(--glass-a) 0%,var(--glass-b) 62%,var(--glass-a) 100%);
+                  box-shadow: inset 0 1px 0 rgba(255,255,255,.55),
+                              inset 0 0 18px rgba(101,123,131,.10); }
+    /* xterm sizes itself from its parent; absolute fill gives it a definite
+       box so the fit addon measures the glass, not its own last size. */
+    .term-glass .xterm { position: absolute; inset: 6px 4px 6px 8px; }
+    .term-glass .xterm-viewport { background: transparent !important; }
+    .term-glass .xterm-viewport::-webkit-scrollbar { width: 6px; }
+    .term-glass .xterm-viewport::-webkit-scrollbar-thumb { background: var(--phos-ghost); border-radius: 3px; }
+    #termRow { justify-content: flex-end; }
+    #termState.live { color: var(--phos); }
     #elePanel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
     /* The card grows now (see #elePanel flex:1), so the LIST is what takes
        up the slack and therefore what has to scroll. */
@@ -2342,7 +2372,7 @@
          buildLabel.textContent is unchanged (the space lives inside the
          host span), so anything reading the whole label still gets the
          whole label, and the hover title still carries the untrimmed tag. -->
-    <span class="hdr-vfd" title="mac-v7.2.0-1-g76cd2dc"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
+    <span class="hdr-vfd" title="mac-v7.2.3-7-ge91e209-dirty · dev · e91e209"><span class="vlit" id="buildLabel"><span class="bl-ver"><span id="buildVer"></span><span class="bl-dev" id="buildDev"></span></span><span class="bl-host" id="buildHost"></span></span></span>
   </div>
   <div class="status-bar">
     <!-- Same switch shape as Notch filters (.reset + .rstlab), deliberately:
@@ -2774,92 +2804,35 @@
         </div>
       </div>
 
-      <!-- ══ ELE MESSENGER ══
-           Hidden unless the messenger is actually installed on this node.
-           No build flag and no server change decides that: the viewer asks
-           /elem/v1/ping, which answers 200 when the mesh is present
-           and 404 when it is not, because the nginx include that routes
-           /ele* is a wildcard that matches nothing on a node without it.
-           A node with no messenger therefore shows Node Note and nothing
-           else, which is the intended degradation rather than an error. -->
-      <!-- STRETCHES. With Settings and Who's who moved under the picture,
-           this column carries one card, and a card that stops two inches
-           down a full-height column reads as unfinished rather than
-           finished early. flex:1 lets the message list use the height the
-           sidebar already had; min-height:0 is what makes the list inside
-           it scroll rather than push the card past the fold. -->
-      <div class="panel" id="elePanel" hidden>
-        <!-- Two COLUMNS and a rule, not two rows. Each side is a thing and
-             its qualifier, stacked: what this card is, and who you are
-             speaking as. Read down rather than across.
+      <!-- ══ TERMINAL ══
+           A login shell on this machine, in the card that used to carry the
+           mesh messenger (ELE has its own terminal now; the two apps are
+           separate). Two locks: the page must have come in over the tailnet
+           as someone on this node's TERMINAL_USERS list, and then the
+           system's own login asks for the account password. Leaving -- a
+           closed tab, a locked phone, a dropped network -- logs you out
+           within about ten seconds, the same as pulling a console cable.
 
-             The machine name leads its column because in the event this is
-             for, WHICH MACHINE IS STILL TALKING is the fact on the card that
-             changes. "Messages" and "ELEM" never change; the network it is
-             reaching over might; the name is the one that matters at a
-             glance, so it gets the size and the only tint in the header. -->
+           The card is HIDDEN unless /api/term/status says this page could
+           open one, so the plain LAN port and anyone off the list see no
+           card at all rather than a locked door. -->
+      <!-- STRETCHES, like the card it replaced: this column carries one
+           card, and the screen takes the slack. -->
+      <div class="panel" id="termPanel" hidden>
         <div class="ele-top ele-sub">
           <span class="ele-col">
-            <span class="ele-what eng">Messages</span>
-            <!-- No icon: /ele/icons was the removed server's path and 404s
-                 now. A broken image in the header reads as a broken card. -->
-            <span class="ele-brand">ELE Mesh</span>
+            <span class="ele-what eng">Terminal</span>
+            <span class="ele-brand" id="termWho">tailnet</span>
           </span>
           <span class="ele-col right">
-            <span class="me" id="eleMe"></span>
-            <span class="ele-transport" id="eleTransport">—</span>
+            <span class="me node" id="termHost"></span>
+            <span class="ele-transport" id="termState">logged out</span>
           </span>
         </div>
-        <div class="ele-list" id="eleList">checking…</div>
-        <!-- And replying happens here. A card you can only read from is a
-             link wearing a panel. -->
-        <!-- One field. There is a single rolling channel, so there is no
-             recipient to choose, and who you are comes from the session --
-             this machine, or you if you logged in. Nobody should be picking
-             from a dropdown to say the stairs are blocked. -->
-        <div class="ele-row" id="eleSend" hidden>
-          <!-- A TEXTAREA, not an input, so a long message WRAPS instead of
-               scrolling sideways past its own left edge. One row to start,
-               growing to fit what is typed (see eleGrow) and capped so it
-               cannot swallow the card. Enter still sends; Shift+Enter is the
-               newline, which every chat box has already taught. -->
-          <textarea class="ele-in" id="eleMsg" rows="1" placeholder="message…"
-                 maxlength="500" autocomplete="off" aria-label="Message"
-                 enterkeyhint="send" title="Enter sends, Shift+Enter for a new line"></textarea>
-          <button class="pbtn" id="eleSendBtn" onclick="eleSendMsg()">Send</button>
-        </div>
-        <!-- SIGNING IN HAPPENS HERE, not in another tab. The card used to
-             offer a link to /elem/, which means leaving the camera to type a
-             passphrase and coming back -- in the event this card exists for,
-             that is three decisions too many. The mesh already accepts a
-             passphrase over POST /v1/login and sets its own session cookie;
-             nothing needed inventing, only asking.
-             type=password so a passphrase said out loud is not also on
-             screen, and autocomplete=off because this is a shared house
-             machine rather than somebody's own browser. -->
-        <div class="ele-row" id="eleSignInRow" hidden>
-          <input class="ele-in" id="elePass" type="password" placeholder="mesh passphrase…"
-                 maxlength="200" autocomplete="off" aria-label="Mesh passphrase"
-                 enterkeyhint="go" title="Enter joins">
-          <button class="pbtn" id="eleJoinBtn" onclick="eleJoin()">Join</button>
-        </div>
-        <div class="ele-err" id="eleErr" hidden></div>
-        <!-- Three across, which this grid has always been sized for. Leave
-             mesh is peer to the other two -- same class of action, same
-             weight -- and it needs no label beside it: the row only appears
-             when you are signed in, so its presence already says so. The
-             bespoke row it replaces put body-sized text in a card where
-             .quiet is only styled inside .ele-list, so the label rendered
-             at full size and dominated the card. -->
-        <div class="msg-actions two" id="eleActions" hidden>
-          <button class="pbtn" id="eleOpenBtn" onclick="eleOpenWindow()"
-                  title="Open the full chat in its own window">Open chat</button>
-          <button class="pbtn" id="eleLeaveBtn" onclick="eleLeave()" hidden
-                  title="Sign this browser out. The mesh forgets the session; everyone else stays connected.">Leave mesh</button>
-          <!-- Hidden until signed in: a visitor cannot mint invites, and a
-               button that always 401s is worse than no button. -->
-          <button class="pbtn aside" id="eleInviteBtn" onclick="eleInvite()" hidden
-                  title="Copy a link that lets one device join, once, within a day">Copy invite</button>
+        <div class="term-glass" id="termBox"></div>
+        <div class="ele-row" id="termRow" hidden>
+          <button class="pbtn" id="termOutBtn" onclick="termLogout()"
+                  title="End the shell now. Leaving the page does this too.">Log out</button>
         </div>
       </div>
 
@@ -3418,7 +3391,7 @@
     // a version yet. A rendered copy of THIS file was once pasted into the
     // Linux tree, where the stamped literal became a lie that outlived many
     // releases -- preferring the live value is what stops that recurring.
-    var build = info.version || 'mac-v7.2.0-1-g76cd2dc';
+    var build = info.version || 'mac-v7.2.3';
     // ONE format across the fleet: <platform>-v<version>, e.g. "mac-v1.8.2-11"
     // and "linux-v7.0.50" (requirement).
     //
@@ -7113,521 +7086,220 @@
 
 
 
-  // ── ELE MESSENGER (optional neighbour on this origin) ──────────────────
-  // /elem/v1/ping is used as a REACHABILITY check and nothing more: it
-  // answers 200 where the messenger is installed and 404 where it is not, so
-  // one request decides whether this card exists at all. A node without the
-  // messenger shows Node Note alone -- the designed degradation, not a
-  // failure, so a 404 is silent rather than an error state.
-  //
-  // It also returns who is connected, and that is deliberately IGNORED.
-  // Nobody is ever "online" here; a roster that is permanently empty reads
-  // as a broken card rather than an informative one, and the same goes for
-  // telling someone their recipient is offline. Messages are written to the
-  // database either way and read back from history whenever anyone looks.
-  var elePanel = document.getElementById('elePanel');
-  var eleList  = document.getElementById('eleList');
-  var elePresent = false;
-  var eleHost = null;       // this machine's name
-  var eleRoom = 'home';     // the house channel; the mesh default
-  var eleMsgs = [];         // what we have been told, in order
-  var eleCursor = 0;        // the mesh's cursor, never computed here
-  var eleGen = 0;           // bumps to retire an in-flight long poll
-  var eleAuthed = false;
+  // ── TERMINAL (a login shell on this machine) ───────────────────────────
+  // The server decides whether this page may have one (/api/term/status:
+  // tailnet identity on this node's list); the card stays hidden otherwise,
+  // so the LAN port shows no locked door. Then it is a console: a local
+  // "login:" line, the system's own Password: prompt through the pty, and a
+  // shell. The read long-poll IS the heartbeat -- stop asking for output and
+  // the server hangs the line up about ten seconds later, which is how
+  // closing the tab, locking the phone or losing the network logs you out.
+  var termPanel = document.getElementById('termPanel');
+  var termBox   = document.getElementById('termBox');
+  var term = null, termFit = null;
+  var termMode = 'off';          // off | login | opening | shell
+  var termSid = '', termOff = 0, termLine = '', termHostName = '';
+  var termGen = 0;               // bumps on every session; stale loops stop
+  var termSending = false, termQueue = '';
+  var TERM_H = { 'Content-Type': 'application/json', 'X-LLC-Term': '1' };
 
-  // This machine's name, for rendering person@machine. capabilities.json is
-  // the node stating its own name and is already served from this origin.
-  fetch('/capabilities.json', { cache: 'no-store' })
-    .then(function (r) { return r.ok ? r.json() : null; })
-    .catch(function () { return null; })
-    .then(function (d) {
-      var n = d && d.identity && d.identity.node && d.identity.node.value;
-      if (n) eleHost = n;
+  function termSetState(txt, live) {
+    var el = document.getElementById('termState');
+    if (el) { el.textContent = txt; el.classList.toggle('live', !!live); }
+    var row = document.getElementById('termRow');
+    if (row) row.hidden = (termMode !== 'shell');
+  }
+
+  function termTheme() {
+    var cs = getComputedStyle(document.documentElement);
+    var fg = (cs.getPropertyValue('--phos') || '#3fe8cd').trim();
+    return { background: 'rgba(0,0,0,0)', foreground: fg, cursor: fg,
+             cursorAccent: (cs.getPropertyValue('--glass-a') || '#070d0e').trim(),
+             selectionBackground: (cs.getPropertyValue('--phos-ghost') || 'rgba(63,232,205,.25)').trim() };
+  }
+
+  function termLoad(done) {
+    if (window.Terminal && window.FitAddon) return done();
+    var css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = '/vendor/xterm.min.css';
+    document.head.appendChild(css);
+    var a = document.createElement('script');
+    a.src = '/vendor/xterm.min.js';
+    a.onload = function () {
+      var b = document.createElement('script');
+      b.src = '/vendor/xterm-addon-fit.min.js';
+      b.onload = done;
+      document.head.appendChild(b);
+    };
+    document.head.appendChild(a);
+  }
+
+  function termInit() {
+    if (term) return;
+    var cs = getComputedStyle(document.documentElement);
+    term = new window.Terminal({
+      allowTransparency: true, cursorBlink: true, scrollback: 2000,
+      fontFamily: (cs.getPropertyValue('--mono') || 'monospace').trim(),
+      fontSize: 12, lineHeight: 1.1, theme: termTheme(),
+      convertEol: false
     });
-
-  function eleEsc(t) {
-    return String(t).replace(/[&<>"]/g, function (c) {
-      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c];
+    termFit = new window.FitAddon.FitAddon();
+    term.loadAddon(termFit);
+    term.open(termBox);
+    try { termFit.fit(); } catch (e) {}
+    term.onData(termKey);
+    term.onResize(function (sz) {
+      if (termMode !== 'shell') return;
+      fetch('/api/term/resize', { method: 'POST', headers: TERM_H, cache: 'no-store',
+        body: JSON.stringify({ sid: termSid, rows: sz.rows, cols: sz.cols }) }).catch(function () {});
     });
-  }
-  function eleWhen(ts) {
-    var d = new Date(ts);
-    if (isNaN(d)) return '';
-    var now = new Date();
-    return d.toDateString() === now.toDateString()
-      ? d.toTimeString().slice(0, 5)
-      : (d.getMonth() + 1) + '/' + d.getDate();
-  }
-  function eleSay(msg) {
-    var e = document.getElementById('eleErr');
-    if (!e) return;
-    e.textContent = msg || '';
-    e.hidden = !msg;
-  }
-
-  // ── THREE STATES, NOT TWO ───────────────────────────────────────────────
-  // The old server let this machine speak for itself: the card took a node
-  // session and never asked anyone who they were. The mesh does not work
-  // that way. A browser without the mesh cookie is a VISITOR, and every
-  // endpoint except /v1/ping answers 401 to one.
-  //
-  // So the card has three states now and must be able to say which it is in:
-  //   absent          -- no mesh on this node at all; hide the card
-  //   not signed in   -- mesh is here, this browser is a visitor; offer the
-  //                      way in rather than a dead list
-  //   signed in       -- show the conversation
-  //
-  // Modelling only the first and last is what made the card vanish when the
-  // old server went away: an unreachable probe and an unauthenticated one
-  // are different facts, and a card that cannot tell them apart reports a
-  // broken camera when the truth is "click here to sign in".
-  function eleParts() {
-    return { send: document.getElementById('eleSend'),
-             actions: document.getElementById('eleActions'),
-             invite: document.getElementById('eleInviteBtn'),
-             signin: document.getElementById('eleSignInRow'),
-             leave: document.getElementById('eleLeaveBtn'),
-             me: document.getElementById('eleMe') };
-  }
-
-  // Which network this page came in over. Read off the address bar rather
-  // than asserted: it is the one thing we know for certain about the path.
-  // It describes how the BROWSER reached this machine, not how the message
-  // travels once it is in the mesh -- those are different journeys and
-  // conflating them would make the label a lie the moment a link is relayed.
-  function eleNetwork() {
-    var h = (location.hostname || '').toLowerCase();
-    if (/\.ts\.net$/.test(h)) return 'tailnet';
-    if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return 'local';
-    if (/\.local$/.test(h)) return 'lan';
-    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(h)) return 'lan';
-    return 'network';
-  }
-
-  // Names only. `author` is a 16-character node id -- how machines tell
-  // each other apart, not something to read in a chat log. Printing it as
-  // person@machine gave "ariana@1bce903a1c6dc8bb", and since the name
-  // column is max-content and never wraps, it took the card and left the
-  // message breaking mid-word. The mesh fills an empty nick with the
-  // sending machine's own name, so this is populated in practice.
-  //
-  // No "you" -- in a shared channel every line should name who said it,
-  // including your own, so the log reads the same to everyone.
-  function eleIdent(nick) {
-    // Clipped HERE, not only in CSS: an unvalidated length is a data
-    // problem, and CSS is the second net rather than the first.
-    var n = String(nick || '').replace(/[\u0000-\u001f]/g, ' ')
-                              .replace(/\s+/g, ' ').trim();
-    if (!n) return 'unnamed';
-    return n.length > 12 ? n.slice(0, 11) + '\u2026' : n;
-  }
-
-  function eleShowUnavailable(note) {
-    var p = eleParts();
-    if (eleList) {
-      eleList.hidden = false;
-      eleList.innerHTML = '<span class="quiet">' + eleEsc(note) + '</span>';
+    if (window.ResizeObserver) {
+      new ResizeObserver(function () { try { termFit.fit(); } catch (e) {} }).observe(termBox);
     }
-    if (p.send) p.send.hidden = true;
-    if (p.invite) p.invite.hidden = true;
-    if (p.signin) p.signin.hidden = true;   // nothing here to join
-    if (p.leave) p.leave.hidden = true;     // nor to leave
-    if (p.actions) p.actions.className = 'msg-actions one';
-    if (p.actions) p.actions.hidden = false;
+    // The theme button flips data-theme on <html>; the ink follows it.
+    new MutationObserver(function () { if (term) term.options.theme = termTheme(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    termPrompt();
   }
 
-  // A visitor is not an error. Offer the door, do not report a fault.
-  function eleShowSignIn() {
-    eleAuthed = false;
-    var p = eleParts();
-    if (eleList) {
-      eleList.hidden = false;
-      eleList.innerHTML = '<span class="quiet">not signed in — ' +
-        'enter the mesh passphrase below, or ' +
-        '<a href="/elem/" target="_blank" rel="noopener">open ELEM web client</a>' +
-        '</span>';
-    }
-    if (p.send) p.send.hidden = true;
-    if (p.invite) p.invite.hidden = true;
-    if (p.signin) p.signin.hidden = false;
-    if (p.leave) p.leave.hidden = true;
-    // One visible button, so one track -- a hidden grid child still leaves
-    // its column behind, which is what .one and .two are for.
-    if (p.actions) p.actions.className = 'msg-actions one';
-    if (p.actions) p.actions.hidden = false;
+  function termPrompt() {
+    termMode = 'login'; termLine = ''; termSid = '';
+    termSetState('logged out', false);
+    term.write('\r\n' + termHostName + ' login: ');
   }
 
-  // Two presses, no dialog. The first arms and says so; the second commits.
-  // It disarms itself after a few seconds, because a button left reading
-  // "Leave mesh?" across the room is a trap for the next person to walk past.
-  var eleLeaveArmed = 0;
-  var ELE_LEAVE_ARM_MS = 5000;
-
-  function eleLeave() {
-    var btn = document.getElementById('eleLeaveBtn');
-    var now = Date.now();
-    if (!eleLeaveArmed || now - eleLeaveArmed > ELE_LEAVE_ARM_MS) {
-      eleLeaveArmed = now;
-      if (btn) btn.textContent = 'Leave mesh?';
-      setTimeout(function () {
-        if (!eleLeaveArmed || Date.now() - eleLeaveArmed < ELE_LEAVE_ARM_MS) return;
-        eleLeaveArmed = 0;
-        var b = document.getElementById('eleLeaveBtn');
-        if (b) b.textContent = 'Leave mesh';
-      }, ELE_LEAVE_ARM_MS + 200);
+  // Keys go to the local login line until there is a shell, then straight
+  // to the pty. Coalesced so a paste is one request, not one per character.
+  function termKey(d) {
+    if (termMode === 'shell') {
+      termQueue += d;
+      termFlush();
       return;
     }
-    eleLeaveArmed = 0;
-    if (btn) { btn.disabled = true; btn.textContent = 'leaving\u2026'; }
-    // The mesh forgets the token AND expires the cookie; this page holds
-    // neither, so there is nothing to clean up on this side. Success is
-    // simply "poll again" -- the next poll gets a 401 and the card falls
-    // back to its signed-out state through the path that already exists,
-    // rather than a second copy of that logic here.
-    fetch('/elem/v1/logout', { method: 'POST', cache: 'no-store' })
-      .then(function (r) { return r.ok; })
-      .catch(function () { return false; })
-      .then(function (ok) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Leave mesh'; }
-        if (!ok) {
-          // SAY SO. The first draft swallowed this, and on a node whose mesh
-          // predates /v1/logout the POST 404s: the next poll would find the
-          // session still good, the card would redraw itself signed in, and
-          // the button would look like it had done nothing at all. A control
-          // that silently fails is worse than one that is missing.
-          eleSay('this mesh is too old to sign out from -- update it, or clear the site data');
-          return;
-        }
-        eleAuthed = false;
-        eleGen++;
-        elePoll(eleGen);
-      });
-  }
-
-  // POST /v1/login takes {passphrase, invite} and sets an HttpOnly session
-  // cookie itself, so there is no token for this page to hold or leak --
-  // which is also why success here is simply "poll again" rather than any
-  // state kept on this side.
-  //
-  // A WRONG GUESS COSTS A SECOND, deliberately, inside the mesh. So the
-  // button has to say it is working, or the card looks frozen on the one
-  // input where people most expect an instant no.
-  function eleJoin() {
-    var box = document.getElementById('elePass');
-    var btn = document.getElementById('eleJoinBtn');
-    if (!box) return;
-    var pass = box.value;
-    if (!pass) { eleSay('enter the passphrase first'); return; }
-    if (btn) { btn.disabled = true; btn.textContent = 'joining…'; }
-    eleSay('');
-    fetch('/elem/v1/login', {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      // Both fields, because the mesh's Login struct names both. Tested
-      // against tanzania: omitting `invite` is in fact accepted and still
-      // reaches the passphrase check, but that is serde defaulting rather
-      // than a promise the API makes, and the two are only the same until
-      // somebody changes the struct.
-      body: JSON.stringify({ passphrase: pass, invite: '' })
-    })
-    .then(function (r) {
-      return r.json().catch(function () { return {}; })
-              .then(function (j) { return { ok: r.ok, j: j }; });
-    })
-    .then(function (res) {
-      if (btn) { btn.disabled = false; btn.textContent = 'Join'; }
-      if (!res.ok) {
-        // The mesh says WHY in its own words ("that isn't this mesh's
-        // passphrase"), which is better than anything invented here.
-        eleSay(res.j && res.j.error ? res.j.error : 'could not sign in');
-        box.select();
+    if (termMode !== 'login') return;
+    for (var i = 0; i < d.length; i++) {
+      var c = d[i];
+      if (c === '\r' || c === '\n') {
+        term.write('\r\n');
+        var u = termLine.trim();
+        termLine = '';
+        if (u) termOpen(u); else term.write(termHostName + ' login: ');
         return;
+      } else if (c === '\x7f' || c === '\b') {
+        if (termLine) { termLine = termLine.slice(0, -1); term.write('\b \b'); }
+      } else if (c === '\x03' || c === '\x15') {
+        termLine = ''; term.write('^C\r\n' + termHostName + ' login: ');
+      } else if (c >= ' ' && termLine.length < 32) {
+        termLine += c; term.write(c);
       }
-      box.value = '';          // never keep it; the cookie is the session
-      eleSay('');
-      eleAuthed = true;
-      eleGen++;                // retire the visitor's poll
-      elePoll(eleGen);
-    })
-    .catch(function () {
-      if (btn) { btn.disabled = false; btn.textContent = 'Join'; }
-      eleSay('could not reach the mesh');
-    });
-  }
-
-  // Distinct transports currently carrying a link, read from the mesh.
-  //
-  // An em dash until it answers, which is NOT the same as "no transports":
-  // /v1/status is gated, so a signed-out viewer genuinely cannot know, and
-  // saying so beats inventing a reassuring blank.
-  var _eleTxAt = 0;
-  function eleTransports() {
-    var el = document.getElementById('eleTransport');
-    if (!el) return;
-    if (Date.now() - _eleTxAt < 15000) return;   // it changes slowly; do not poll it hard
-    _eleTxAt = Date.now();
-    fetch('/elem/v1/status', { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (!j || !j.links || !j.links.length) { el.textContent = '\u2014'; return; }
-        var seen = {}, out = [];
-        j.links.forEach(function (l) {
-          var t = String(l.transport || '').toLowerCase();
-          if (!t || seen[t]) return;
-          seen[t] = 1;
-          // 'ble' is what the mesh calls the radio; BitChat is what it is to
-          // somebody reading a card in a corridor.
-          out.push(t === 'ble' ? 'BitChat' : t.toUpperCase());
-        });
-        el.textContent = out.length ? out.join(' + ') : '\u2014';
-      });
-  }
-
-  function eleRender() {
-    if (!eleList) return;
-    var p = eleParts();
-    eleList.hidden = false;
-    // The door closes behind you. eleShowSignIn reveals this row and
-    // eleShowUnavailable hides it, but the SIGNED-IN path did neither, so a
-    // successful join left the passphrase field sitting above the message
-    // box for the rest of the session -- asking again for something it had
-    // already been given.
-    if (p.signin) p.signin.hidden = true;
-    if (p.leave) p.leave.hidden = false;
-    if (p.actions) p.actions.className = 'msg-actions';   // all three
-    if (p.send) p.send.hidden = false;
-    if (p.invite) p.invite.hidden = false;
-    if (p.actions) p.actions.hidden = false;
-    // THE NETWORK, NOT THE MACHINE -- and only the part of it that changes.
-    //
-    // This column used to print the node's name over eleNetwork(). Both are
-    // gone. The name is already in the header chip, and it is THIS node, the
-    // one you are looking at: the card was naming itself when the question
-    // worth answering is who ELSE is reachable. (The original note here said
-    // the machine name leads because "which machine is still talking" is the
-    // fact that changes -- right reasoning, wrong subject.)
-    //
-    // eleNetwork() read location.hostname, so it described how THIS BROWSER
-    // reached the page and never said anything about the mesh. /v1/status
-    // lists live links, each with a transport, so the readout is now measured
-    // rather than inferred.
-    //
-    // No constant label either: the left column already says ELE MESH and the
-    // header says it again. A constant does not earn a line on a card this
-    // narrow -- the card's own rule, written three inches up.
-    if (p.me) { p.me.textContent = ''; p.me.className = 'me'; }
-    eleTransports();
-    var msgs = eleMsgs.slice(-12);
-    if (!msgs.length) {
-      eleList.innerHTML = '<span class="quiet">nothing said yet</span>';
-      return;
     }
-    var atBottom = (eleList.scrollHeight - eleList.scrollTop
-                    - eleList.clientHeight) < 24;
-    // Runs are keyed on the AUTHOR, not on the name shown. Two machines can
-    // choose the same name, and one machine can change its name mid-run --
-    // keying on the rendered string would merge the first and split the
-    // second. A run also breaks when the conversation goes quiet for ten
-    // minutes or the day turns, so a stale block re-announces when it was.
-    var lastAuthor = null, lastTs = 0;
-    eleList.innerHTML = msgs.map(function (m) {
-      var who = eleIdent(m.nick);
-      var stale = !lastTs || (m.ts_ms - lastTs) > 600000 ||
-                  new Date(m.ts_ms).toDateString() !== new Date(lastTs).toDateString();
-      var runs = (m.author === lastAuthor) && !stale;
-      lastAuthor = m.author; lastTs = m.ts_ms;
-      // The card identifies; the full chat adjudicates. Hover carries what
-      // the column cannot: the untruncated name and the machine behind it.
-      var full = eleEsc((m.nick || 'unnamed') + ' \u00b7 ' + (m.author || '?') +
-                        ' \u00b7 ' + new Date(m.ts_ms).toLocaleString());
-      return '<span class="em' + (runs ? ' cont' : '') + '" title="' + full + '">' +
-             '<span class="line">' +
-               '<span class="who">' + (runs ? '' : eleEsc(who)) + '</span>' +
-               '<span class="txt">' + eleEsc(m.text || '') + '</span>' +
-             '</span>' +
-             '<span class="when">' + (runs ? '' : eleEsc(eleWhen(m.ts_ms))) + '</span>' +
-             '</span>';
-    }).join('');
-    if (atBottom) eleList.scrollTop = eleList.scrollHeight;
   }
 
-  // Long-poll, not a timer. The mesh holds the request open for up to 25s
-  // and answers the moment something is said, so a message appears when it
-  // is sent rather than up to ten seconds later -- and an idle house costs
-  // one parked request instead of six round trips a minute.
-  //
-  // The generation counter retires a poll rather than cancelling it: a
-  // fetch already in flight cannot be stopped, but it can be told that its
-  // answer is no longer wanted, which is what stops two loops running after
-  // a re-probe.
-  function elePoll(gen) {
-    if (gen !== eleGen) return;
-    fetch('/elem/v1/rooms/' + encodeURIComponent(eleRoom) +
-          '/messages?after=' + eleCursor + '&wait=25', { cache: 'no-store' })
-      .then(function (r) {
-        if (r.status === 401) return 'unauth';
-        return r.ok ? r.json() : null;
-      })
-      .catch(function () { return null; })
+  function termFlush() {
+    if (termSending || !termQueue || termMode !== 'shell') return;
+    termSending = true;
+    var data = termQueue; termQueue = '';
+    fetch('/api/term/input', { method: 'POST', headers: TERM_H, cache: 'no-store',
+      body: JSON.stringify({ sid: termSid, data: data }) })
+      .catch(function () {})
+      .then(function () { termSending = false; termFlush(); });
+  }
+
+  function termOpen(user) {
+    termMode = 'opening';
+    termSetState('logging in', false);
+    fetch('/api/term/open', { method: 'POST', headers: TERM_H, cache: 'no-store',
+      body: JSON.stringify({ user: user, rows: term.rows, cols: term.cols }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }); })
       .then(function (j) {
-        if (gen !== eleGen) return;
-        if (j === 'unauth') { eleShowSignIn(); setTimeout(function () { elePoll(gen); }, 4000); return; }
-        if (!j) { setTimeout(function () { elePoll(gen); }, 4000); return; }
-        eleAuthed = true;
-        if (j.messages && j.messages.length) {
-          for (var i = 0; i < j.messages.length; i++) {
-            var m = j.messages[i], c = m.control;
-            // Control entries are instructions, not things to show. A delete
-            // matches on author AND seq: seq alone is only unique per author,
-            // so matching on it would take someone else's message down too.
-            if (!c) { eleMsgs.push(m); continue; }
-            if (c === 'clear') {
-              eleMsgs = eleMsgs.filter(function (x) { return x.ts_ms > m.ts_ms; });
-            } else if (c.delete) {
-              eleMsgs = eleMsgs.filter(function (x) {
-                return !(x.author === c.delete.author && x.seq === c.delete.seq);
-              });
-            }
-          }
-          eleMsgs.sort(function (a, b) {
-            return a.ts_ms - b.ts_ms ||
-                   String(a.author).localeCompare(String(b.author)) ||
-                   a.seq - b.seq;
-          });
-          eleCursor = j.cursor;
-          eleRender();
-        }
-        elePoll(gen);
-      });
-  }
-
-  function eleSendMsg() {
-    var box = document.getElementById('eleMsg');
-    var btn = document.getElementById('eleSendBtn');
-    if (!box) return;
-    var text = (box.value || '').trim();
-    if (!text) return;
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    eleSay('');
-    // Empty nick means the machine's own name, which is what a camera node
-    // speaking for itself should be.
-    fetch('/elem/v1/rooms/' + encodeURIComponent(eleRoom) + '/messages', {
-      method: 'POST', cache: 'no-store',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nick: '', text: text })
-    })
-      .then(function (r) {
-        if (r.status === 401) return 'unauth';
-        return r.ok;
-      })
-      .catch(function () { return null; })
-      .then(function (ok) {
-        if (btn) { btn.disabled = false; btn.textContent = 'Send'; }
-        if (ok === 'unauth') { eleShowSignIn(); return; }
-        if (!ok) { eleSay('not sent — mesh unreachable'); return; }
-        box.value = '';
-        eleGrow(box);   // back to one row
-      });
-  }
-
-  // One device, once, within a day, without handing over the passphrase.
-  function eleInvite() {
-    var b = document.getElementById('eleInviteBtn');
-    if (b) b.disabled = true;
-    eleSay('making an invite…');
-    fetch('/elem/v1/invite', { method: 'POST', cache: 'no-store' })
-      .then(function (r) {
-        if (r.status === 401) return 'unauth';
-        return r.ok ? r.json() : null;
-      })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (b) b.disabled = false;
-        if (j === 'unauth') { eleShowSignIn(); eleSay(''); return; }
-        if (!j || !j.invite) { eleSay('could not make an invite'); return; }
-        var link = location.origin + '/elem/#invite=' + j.invite;
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(link)
-            .then(function () { eleSay('invite link copied — one device, one day'); })
-            .catch(function () { eleSay(link); });
-        } else {
-          eleSay(link);
-        }
-      });
-  }
-
-  // A tab, not a pop-up. This used to open a sized window -- the shape a
-  // chat client had before everything became a tab -- but pop-ups read as
-  // something gone wrong now rather than as a feature, and browsers treat
-  // them with suspicion besides.
-  //
-  // The window NAME is kept, because that part was right: pressing the
-  // button again brings the existing tab forward instead of opening a
-  // second copy of the same conversation.
-  function eleOpenWindow() {
-    var win = window.open('/elem/', 'elemesh');
-    if (win) { try { win.focus(); } catch (e) {} }
-  }
-
-function eleProbe() {
-    fetch('/elem/v1/ping', { cache: 'no-store' })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .catch(function () { return null; })
-      .then(function (j) {
-        if (!j || !j.mesh) {
-          elePresent = false;
-          if (elePanel) elePanel.hidden = true;
+        if (!j || !j.sid) {
+          var why = (j && j.error) || 'could not start a session';
+          if (j && j.error === 'locked') why = 'too many wrong passwords; try again in ' + Math.ceil(j.locked / 60) + ' min';
+          term.write(why + '\r\n');
+          termPrompt();
           return;
         }
-        if (elePresent) return;    // already running; do not start a second poll
-        elePresent = true;
-        if (elePanel) elePanel.hidden = false;
-        eleGen++;
-        elePoll(eleGen);
+        termSid = j.sid; termOff = 0; termQueue = '';
+        termMode = 'shell';
+        termSetState(user, true);
+        termRead(++termGen, Date.now());
+      })
+      .catch(function () { term.write('connection failed\r\n'); termPrompt(); });
+  }
+
+  // One request outstanding at all times while there is a shell. A failed
+  // poll is retried until the server's own heartbeat window would have
+  // closed, then the session is called lost here too -- the server has
+  // already hung up by then, so pretending otherwise would be a lie.
+  function termRead(gen, okAt) {
+    if (gen !== termGen || termMode !== 'shell') return;
+    fetch('/api/term/read?sid=' + encodeURIComponent(termSid) + '&off=' + termOff, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (gen !== termGen) return;
+        if (j.data) {
+          var bin = atob(j.data), u8 = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+          term.write(u8);
+        }
+        if (typeof j.off === 'number') termOff = j.off;
+        if (!j.alive) { termEnd(j.reason || 'session ended'); return; }
+        termRead(gen, Date.now());
+      })
+      .catch(function () {
+        if (gen !== termGen) return;
+        if (Date.now() - okAt > 9000) { termEnd('connection lost'); return; }
+        setTimeout(function () { termRead(gen, okAt); }, 1000);
       });
   }
 
-  // Grow to fit, up to a ceiling. Reset to auto FIRST: scrollHeight only
-  // reports the height the content needs when the box is not already taller
-  // than it, so measuring without the reset leaves a shrinking message at
-  // the height of the longest one ever typed.
-  var ELE_MSG_MAX = 120;
-  function eleGrow(el) {
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, ELE_MSG_MAX) + 'px';
+  function termEnd(reason) {
+    termGen++;
+    term.write('\r\n\x1b[2m[' + (reason === 'exited' ? 'logged out' : reason) + ']\x1b[0m\r\n');
+    termPrompt();
   }
 
-
-  // Enter sends. In the event this is for, the Send button is a second
-  // deliberate act between having something to say and saying it.
-  var eleMsgBox = document.getElementById('eleMsg');
-  if (eleMsgBox) {
-    eleMsgBox.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-      e.preventDefault();
-      eleSendMsg();
-    });
-    eleMsgBox.addEventListener('input', function () { eleGrow(eleMsgBox); });
-  }
-  // Same for the passphrase: a field you must reach for the mouse to submit
-  // is a field people retype.
-  var elePassBox = document.getElementById('elePass');
-  if (elePassBox) {
-    elePassBox.addEventListener('keydown', function (e) {
-      if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-      e.preventDefault();
-      eleJoin();
-    });
+  function termLogout() {
+    if (termMode !== 'shell') return;
+    fetch('/api/term/close', { method: 'POST', headers: TERM_H, cache: 'no-store',
+      body: JSON.stringify({ sid: termSid }) }).catch(function () {});
+    termEnd('logged out');
   }
 
-  eleProbe();
-  pollEvery(eleProbe, 10000);
-  window.addEventListener('focus', function () { if (elePresent) eleRenderHistory(); });
-  document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) eleProbe();
+  // Leaving says goodbye at once rather than waiting out the heartbeat.
+  // keepalive lets the request outlive the page; it may still be dropped,
+  // which is what the heartbeat is for.
+  window.addEventListener('pagehide', function () {
+    if (termMode !== 'shell' || !termSid) return;
+    try {
+      fetch('/api/term/close', { method: 'POST', headers: TERM_H, keepalive: true,
+        body: JSON.stringify({ sid: termSid }) });
+    } catch (e) {}
   });
+
+  function termProbe() {
+    if (termMode === 'shell' || termMode === 'opening') return;
+    fetch('/api/term/status', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .catch(function () { return null; })
+      .then(function (j) {
+        if (!j || !j.ok) {
+          if (termPanel) termPanel.hidden = true;
+          return;
+        }
+        termHostName = j.host || 'llc';
+        var h = document.getElementById('termHost');
+        if (h) h.textContent = termHostName;
+        var w = document.getElementById('termWho');
+        if (w) { w.textContent = 'tailnet'; w.title = 'Signed in to the tailnet as ' + j.login; }
+        if (termPanel && termPanel.hidden) {
+          termPanel.hidden = false;
+          termLoad(termInit);
+        }
+      });
+  }
+  termProbe();
+  pollEvery(termProbe, 30000);
 
   // ── BROADCAST ──
   var currentMsg = '';
