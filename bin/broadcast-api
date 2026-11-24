@@ -975,8 +975,17 @@ def _resolve_avf_index():
 
 
 def _start_cam_reader():
-    """Capture raw RGB frames from the macOS camera helper when installed."""
-    if os.path.exists(_CAMERA_HELPER):
+    """Capture raw RGB frames from the macOS camera helper when installed.
+
+    CAMERA_HELPER=off in config.env skips the helper and captures with ffmpeg.
+    A checkout node (amira, ariana) holds its camera grant on its Python and
+    ffmpeg binaries; the helper app is a separate identity that TCC would ask
+    about all over again -- a click at the screen, which a remote node cannot
+    give. Default unchanged: the helper is used when present.
+    """
+    _helper_on = str(_cfg.get('CAMERA_HELPER', 'on')).strip().lower() \
+        not in ('off', '0', 'false', 'no')
+    if _helper_on and os.path.exists(_CAMERA_HELPER):
         return subprocess.Popen(
             [_CAMERA_HELPER],
             stdin=subprocess.DEVNULL,
