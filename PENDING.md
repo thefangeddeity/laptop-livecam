@@ -222,7 +222,16 @@ other branches:
   idle cap. Backend: pty login shell + /api/term/{status,open,input,read(long-poll),resize,
   close} in broadcast-api (no new deps); front end: xterm.js vendored locally in the slot of the
   viewer's MESSAGES card (#elePanel / .ele-list in web/index.template.html ~L1729). Build on
-  macos (test on ariana) first, then port to main. NOT started yet.
+  macos (test on ariana) first, then port to main.
+  **BUILT on macos (e91e209), live on ariana /llc.** Measured: LAN :8080 refused even with a
+  forged header; serve overwrites a forged Tailscale-User-Login; wrong password -> "su: Sorry",
+  session ends; unknown user refused; abandoned prompt killed at the heartbeat; jobs/subshells/
+  nohup children all killed at logout. NOT yet measured: a real successful login (needs Ron's
+  password at the card). Known: a local process on the node can reach loopback with a forged
+  header -- still needs the account password. TODO: port to main -- nginx's LAN server must
+  `proxy_set_header Tailscale-User-Login ""` (its peer is loopback too, so gate 1 alone would
+  pass a LAN forger); broadcast-api's user there decides su vs login(1). Dead #elePanel/.ele-list
+  CSS still in the template -- remove with the Home de-launcher pass.
 - **Home page: drop launcher role (Ron, 2026-11-24).** Keep the "(Server name) Home" tab
   title; remove tiles/links to other apps, the ELE card, anything presenting LLC as a
   launcher.
