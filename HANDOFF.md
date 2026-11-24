@@ -318,3 +318,50 @@ main-serve-guard, windows-art)?
   disable unknown.
 - Pending: tina + spitsbergen to 7.2.3; amira OS-layer checks (VMM flag off? OCLP
   root patches? trackpad drag) -- amira unreachable at last try; TeamViewer deferred.
+
+## 2026-11-24 — I am LLC LEAD (Ariana-based LLC Implementer); amira runs a checkout
+- Lead handed over 2026-11-23 by the Tanzania-based LLC Implementer ("From Ron directly ...
+  you're lead LLC implementer now"). ELE's single LLC contact = this session.
+- **amira now runs like ariana (Ron: "completely remote-manageable", "exactly like
+  Ariana")**: ~/Projects/mac-hls-livecam (branch macos, clone of GitHub), .venv on
+  Homebrew python 3.14.7 (/usr/local/Cellar/python@3.14/3.14.7/...) -- the binary amira
+  ALREADY granted camera+mic (TCC.db: python3.14, /usr/local/bin/ffmpeg, /bin/bash,
+  /usr/bin/env). Deps: flask numpy pillow psutil + opencv-python-headless 4.12.0.88
+  installed --no-deps (only cp37-abi3 macosx_13_0_x86_64 wheel; it pins numpy<2.3 but
+  py3.14 only has numpy>=2.3; tested with numpy 2.5.5: cvtColor/resize/imencode ok).
+  pip's default (cv2 5.0) has NO wheel here and fails to build -- pin 4.12.0.88.
+  config.env has CAMERA_HELPER=off (macos 42146fb): skip Helpers/Laptop LiveCam
+  Camera.app, whose bundle id is NOT granted on amira (would prompt at the screen).
+  mediamtx.yml runOnReady and icecast.xml logdir repointed from the app to the checkout.
+  com.livecam.autostart -> ~/Projects/mac-hls-livecam/bin/livecam start --at-login
+  (written by `bin/livecam enable`). Measured: camera ok, mic ok (sox), hls ok,
+  mediamtx ok, rtsp ok, favicon public max-age; feed_mode = hide (amira's own setting).
+  /Applications/Laptop LiveCam.app kept installed, NOT autostarted (rollback: run its
+  bin/livecam enable). amira has NO notify.urls (no alerts), same as under the app.
+  "SHAKEY DETECTOR INIT ERROR ... onnx_importer" in log = no model / CV gated unfit; harmless.
+- **Remote update procedure for amira** (no one at the screen):
+  ssh amira 'cd ~/Projects/mac-hls-livecam && git pull --ff-only && ./bin/livecam stop &&
+  launchctl kickstart -k gui/$(id -u)/com.livecam.autostart'
+  Use the LaunchAgent (GUI session) to start; never nohup from ssh (TCC). A Homebrew
+  python upgrade changes the binary path -> TCC re-prompt; pin python@3.14 (brew pin).
+- 7.2.3 RELEASED (GitHub deb/pkg/dmg, AUR fe3b162). tina 7.2.3 (9 ok, WARN no notify.urls).
+  tanzania 7.2.3 10/10 (nginx had been disabled since Nov 21 boot; cause unknown).
+  spitsbergen still 7.2.2.
+- Unreleased on macos: 7720469 favicon cacheable, 1a6d4e0 restart-race fix (prev lead;
+  verify on ariana with a restart), 42146fb CAMERA_HELPER=off.
+- ELEM <-> LLC integration DROPPED (Ron). HOLD removal on tina (nginx include
+  snippets/ele-messenger-mesh*.conf + /elem redirect) and ariana (broadcast-api /elem/,
+  /ele-api/, /ele/icons) until the 7elwe-based ELEM Implementer says ELE's own LAN
+  listener (elemesh 1.5.10) is live on that node. tanzania is independent (serve->8740).
+- Ron's LLC requests via ELEM implementer (go given):
+  (1) Home page: KEEP the "(Server name) Home" tab title (self-identification); REMOVE every
+      Home-launcher reference: tiles/links to other apps, the ELE card, anything presenting
+      LLC as a launcher. (2) A fully functional basic TERMINAL replaces the MESSAGES card in
+      the viewer: LLC-native shell on that host (not ELE). Auth: only Ron's Tailscale
+      identity (Tailscale-User-Login header from `tailscale serve`), never on LAN :8080.
+  Parked (record only): flesh out /cams aggregator; a separate "Home" launcher app (one
+  "(Server name) Home" page per machine, apps drop tile files; no sign-in, no proxy).
+- amira OS layer still unverified: VMM flag off? OCLP root patches (HD4000)? trackpad
+  can't click-drag. TeamViewer deferred. 4 GB RAM; Wi-Fi 2.4 GHz only.
+- ariana: display dim/undim = charger flapping (hardware). 7elwe DNS: fixed by Ron (Wi-Fi DNS
+  back to DHCP; 192.168.18.60 was a dead resolver).

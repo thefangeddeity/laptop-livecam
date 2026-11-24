@@ -209,6 +209,19 @@ other branches:
 
 ## Queued, deliberately not started
 
+- **LLC terminal replaces the MESSAGES card (Ron, 2026-11-24, go given).** Fully functional
+  basic shell on the host, LLC-native (NOT ELE's mesh SSH). Only Ron's Tailscale identity
+  (Tailscale-User-Login via `tailscale serve`); never on plain LAN :8080. Supersedes the
+  withdrawn "HUD as a terminal via ELE" idea below.
+- **Home page: drop launcher role (Ron, 2026-11-24).** Keep the "(Server name) Home" tab
+  title; remove tiles/links to other apps, the ELE card, anything presenting LLC as a
+  launcher.
+- **ELEM integration dropped** -- remove viewer MESSAGES/ELE card, nginx ele include + /elem
+  redirect, macOS /elem /ele-api /ele/icons proxies ONLY after ELE's own listener is live per
+  node (hold for tina, ariana).
+- Parked (record only): flesh out /cams aggregator; separate "Home" launcher app.
+- WITHDRAWN: "the HUD as a terminal via ELEM card" (entry below) -- replaced by the LLC terminal.
+
 - **PARKED (Ron, via the ELEM Tech Lead session, 2026-11-20): the HUD as a terminal.** When
   someone clicks a "Terminal" button on the ELEM card, the viewer's HUD turns into a terminal.
   Context: ELE is adding SSH over the mesh; the card's Terminal button would open it. Not to
