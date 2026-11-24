@@ -5064,6 +5064,16 @@ def _tailscale(args, timeout=20):
     return None
 
 
+# The viewer's terminal card: a login shell on this node, tailnet identity
+# plus the account password, logged out when the page goes away. Everything
+# about it lives in llc_terminal.py; this only hands it the app.
+try:
+    import llc_terminal as _term
+    _term.register(app, _cfg, _tailscale, _nocache)
+except Exception as _exc:
+    print(f'broadcast-api: terminal unavailable: {_exc}', file=sys.stderr, flush=True)
+
+
 def _serve_handlers():
     """Current path -> proxy target, from tailscaled's own structured output.
 
